@@ -81,6 +81,7 @@ function QueuePage() {
 
   return (
     <div className="p-8 space-y-6">
+    <TooltipProvider delayDuration={150}>
       <div>
         <h1 className="text-2xl font-semibold tracking-tight">Agenda & fila</h1>
         <p className="text-sm text-muted-foreground">Acompanhe agendamentos, rascunhos e publicações.</p>
