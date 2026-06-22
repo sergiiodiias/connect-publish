@@ -251,6 +251,68 @@ function QueuePage() {
     enabled: !!detailId,
   });
 
+  // Stuck-post alerts: pending targets whose post was due >5min ago,
+  // or any target marked failed after exhausting retries.
+  const STUCK_AFTER_MIN = 5;
+  const { data: stuckRows = [] } = useQuery({
+    queryKey: ["queue-stuck"],
+    refetchInterval: 30_000,
+    queryFn: async () => {
+      const cutoff = new Date(Date.now() - STUCK_AFTER_MIN * 60_000).toISOString();
+      const { data } = await supabase
+        .from("post_targets")
+        .select(`
+          id, status, error, attempts, last_attempt_at, next_retry_at, page_id,
+          fb_pages!inner(name),
+          posts!inner(id, message, scheduled_at, status)
+        `)
+        .in("status", ["pending", "failed"])
+        .order("last_attempt_at", { ascending: false, nullsFirst: false })
+        .limit(200);
+      const rows = (data ?? []) as any[];
+      return rows.filter((r) => {
+        const sched = r.posts?.scheduled_at;
+        if (r.status === "failed") return (r.attempts ?? 0) > 0 || (sched && sched < cutoff);
+        // pending: stuck if scheduled before cutoff
+        return sched && sched < cutoff;
+      });
+    },
+  });
+
+  const stuckByPost = useMemo(() => {
+    const m = new Map<string, { postId: string; message: string | null; scheduledAt: string | null; targets: any[] }>();
+    for (const r of stuckRows as any[]) {
+      const k = r.posts.id;
+      const g = m.get(k) ?? { postId: k, message: r.posts.message, scheduledAt: r.posts.scheduled_at, targets: [] };
+      g.targets.push(r);
+      m.set(k, g);
+    }
+    return [...m.values()];
+  }, [stuckRows]);
+
+  const retryStuck = useMutation({
+    mutationFn: async (postId: string) => {
+      // Reset failed targets back to pending and clear retry gate so the next cron tick picks them up.
+      await supabase.from("post_targets")
+        .update({ status: "pending", attempts: 0, next_retry_at: null, error: null } as any)
+        .eq("post_id", postId)
+        .in("status", ["failed"]);
+      // Also drop the retry gate on pending targets so they're tried immediately.
+      await supabase.from("post_targets")
+        .update({ next_retry_at: null } as any)
+        .eq("post_id", postId)
+        .eq("status", "pending");
+      // Make sure the post is scheduled so the cron picks it up.
+      await supabase.from("posts").update({ status: "scheduled", error: null }).eq("id", postId);
+    },
+    onSuccess: () => {
+      toast.success("Reagendado — próxima execução do cron tentará novamente");
+      qc.invalidateQueries({ queryKey: ["queue"] });
+      qc.invalidateQueries({ queryKey: ["queue-stuck"] });
+    },
+    onError: (e: any) => toast.error(e.message),
+  });
+
   return (
     <div className="p-6 md:p-8 space-y-8">
       {/* Header */}
