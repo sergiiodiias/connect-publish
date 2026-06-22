@@ -312,7 +312,7 @@ function ImportPage() {
         pageCount={pageSel.length}
         busy={busy}
         progress={progress}
-        onConfirm={(idxs) => importAll(idxs)}
+        onConfirm={(idxs, sched) => importAll(idxs, sched)}
       />
     </div>
   );
