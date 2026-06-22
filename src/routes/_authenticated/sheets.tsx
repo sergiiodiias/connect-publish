@@ -35,6 +35,8 @@ function ImportPage() {
   const [pageSel, setPageSel] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
   const [results, setResults] = useState<{ row: number; ok: boolean; error?: string }[]>([]);
+  const [previewOpen, setPreviewOpen] = useState(false);
+  const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
 
   const { data: pages = [] } = useQuery({ queryKey: ["pages"], queryFn: () => listFn() });
   const { data: groups = [] } = useQuery({
