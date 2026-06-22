@@ -168,7 +168,7 @@ export const refreshTokensNow = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .handler(async () => {
     const { runRefreshTokens } = await import("@/lib/refresh-tokens.server");
-    return runRefreshTokens();
+    return runRefreshTokens({ force: true });
   });
 
 export const inspectTokens = createServerFn({ method: "POST" })
