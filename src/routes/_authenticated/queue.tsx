@@ -246,6 +246,19 @@ function QueuePage() {
     onError: (e: any) => toast.error(e.message),
   });
 
+  const migrateToFb = useMutation({
+    mutationFn: () => migrateFn(),
+    onSuccess: (r: any) => {
+      if (r.scheduled === 0 && r.failed === 0) toast.info("Nada para enviar (precisa ser >10 min no futuro e ainda não estar no FB)");
+      else if (r.failed === 0) toast.success(`${r.scheduled} agendado(s) no Facebook`);
+      else toast.warning(`${r.scheduled} ok · ${r.failed} falha(s)`);
+      if (r.errors?.length) console.warn("Migrate errors:", r.errors);
+      qc.invalidateQueries({ queryKey: ["queue"] });
+      qc.invalidateQueries({ queryKey: ["queue-stuck"] });
+    },
+    onError: (e: any) => toast.error(e.message),
+  });
+
   const details = useQuery({
     queryKey: ["post-details", detailId],
     queryFn: () => detailsFn({ data: { postId: detailId! } }),
