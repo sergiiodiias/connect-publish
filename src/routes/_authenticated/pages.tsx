@@ -179,9 +179,16 @@ function PagesPage() {
             <p className="text-sm text-muted-foreground">Nenhuma página conectada ainda.</p>
           </div>
         )}
-        {pages.map(p => {
+        {pages.map((p: any) => {
           const info = tokenInfo[p.id];
-          const exp = info ? formatExpiry(info.expiresAt) : null;
+          // Prefer fresh on-demand data; fall back to persisted token_expires_at from monthly cron.
+          const persistedSeconds = p.token_expires_at
+            ? Math.floor(new Date(p.token_expires_at).getTime() / 1000)
+            : p.token_last_debugged_at ? 0 : null;
+          const effectiveExpiresAt = info?.expiresAt ?? persistedSeconds;
+          const exp = effectiveExpiresAt !== undefined && effectiveExpiresAt !== null
+            ? formatExpiry(effectiveExpiresAt)
+            : null;
           const toneClass =
             exp?.tone === "ok" ? "border-success/40 text-success" :
             exp?.tone === "never" ? "border-success/40 text-success" :
