@@ -224,7 +224,18 @@ export const createPost = createServerFn({ method: "POST" })
             await supabase.from("post_targets")
               .update({ fb_post_id: fbId, error: null })
               .eq("id", t.id);
+            if (data.autoComment) {
+              await supabase.from("auto_comments").insert({
+                user_id: userId,
+                post_id: post.id,
+                target_id: t.id,
+                message: data.autoComment.message,
+                delay_seconds: data.autoComment.delaySeconds,
+                run_at: new Date(ts + data.autoComment.delaySeconds * 1000).toISOString(),
+              });
+            }
             fbScheduled++;
+
           } catch (e: any) {
             fbErrors.push(`${pg.name}: ${e?.message ?? String(e)}`);
             await supabase.from("post_targets")
