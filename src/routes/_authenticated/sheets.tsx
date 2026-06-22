@@ -212,7 +212,7 @@ function BulkUploadPage() {
       });
 
       // 3) Cria job (que cria posts agendados; cron publica)
-      const r = await createJobFn({ data: { slots: resolved } });
+      const r = await createJobFn({ data: { slots: resolved, commentDelaySeconds: commentDelaySec } });
       console.log("[bulk] createBulkJob result:", r);
       if (!r || typeof r !== "object") {
         throw new Error("Resposta inválida do servidor ao criar o job. Veja o console.");
