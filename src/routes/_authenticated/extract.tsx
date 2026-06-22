@@ -19,7 +19,7 @@ export const Route = createFileRoute("/_authenticated/extract")({
   component: ExtractPage,
 });
 
-type Extracted = { id: string; name: string; token: string; category?: string };
+type Extracted = { id: string; name: string; token: string; category?: string; bare?: boolean };
 
 function extractTokens(input: string): Extracted[] {
   if (!input.trim()) return [];
@@ -87,6 +87,24 @@ function extractTokens(input: string): Extracted[] {
           }
         } catch {}
       }
+    }
+  }
+
+  // 3) Fallback: detect bare Facebook tokens (EAA...) anywhere in the text.
+  //    Page id/name will be resolved server-side via /me at connect time.
+  if (results.length === 0) {
+    const re = /EAA[A-Za-z0-9]{80,}/g;
+    const seen = new Set<string>();
+    for (const m of input.matchAll(re)) {
+      const tok = m[0];
+      if (seen.has(tok)) continue;
+      seen.add(tok);
+      results.push({
+        id: `bare:${tok.slice(-12)}`,
+        name: "(resolver ao conectar)",
+        token: tok,
+        bare: true,
+      });
     }
   }
 
@@ -185,11 +203,13 @@ function ExtractPage() {
     const connectedPageUuids: string[] = [];
     for (const p of list) {
       try {
-        const response = await connectFn({ data: { accessToken: p.token, pageId: p.id } });
+        const response = await connectFn({
+          data: { accessToken: p.token, ...(p.bare ? {} : { pageId: p.id }) },
+        });
         if (!response.ok) {
           out.push({ id: p.id, name: p.name, ok: false, error: response.error });
         } else {
-          out.push({ id: p.id, name: p.name, ok: true });
+          out.push({ id: p.id, name: response.page?.name ?? p.name, ok: true });
           if (response.page?.id) connectedPageUuids.push(response.page.id);
         }
       } catch (e: any) {
@@ -222,8 +242,8 @@ function ExtractPage() {
       <div>
         <h1 className="text-2xl font-semibold tracking-tight">Extrair tokens</h1>
         <p className="text-sm text-muted-foreground">
-          Cole a resposta bruta do Graph API (ex.: <code>/me/accounts</code>) ou qualquer texto que contenha
-          <code> access_token</code>, <code>id</code> e <code>name</code>. O sistema extrai automaticamente.
+          Cole a resposta do Graph API (ex.: <code>/me/accounts</code>) <strong>ou</strong> apenas os tokens das páginas
+          (um por linha, começando com <code>EAA…</code>). O ID e nome da página são resolvidos automaticamente.
         </p>
       </div>
 
