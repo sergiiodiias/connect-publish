@@ -1,56 +1,64 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useState, useMemo } from "react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useEffect, useMemo, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { supabase } from "@/integrations/supabase/client";
 import { listPages } from "@/lib/pages.functions";
-import { readSheet, type SheetRow } from "@/lib/sheets.functions";
-import { createPost } from "@/lib/posts.functions";
-import { publicAssetUrl } from "@/lib/public-url";
+import { importSheetCsv, type ImportedPost } from "@/lib/sheets-csv.functions";
+import { createBulkJob } from "@/lib/bulk-upload.functions";
+import { buildRotation, validateRotation, type RotationGroup, type RotationSlot } from "@/lib/rotation";
+import { MediaDropzone, type LocalMedia } from "@/components/bulk/MediaDropzone";
+import { RotationMatrixPreview } from "@/components/bulk/RotationMatrixPreview";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
+import { Switch } from "@/components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { FileSpreadsheet, Wand2, AlertTriangle, ExternalLink } from "lucide-react";
+import { FileSpreadsheet, AlertTriangle, Rocket, GripVertical, X } from "lucide-react";
 import { toast } from "sonner";
 
-
 export const Route = createFileRoute("/_authenticated/sheets")({
-  head: () => ({ meta: [{ title: "Importar Planilha — PagePilot" }] }),
-  component: ImportPage,
+  head: () => ({ meta: [{ title: "Upload em Massa — PagePilot" }] }),
+  component: BulkUploadPage,
 });
 
-function basename(p: string) {
-  return (p.split(/[\\/]/).pop() ?? "").trim();
-}
-function normName(s: string) {
-  return s.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim();
+const IMG = /\.(jpe?g|png|gif|webp)$/i;
+const VID = /\.(mp4|mov|avi|mkv|webm)$/i;
+
+function nowBrLocalInput(): string {
+  const d = new Date(Date.now() - 3 * 3600 * 1000 + 60 * 60000);
+  return d.toISOString().slice(0, 16);
 }
 
-function ImportPage() {
-  const qc = useQueryClient();
-  const readFn = useServerFn(readSheet);
-  const createFn = useServerFn(createPost);
+function brInputToDate(v: string): Date {
+  // v = "YYYY-MM-DDTHH:mm" interpretado como BR
+  const [date, time] = v.split("T");
+  const [y, m, d] = date.split("-").map(Number);
+  const [hh, mm] = time.split(":").map(Number);
+  return new Date(Date.UTC(y, m - 1, d, hh + 3, mm, 0));
+}
+
+function BulkUploadPage() {
+  const importFn = useServerFn(importSheetCsv);
   const listFn = useServerFn(listPages);
+  const createJobFn = useServerFn(createBulkJob);
 
-  const [sheetUrl, setSheetUrl] = useState("");
-  const [data, setData] = useState<{ rows: SheetRow[]; sheetName?: string; tabs: string[] } | null>(null);
+  const [url, setUrl] = useState("");
   const [loading, setLoading] = useState(false);
-  const [selected, setSelected] = useState<Set<number>>(new Set());
-  const [groupId, setGroupId] = useState<string>("all");
-  const [pageSel, setPageSel] = useState<string[]>([]);
+  const [imported, setImported] = useState<Awaited<ReturnType<typeof importSheetCsv>> | null>(null);
+
+  const [localMedia, setLocalMedia] = useState<Map<string, LocalMedia>>(new Map());
+
+  const [useSheetDates, setUseSheetDates] = useState(true);
+  const [startAt, setStartAt] = useState(nowBrLocalInput());
+  const [intervalMin, setIntervalMin] = useState(60);
+  const [rotationMode, setRotationMode] = useState<"group" | "page">("group");
+  const [distribution, setDistribution] = useState<"mass" | "distribution">("distribution");
+
+  const [groupOrder, setGroupOrder] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
-  const [results, setResults] = useState<{ row: number; ok: boolean; error?: string }[]>([]);
-
-  const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
-
-  // Map<normalizedFilename, signedUrl>
-  const [uploadedMedia, setUploadedMedia] = useState<Map<string, { url: string; name: string }>>(new Map());
-  const [uploading, setUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState<{ done: number; total: number } | null>(null);
-  const [mediaSource, setMediaSource] = useState<"upload" | "drive">("upload");
 
   const { data: pages = [] } = useQuery({ queryKey: ["pages"], queryFn: () => listFn() });
   const { data: groups = [] } = useQuery({
@@ -65,367 +73,340 @@ function ImportPage() {
     },
   });
 
-  const applyGroup = (gid: string) => {
-    setGroupId(gid);
-    if (gid === "all") setPageSel(pages.map((p) => p.id));
-    else {
-      const g = groups.find((x: any) => x.id === gid);
-      setPageSel((g?.page_group_members ?? []).map((m: any) => m.page_id));
+  const pageNameMap = useMemo(() => {
+    const m = new Map<string, string>();
+    pages.forEach((p: any) => m.set(p.id, p.name ?? p.fb_page_id ?? p.id.slice(0, 6)));
+    return m;
+  }, [pages]);
+
+  const expectedFilenames = useMemo(() => {
+    const s = new Set<string>();
+    imported?.posts.forEach((p) => s.add(p.mediaFileName.toLowerCase()));
+    return s;
+  }, [imported]);
+
+  const orderedGroups: RotationGroup[] = useMemo(() => {
+    return groupOrder
+      .map((gid) => groups.find((g: any) => g.id === gid))
+      .filter(Boolean)
+      .map((g: any) => ({
+        id: g.id,
+        name: g.name,
+        pageIds: (g.page_group_members ?? []).map((m: any) => m.page_id),
+      }));
+  }, [groupOrder, groups]);
+
+  const matchedPosts: ImportedPost[] = useMemo(() => {
+    if (!imported) return [];
+    return imported.posts.filter((p) => localMedia.has(p.mediaFileName.toLowerCase()));
+  }, [imported, localMedia]);
+
+  const slots: RotationSlot[] = useMemo(() => {
+    if (matchedPosts.length === 0 || orderedGroups.length === 0) return [];
+    return buildRotation({
+      posts: matchedPosts,
+      groups: orderedGroups,
+      startDate: brInputToDate(startAt),
+      intervalMinutes: intervalMin,
+      useSpreadsheetDates: useSheetDates && imported?.hasCustomDates === true,
+      rotationMode,
+      distribution,
+    });
+  }, [matchedPosts, orderedGroups, startAt, intervalMin, useSheetDates, imported?.hasCustomDates, rotationMode, distribution]);
+
+  const validation = useMemo(() => validateRotation({
+    posts: matchedPosts, groups: orderedGroups, rotationMode,
+  }), [matchedPosts, orderedGroups, rotationMode]);
+
+  const handleImport = async () => {
+    if (!/docs\.google\.com\/spreadsheets/.test(url)) {
+      toast.error("Cole o link público do Google Sheets.");
+      return;
     }
-  };
-
-  const handleUpload = async (files: FileList | null) => {
-    if (!files || files.length === 0) return;
-    const { data: session } = await supabase.auth.getUser();
-    const uid = session.user?.id;
-    if (!uid) { toast.error("Faça login novamente"); return; }
-    setUploading(true);
-    setUploadProgress({ done: 0, total: files.length });
-    const next = new Map(uploadedMedia);
-    let done = 0;
-    for (const file of Array.from(files)) {
-      try {
-        const path = `${uid}/${Date.now()}-${file.name}`;
-        const { error: upErr } = await supabase.storage.from("post-media").upload(path, file, {
-          contentType: file.type || undefined, upsert: false,
-        });
-        if (upErr) throw upErr;
-        const { data: signed, error: sErr } = await supabase.storage.from("post-media")
-          .createSignedUrl(path, 60 * 60 * 24 * 365);
-        if (sErr || !signed) throw sErr ?? new Error("signed url falhou");
-        next.set(normName(file.name), { url: signed.signedUrl, name: file.name });
-      } catch (e: any) {
-        toast.error(`Falha ao enviar ${file.name}: ${e?.message ?? e}`);
-      }
-      done++;
-      setUploadProgress({ done, total: files.length });
-    }
-    setUploadedMedia(next);
-    setUploading(false);
-    setUploadProgress(null);
-    toast.success(`${done} arquivo(s) enviado(s)`);
-  };
-
-  const clearUploads = () => setUploadedMedia(new Map());
-
-
-  const load = async () => {
-    if (!sheetUrl.trim()) { toast.error("Cole o link da planilha"); return; }
     setLoading(true);
     try {
-      const r = await readFn({ data: { sheetUrl } });
-      setData(r);
-      // Pre-select rows that look usable (have photo URL or are text)
-      const usable = new Set<number>();
-      r.rows.forEach((row) => {
-        if (row.fotoOk || row.tipo === "text") usable.add(row.rowIndex);
-      });
-      setSelected(usable);
-      toast.success(`${r.rows.length} linha(s) carregada(s) da aba "${r.sheetName}"`);
+      const r = await importFn({ data: { url } });
+      setImported(r);
+      toast.success(`${r.posts.length} linha(s) importada(s)${r.errors.length ? ` · ${r.errors.length} erro(s)` : ""}`);
     } catch (e: any) {
-      toast.error(e.message);
-    } finally {
-      setLoading(false);
-    }
+      toast.error(e?.message ?? "Falha ao importar");
+    } finally { setLoading(false); }
   };
 
-  const toggleRow = (idx: number) => {
-    const n = new Set(selected);
-    n.has(idx) ? n.delete(idx) : n.add(idx);
-    setSelected(n);
+  const addGroup = (gid: string) => {
+    if (!gid || groupOrder.includes(gid)) return;
+    setGroupOrder([...groupOrder, gid]);
+  };
+  const removeGroup = (gid: string) => setGroupOrder(groupOrder.filter((g) => g !== gid));
+  const moveGroup = (idx: number, dir: -1 | 1) => {
+    const next = [...groupOrder];
+    const j = idx + dir;
+    if (j < 0 || j >= next.length) return;
+    [next[idx], next[j]] = [next[j], next[idx]];
+    setGroupOrder(next);
   };
 
-  const toggleAll = () => {
-    if (!data) return;
-    if (selected.size === data.rows.length) setSelected(new Set());
-    else setSelected(new Set(data.rows.map((r) => r.rowIndex)));
-  };
-
-  const resolveMedia = (r: SheetRow): { url: string | null; sourceLabel: "upload" | "drive" | "url" | null } => {
-    const fname = basename(r.raw.foto ?? r.foto ?? "");
-    if (mediaSource === "upload") {
-      if (fname) {
-        const hit = uploadedMedia.get(normName(fname));
-        if (hit) return { url: hit.url, sourceLabel: "upload" };
-      }
-      if (/^https?:\/\//i.test(r.raw.foto ?? "")) return { url: r.raw.foto, sourceLabel: "url" };
-      return { url: null, sourceLabel: null };
-    }
-    if (r.fotoOk) return { url: publicAssetUrl(r.foto), sourceLabel: /^https?:/i.test(r.foto) ? "url" : "drive" };
-    return { url: null, sourceLabel: null };
-  };
-
-  const stats = useMemo(() => {
-    if (!data) return null;
-    const sel = data.rows.filter((r) => selected.has(r.rowIndex));
-    const withPhoto = sel.filter((r) => resolveMedia(r).url).length;
-    return {
-      total: data.rows.length,
-      selected: sel.length,
-      withPhoto,
-      badPhoto: sel.filter((r) => r.foto && !resolveMedia(r).url).length,
-      scheduled: sel.filter((r) => r.scheduledAt).length,
-      withComment: sel.filter((r) => r.comentario).length,
-    };
-     
-  }, [data, selected, uploadedMedia, mediaSource]);
-
-  const importAll = async (rowIndexes?: number[], scheduleOverride?: Map<number, string | null>) => {
-    if (!data) return;
-    const allowed = rowIndexes ? new Set(rowIndexes) : selected;
-    const list = data.rows.filter((r) => allowed.has(r.rowIndex));
-    if (list.length === 0) return toast.error("Selecione ao menos uma linha");
-    if (pageSel.length === 0) return toast.error("Selecione ao menos uma página de destino");
+  const handlePublish = async () => {
+    if (validation.errors.length) { toast.error(validation.errors[0]); return; }
+    if (!slots.length) { toast.error("Nada para publicar."); return; }
 
     setBusy(true);
-    setResults([]);
-    setProgress({ done: 0, total: list.length });
-    const out: typeof results = [];
-    let i = 0;
-    for (const r of list) {
-      try {
-        const { url } = resolveMedia(r);
-        const useMedia = !!url;
-        const type = useMedia ? r.tipo : (r.tipo === "photo" || r.tipo === "video" ? "text" : r.tipo);
-        const scheduledAt = scheduleOverride ? (scheduleOverride.get(r.rowIndex) ?? null) : r.scheduledAt;
+    try {
+      // 1) Upload de todas as mídias matched para Storage e gera signed URL
+      const { data: session } = await supabase.auth.getUser();
+      const uid = session.user?.id;
+      if (!uid) throw new Error("Sessão expirada");
 
-        await createFn({
-          data: {
-            type: type as any,
-            message: r.titulo,
-            mediaUrls: useMedia ? [url!] : [],
-            linkUrl: undefined,
-            pageIds: pageSel,
-            scheduledAt,
-            tags: r.tags,
-            autoComment: r.comentario ? { message: r.comentario, delaySeconds: r.delayComentario } : null,
-          },
-        });
-        out.push({ row: r.rowIndex, ok: true });
-      } catch (e: any) {
-        out.push({ row: r.rowIndex, ok: false, error: e?.message ?? "erro" });
-      }
-      i++;
-      setProgress({ done: i, total: list.length });
-      setResults([...out]);
+      const unique = Array.from(new Set(matchedPosts.map((p) => p.mediaFileName.toLowerCase())));
+      setUploadProgress({ done: 0, total: unique.length });
+      const fileUrlMap = new Map<string, string>();
+      let done = 0;
+      const concurrency = 5;
+      const queue = [...unique];
+      const worker = async () => {
+        while (queue.length) {
+          const key = queue.shift()!;
+          const lm = localMedia.get(key)!;
+          const path = `${uid}/${Date.now()}-${lm.name}`;
+          let attempt = 0; let ok = false;
+          while (attempt < 3 && !ok) {
+            try {
+              const { error: upErr } = await supabase.storage.from("post-media").upload(path, lm.file, {
+                contentType: lm.file.type || undefined, upsert: false,
+              });
+              if (upErr) throw upErr;
+              const { data: signed, error: sErr } = await supabase.storage.from("post-media")
+                .createSignedUrl(path, 60 * 60 * 24 * 365);
+              if (sErr || !signed) throw sErr ?? new Error("signed url falhou");
+              fileUrlMap.set(key, signed.signedUrl);
+              ok = true;
+            } catch (e) {
+              attempt++;
+              if (attempt >= 3) throw e;
+              await new Promise((r) => setTimeout(r, 500 * Math.pow(2, attempt)));
+            }
+          }
+          done++; setUploadProgress({ done, total: unique.length });
+        }
+      };
+      await Promise.all(Array.from({ length: concurrency }, worker));
+
+      // 2) Monta slots resolvidos
+      const resolved = slots.map((s) => {
+        const post = matchedPosts[s.mediaIndex];
+        const key = post.mediaFileName.toLowerCase();
+        const mediaUrl = fileUrlMap.get(key);
+        if (!mediaUrl) throw new Error(`Mídia faltando: ${post.mediaFileName}`);
+        const isVideo = VID.test(post.mediaFileName);
+        return {
+          pageId: s.pageId,
+          mediaUrl,
+          mediaFileName: post.mediaFileName,
+          type: (isVideo ? "video" : "photo") as "video" | "photo",
+          message: post.content,
+          commentLink: post.commentLink,
+          scheduledAt: s.scheduledAt,
+        };
+      });
+
+      // 3) Cria job (que cria posts agendados; cron publica)
+      const r = await createJobFn({ data: { slots: resolved } });
+      toast.success(`Job criado: ${r.success} agendamento(s) · ${r.failed} falha(s)`);
+      // reset parcial
+      setImported(null); setLocalMedia(new Map());
+    } catch (e: any) {
+      toast.error(e?.message ?? "Falha ao publicar");
+    } finally {
+      setBusy(false);
+      setUploadProgress(null);
     }
-    setBusy(false);
-    setProgress(null);
-    qc.invalidateQueries();
-    const okCount = out.filter((x) => x.ok).length;
-    if (okCount === list.length) toast.success(`${okCount} postagem(ns) importada(s)`);
-    else toast.error(`${list.length - okCount} falha(s) na importação`);
   };
 
+  const availableGroups = groups.filter((g: any) => !groupOrder.includes(g.id));
 
   return (
     <div className="p-8 space-y-6 max-w-6xl">
       <div>
         <h1 className="text-2xl font-semibold tracking-tight flex items-center gap-2">
-          <FileSpreadsheet className="size-6" /> Importar do Google Sheets
+          <FileSpreadsheet className="size-6" /> Upload em Massa
         </h1>
         <p className="text-sm text-muted-foreground">
-          Cole o link da sua planilha. Colunas reconhecidas:{" "}
-          <code>NUMERO</code>, <code>CAMINHO DA FOTO</code>, <code>TITULO</code>,{" "}
-          <code>LINK DO COMENTARIO</code>, <code>DATA</code>, <code>HORA</code>.
-          Opcionais: <code>tipo</code>, <code>tags</code>, <code>delay_comentario</code>.
+          Importe uma planilha pública do Google Sheets, casa as mídias arrastando do PC e distribui entre grupos com rotação.
         </p>
       </div>
 
+      {/* 1. Importação */}
       <div className="rounded-xl border border-border bg-card p-5 space-y-3">
-        <div className="flex items-center justify-between gap-3 flex-wrap">
-          <div>
-            <Label className="text-sm">Origem das mídias</Label>
-            <p className="text-xs text-muted-foreground">
-              Faça upload do PC (recomendado) ou puxe pelo nome do arquivo no seu Google Drive.
-            </p>
-          </div>
-          <div className="flex gap-1 rounded-md border border-border p-1">
-            <Button
-              size="sm"
-              variant={mediaSource === "upload" ? "default" : "ghost"}
-              onClick={() => setMediaSource("upload")}
-            >
-              Upload do PC
-            </Button>
-            <Button
-              size="sm"
-              variant={mediaSource === "drive" ? "default" : "ghost"}
-              onClick={() => setMediaSource("drive")}
-            >
-              Google Drive
-            </Button>
-          </div>
-        </div>
-
-        {mediaSource === "upload" && (
-          <div className="space-y-2">
-            <div className="flex items-center gap-2 flex-wrap">
-              <Input
-                type="file"
-                multiple
-                accept="image/*,video/*"
-                disabled={uploading}
-                onChange={(e) => { handleUpload(e.target.files); e.target.value = ""; }}
-                className="max-w-md"
-              />
-              {uploadedMedia.size > 0 && (
-                <Button size="sm" variant="outline" onClick={clearUploads} disabled={uploading}>
-                  Limpar ({uploadedMedia.size})
-                </Button>
-              )}
-            </div>
-            <p className="text-xs text-muted-foreground">
-              {uploading
-                ? `Enviando ${uploadProgress?.done ?? 0}/${uploadProgress?.total ?? 0}…`
-                : `${uploadedMedia.size} arquivo(s) prontos. O nome do arquivo deve bater com a coluna "CAMINHO DA FOTO" da planilha.`}
-            </p>
-          </div>
-        )}
-      </div>
-
-
-      <div className="rounded-xl border border-border bg-card p-5 space-y-3">
-        <Label>Link ou ID da planilha</Label>
+        <Label>Link público do Google Sheets</Label>
         <div className="flex gap-2">
-          <Input
-            value={sheetUrl}
-            onChange={(e) => setSheetUrl(e.target.value)}
-            placeholder="https://docs.google.com/spreadsheets/d/..."
-          />
-          <Button onClick={load} disabled={loading}>
-            {loading ? "Lendo…" : "Carregar"}
+          <Input value={url} onChange={(e) => setUrl(e.target.value)}
+            placeholder="https://docs.google.com/spreadsheets/d/.../edit#gid=0" />
+          <Button onClick={handleImport} disabled={loading}>
+            {loading ? "Lendo…" : "Importar"}
           </Button>
         </div>
-        {data && (
-          <p className="text-xs text-muted-foreground">
-            Aba: <strong>{data.sheetName}</strong>
-            {data.tabs.length > 1 && ` (outras: ${data.tabs.filter((t) => t !== data.sheetName).join(", ")})`}
-          </p>
+        <p className="text-xs text-muted-foreground">
+          A planilha precisa estar compartilhada como "Qualquer pessoa com o link pode visualizar". Colunas reconhecidas:
+          mídia (obrigatória), conteúdo, comentário, data, hora.
+        </p>
+        {imported && (
+          <div className="rounded-md border border-border p-3 space-y-1 text-sm">
+            <div>Total: <strong>{imported.totalRows}</strong> · Importados: <strong className="text-success">{imported.posts.length}</strong></div>
+            {imported.errors.length > 0 && (
+              <details className="text-destructive text-xs">
+                <summary>{imported.errors.length} erro(s)</summary>
+                <ul className="mt-1 space-y-0.5 list-disc list-inside">
+                  {imported.errors.slice(0, 50).map((e, i) => <li key={i}>{e}</li>)}
+                </ul>
+              </details>
+            )}
+            {imported.warnings.length > 0 && (
+              <details className="text-amber-600 text-xs">
+                <summary>{imported.warnings.length} aviso(s)</summary>
+                <ul className="mt-1 space-y-0.5 list-disc list-inside">
+                  {imported.warnings.slice(0, 50).map((w, i) => <li key={i}>{w}</li>)}
+                </ul>
+              </details>
+            )}
+          </div>
         )}
       </div>
 
-      {data && data.rows.length > 0 && (
+      {imported && imported.posts.length > 0 && (
         <>
-          <div className="grid md:grid-cols-2 gap-4">
-            <div className="rounded-xl border border-border bg-card p-5 space-y-3">
-              <Label className="text-sm">Páginas / grupo de destino</Label>
-              <Select value={groupId} onValueChange={applyGroup}>
-                <SelectTrigger><SelectValue placeholder="Escolha um grupo" /></SelectTrigger>
+          {/* 2. Datas */}
+          <div className="rounded-xl border border-border bg-card p-5 space-y-3">
+            <div className="flex items-center justify-between flex-wrap gap-3">
+              <div>
+                <Label>Datas de agendamento</Label>
+                <p className="text-xs text-muted-foreground">
+                  {imported.hasCustomDates
+                    ? "A planilha tem datas. Você pode usá-las ou recalcular pelo intervalo."
+                    : "Sem datas na planilha — usaremos início + intervalo."}
+                </p>
+              </div>
+              {imported.hasCustomDates && (
+                <div className="flex items-center gap-2">
+                  <span className="text-sm">Usar datas da planilha</span>
+                  <Switch checked={useSheetDates} onCheckedChange={setUseSheetDates} />
+                </div>
+              )}
+            </div>
+            {(!imported.hasCustomDates || !useSheetDates) && (
+              <div className="grid sm:grid-cols-2 gap-3">
+                <div>
+                  <Label className="text-xs">Início (Brasília)</Label>
+                  <Input type="datetime-local" value={startAt} onChange={(e) => setStartAt(e.target.value)} />
+                </div>
+                <div>
+                  <Label className="text-xs">Intervalo entre posts (minutos)</Label>
+                  <Input type="number" min={5} value={intervalMin}
+                    onChange={(e) => setIntervalMin(Math.max(5, Number(e.target.value) || 60))} />
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* 3. Mídias */}
+          <div className="rounded-xl border border-border bg-card p-5 space-y-3">
+            <Label>Mídias (arraste do seu PC)</Label>
+            <MediaDropzone expectedFilenames={expectedFilenames} onChange={setLocalMedia} />
+          </div>
+
+          {/* 4. Grupos e rotação */}
+          <div className="rounded-xl border border-border bg-card p-5 space-y-4">
+            <div className="flex items-center justify-between flex-wrap gap-3">
+              <Label>Grupos de páginas (ordem)</Label>
+              <Select value="" onValueChange={addGroup}>
+                <SelectTrigger className="w-64"><SelectValue placeholder="Adicionar grupo…" /></SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="all">Todas as páginas ({pages.length})</SelectItem>
-                  {groups.map((g: any) => (
-                    <SelectItem key={g.id} value={g.id}>
-                      {g.name} ({g.page_group_members?.length ?? 0})
-                    </SelectItem>
+                  {availableGroups.length === 0 && <SelectItem disabled value="_none">Sem grupos disponíveis</SelectItem>}
+                  {availableGroups.map((g: any) => (
+                    <SelectItem key={g.id} value={g.id}>{g.name} ({g.page_group_members?.length ?? 0})</SelectItem>
                   ))}
                 </SelectContent>
               </Select>
-              <p className="text-xs text-muted-foreground">{pageSel.length} página(s) selecionada(s)</p>
             </div>
 
-            <div className="rounded-xl border border-border bg-card p-5 text-sm space-y-1">
-              {stats && (
-                <>
-                  <div>Linhas selecionadas: <strong>{stats.selected}</strong> / {stats.total}</div>
-                  <div>Com foto válida (URL): <strong className="text-success">{stats.withPhoto}</strong></div>
-                  {stats.badPhoto > 0 && (
-                    <div className="text-destructive flex items-center gap-1">
-                      <AlertTriangle className="size-3" />
-                      Foto inválida (caminho local): <strong>{stats.badPhoto}</strong> — virarão post de texto
-                    </div>
-                  )}
-                  <div>Agendadas: <strong>{stats.scheduled}</strong> · Com auto-comentário: <strong>{stats.withComment}</strong></div>
-                </>
+            {groupOrder.length === 0 ? (
+              <p className="text-sm text-muted-foreground">Adicione pelo menos um grupo para distribuir os posts.</p>
+            ) : (
+              <ul className="space-y-1">
+                {groupOrder.map((gid, idx) => {
+                  const g: any = groups.find((x: any) => x.id === gid);
+                  return (
+                    <li key={gid} className="flex items-center gap-2 p-2 rounded-md border border-border bg-muted/30">
+                      <Button size="sm" variant="ghost" onClick={() => moveGroup(idx, -1)}><GripVertical className="size-3" />↑</Button>
+                      <Button size="sm" variant="ghost" onClick={() => moveGroup(idx, 1)}><GripVertical className="size-3" />↓</Button>
+                      <Badge variant="outline">{idx + 1}</Badge>
+                      <span className="font-medium text-sm">{g?.name ?? gid}</span>
+                      <span className="text-xs text-muted-foreground">({g?.page_group_members?.length ?? 0} páginas)</span>
+                      <Button size="sm" variant="ghost" className="ml-auto" onClick={() => removeGroup(gid)}><X className="size-3" /></Button>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+
+            <div className="grid sm:grid-cols-2 gap-3">
+              <div>
+                <Label className="text-xs">Distribuição</Label>
+                <Select value={distribution} onValueChange={(v: any) => setDistribution(v)}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="distribution">Round-robin (rotação)</SelectItem>
+                    <SelectItem value="mass">Massa (todos publicam tudo)</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              {distribution === "distribution" && (
+                <div>
+                  <Label className="text-xs">Modo de rotação</Label>
+                  <Select value={rotationMode} onValueChange={(v: any) => setRotationMode(v)}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="group">Por grupo (uma mídia por grupo)</SelectItem>
+                      <SelectItem value="page">Por página (cada página, uma mídia)</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
               )}
             </div>
+
+            {(validation.errors.length > 0 || validation.warnings.length > 0) && (
+              <div className="text-xs space-y-1">
+                {validation.errors.map((e, i) => (
+                  <div key={`e${i}`} className="text-destructive flex items-center gap-1"><AlertTriangle className="size-3" /> {e}</div>
+                ))}
+                {validation.warnings.map((w, i) => (
+                  <div key={`w${i}`} className="text-amber-600 flex items-center gap-1"><AlertTriangle className="size-3" /> {w}</div>
+                ))}
+              </div>
+            )}
           </div>
 
-          <div className="rounded-xl border border-border bg-card">
-            <div className="p-4 flex items-center gap-3 border-b border-border">
-              <Checkbox
-                checked={selected.size === data.rows.length}
-                onCheckedChange={toggleAll}
-              />
-              <span className="text-sm font-medium">Selecionar todas</span>
-              <Button
-                size="sm"
-                className="ml-auto gap-2"
-                onClick={() => importAll()}
-                disabled={busy || selected.size === 0 || pageSel.length === 0}
-              >
-                <Wand2 className="size-4" />
+          {/* 5. Preview e publicação */}
+          <div className="rounded-xl border border-border bg-card p-5 space-y-3">
+            <div className="flex items-center justify-between flex-wrap gap-3">
+              <div>
+                <Label>Pré-visualização da matriz</Label>
+                <p className="text-xs text-muted-foreground">
+                  {matchedPosts.length} mídia(s) casadas × {orderedGroups.reduce((s, g) => s + g.pageIds.length, 0)} página(s) = {slots.length} publicação(ões)
+                </p>
+              </div>
+              <Button onClick={handlePublish} disabled={busy || validation.errors.length > 0 || slots.length === 0} className="gap-2">
+                <Rocket className="size-4" />
                 {busy
-                  ? `Importando ${progress?.done ?? 0}/${progress?.total ?? selected.size}…`
-                  : `Importar ${selected.size || ""}`}
+                  ? uploadProgress
+                    ? `Enviando ${uploadProgress.done}/${uploadProgress.total}…`
+                    : "Publicando…"
+                  : `Agendar ${slots.length} post(s)`}
               </Button>
             </div>
-            <div className="divide-y divide-border max-h-[60vh] overflow-y-auto">
-              {data.rows.map((r) => {
-                const res = results.find((x) => x.row === r.rowIndex);
-                const resolved = resolveMedia(r);
-                return (
-                  <div key={r.rowIndex} className="p-3 flex items-start gap-3 hover:bg-muted/20">
-                    <Checkbox
-                      checked={selected.has(r.rowIndex)}
-                      onCheckedChange={() => toggleRow(r.rowIndex)}
-                      className="mt-1"
-                    />
-                    <div className="flex-1 min-w-0 space-y-1">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <Badge variant="outline" className="font-mono">#{r.numero}</Badge>
-                        {r.scheduledAt && (
-                          <Badge variant="secondary" className="text-[10px]">
-                            {new Date(r.scheduledAt).toLocaleString("pt-BR", { timeZone: "America/Sao_Paulo" })}
-                          </Badge>
-                        )}
-                        {resolved.url ? (
-                          <Badge variant="outline" className="text-[10px] text-success">
-                            mídia: {resolved.sourceLabel}
-                          </Badge>
-                        ) : r.foto ? (
-                          <Badge variant="destructive" className="text-[10px]">
-                            {mediaSource === "upload" ? "faltando upload" : "sem foto"}
-                          </Badge>
-                        ) : null}
-                        {res && (
-                          <Badge variant={res.ok ? "default" : "destructive"} title={res.error}>
-                            {res.ok ? "✓ importado" : "✗ erro"}
-                          </Badge>
-                        )}
-                      </div>
-                      <div className="text-sm font-medium line-clamp-2">{r.titulo}</div>
-                      {r.comentario && (
-                        <a
-                          href={r.comentario}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="text-xs text-primary hover:underline inline-flex items-center gap-1 truncate max-w-full"
-                        >
-                          <ExternalLink className="size-3" />
-                          {r.comentario}
-                        </a>
-                      )}
-                      {r.foto && (
-                        <div className="text-[10px] text-muted-foreground font-mono truncate">
-                          {basename(r.raw.foto ?? r.foto)}
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
+            <RotationMatrixPreview slots={slots} posts={matchedPosts} pageNames={pageNameMap} />
           </div>
         </>
       )}
-
-      {data && data.rows.length === 0 && (
-        <div className="p-12 text-center text-sm text-muted-foreground border border-border rounded-xl bg-card">
-          Nenhuma linha encontrada. Verifique se a aba tem cabeçalho na linha 1.
-        </div>
-      )}
-
     </div>
   );
 }
