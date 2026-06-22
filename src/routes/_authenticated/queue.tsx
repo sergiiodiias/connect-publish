@@ -120,7 +120,7 @@ function QueuePage() {
   useEffect(() => { setCurrentPage(1); }, [status, search, pageFilter, typeFilter, mediaFilter, sortOrder]);
 
   const { data: rows = [], isLoading } = useQuery({
-    queryKey: ["queue", status, search, pageFilter],
+    queryKey: ["queue", status, search, pageFilter, sortOrder],
     queryFn: async () => {
       let q = supabase
         .from("post_targets")
@@ -129,7 +129,7 @@ function QueuePage() {
           fb_pages!inner(name, fb_page_id),
           posts!inner(id, type, message, media_urls, link_url, status, scheduled_at, published_at, created_at)
         `)
-        .order("scheduled_at", { foreignTable: "posts", ascending: true });
+        .order("scheduled_at", { foreignTable: "posts", ascending: sortOrder === "asc" });
       if (status !== "all") q = q.eq("posts.status", status as any);
       if (pageFilter !== "all") q = q.eq("page_id", pageFilter);
       if (search) q = q.ilike("posts.message", `%${search}%`);
