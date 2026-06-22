@@ -187,9 +187,25 @@ function ComposerPage() {
 
       <aside className="space-y-3">
         <div className="rounded-xl border border-border bg-card">
-          <div className="px-4 py-3 border-b border-border flex items-center justify-between">
-            <span className="font-medium text-sm">Páginas-alvo</span>
-            <button onClick={toggleAll} className="text-xs text-primary hover:underline">{selected.length === pages.length ? "limpar" : "selecionar todas"}</button>
+          <div className="px-4 py-3 border-b border-border space-y-3">
+            <div className="flex items-center justify-between">
+              <span className="font-medium text-sm">Páginas-alvo</span>
+              <button onClick={toggleAll} className="text-xs text-primary hover:underline">{selected.length === pages.length ? "limpar" : "selecionar todas"}</button>
+            </div>
+            <div>
+              <Label className="text-xs">Selecionar por grupo</Label>
+              <Select value={groupFilter} onValueChange={applyGroup}>
+                <SelectTrigger className="mt-1"><SelectValue placeholder="Escolha um grupo" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Todas as páginas</SelectItem>
+                  {groups.map((g: any) => (
+                    <SelectItem key={g.id} value={g.id}>
+                      {g.name} ({g.page_group_members?.length ?? 0})
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
           </div>
           <div className="max-h-[60vh] overflow-y-auto divide-y divide-border">
             {pages.length === 0 && <div className="p-6 text-center text-sm text-muted-foreground">Conecte páginas primeiro.</div>}
