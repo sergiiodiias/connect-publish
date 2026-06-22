@@ -2,7 +2,7 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { supabase } from "@/integrations/supabase/client";
-import { publishPostNow, cancelScheduled, deletePost, deleteAllPosts, getPostDetails } from "@/lib/posts.functions";
+import { publishPostNow, cancelScheduled, deletePost, deleteAllPosts, getPostDetails, migrateScheduledToFacebook } from "@/lib/posts.functions";
 import { verifyPostPublished } from "@/lib/verify-posts.functions";
 import { importFbScheduled } from "@/lib/import-fb-scheduled.functions";
 import { Button } from "@/components/ui/button";
