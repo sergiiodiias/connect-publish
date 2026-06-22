@@ -128,7 +128,7 @@ export async function runRefreshTokens(): Promise<RefreshResult> {
         status: isValid ? "ok" : "error",
       });
 
-    await new Promise((r) => setTimeout(r, 250));
+    await new Promise((r) => setTimeout(r, 1000));
   }
 
   return { ok: true, total: rows?.length ?? 0, debugged, refreshed, invalidated, canExtend, errors };
