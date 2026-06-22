@@ -176,23 +176,27 @@ function QueuePage() {
   }, [rows, typeFilter, mediaFilter]);
 
   const totalFiltered = filteredRows.length;
-  const totalPages = Math.max(1, Math.ceil(totalFiltered / PAGE_SIZE));
-  const safePage = Math.min(currentPage, totalPages);
-  const pagedRows = useMemo(
-    () => filteredRows.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE),
-    [filteredRows, safePage],
-  );
 
-  // Group paginated rows by page
+  // Per-page expansion: show 5 next per page, with "Ver mais" to expand
+  const [expandedPages, setExpandedPages] = useState<Set<string>>(new Set());
+  const toggleExpand = (pageId: string) =>
+    setExpandedPages((prev) => {
+      const next = new Set(prev);
+      if (next.has(pageId)) next.delete(pageId);
+      else next.add(pageId);
+      return next;
+    });
+
+  // Group ALL filtered rows by page (no global pagination)
   const groups = useMemo(() => {
     const map = new Map<string, { pageId: string; pageName: string; rows: Row[] }>();
-    for (const r of pagedRows) {
+    for (const r of filteredRows) {
       const g = map.get(r.page_id) ?? { pageId: r.page_id, pageName: r.page_name, rows: [] };
       g.rows.push(r);
       map.set(r.page_id, g);
     }
     return [...map.values()].sort((a, b) => a.pageName.localeCompare(b.pageName));
-  }, [pagedRows]);
+  }, [filteredRows]);
 
   const totalPosts = totalFiltered;
 
@@ -256,7 +260,7 @@ function QueuePage() {
           <p className="text-sm text-muted-foreground">
             {isLoading
               ? "Carregando…"
-              : `${totalPosts} ${totalPosts === 1 ? "publicação" : "publicações"} · página ${safePage} de ${totalPages}`}
+              : `${totalPosts} ${totalPosts === 1 ? "publicação" : "publicações"} em ${groups.length} ${groups.length === 1 ? "página" : "páginas"}`}
           </p>
         </div>
         <div className="flex items-center gap-2 shrink-0">
@@ -386,7 +390,7 @@ function QueuePage() {
             </div>
 
             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3">
-              {group.rows.map((r) => (
+              {(expandedPages.has(group.pageId) ? group.rows : group.rows.slice(0, 5)).map((r) => (
                 <PostCard
                   key={r.target_id}
                   row={r}
@@ -400,34 +404,23 @@ function QueuePage() {
                 />
               ))}
             </div>
+            {group.rows.length > 5 && (
+              <div className="flex justify-center">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => toggleExpand(group.pageId)}
+                  className="text-xs text-muted-foreground hover:text-foreground"
+                >
+                  {expandedPages.has(group.pageId)
+                    ? "Mostrar só os 5 próximos"
+                    : `Ver mais ${group.rows.length - 5} publicaç${group.rows.length - 5 === 1 ? "ão" : "ões"}`}
+                </Button>
+              </div>
+            )}
           </section>
         );
       })}
-
-      {/* Pagination */}
-      {!isLoading && totalFiltered > 0 && totalPages > 1 && (
-        <div className="flex items-center justify-center gap-2 pt-2">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
-            disabled={safePage <= 1}
-          >
-            <ChevronLeft className="size-4" /> Anterior
-          </Button>
-          <span className="text-sm text-muted-foreground px-2">
-            Página {safePage} de {totalPages}
-          </span>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
-            disabled={safePage >= totalPages}
-          >
-            Próxima <ChevronRight className="size-4" />
-          </Button>
-        </div>
-      )}
 
       {/* Details dialog */}
       <Dialog open={!!detailId} onOpenChange={(o) => !o && setDetailId(null)}>
