@@ -393,8 +393,12 @@ function QueuePage() {
             disabled={migrateToFb.isPending}
             title="Envia os posts agendados (>10 min no futuro) direto para o agendador do Facebook"
           >
-            <Send className="size-4 mr-1" />
-            {migrateToFb.isPending ? "Enviando…" : "Enviar agendados ao FB"}
+            <Send className={`size-4 mr-1 ${migrateToFb.isPending ? "animate-pulse" : ""}`} />
+            {migrateToFb.isPending && migrateProgress
+              ? `Enviando ${migrateProgress.done}/${migrateProgress.total}${migrateProgress.failed ? ` · ${migrateProgress.failed} falha(s)` : ""}`
+              : migrateToFb.isPending
+                ? "Enviando…"
+                : "Enviar agendados ao FB"}
           </Button>
           <Button asChild>
             <Link to="/composer">
