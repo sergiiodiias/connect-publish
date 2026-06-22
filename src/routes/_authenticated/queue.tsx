@@ -109,8 +109,15 @@ function QueuePage() {
   const [status, setStatus] = useState<string>("scheduled");
   const [search, setSearch] = useState("");
   const [pageFilter, setPageFilter] = useState<string>("all");
+  const [typeFilter, setTypeFilter] = useState<string>("all");
+  const [mediaFilter, setMediaFilter] = useState<string>("all"); // all | with | without
+  const [sortOrder, setSortOrder] = useState<string>("asc"); // asc | desc
+  const [currentPage, setCurrentPage] = useState(1);
   const [detailId, setDetailId] = useState<string | null>(null);
   const [verifyResults, setVerifyResults] = useState<Record<string, Awaited<ReturnType<typeof verifyPostPublished>> | undefined>>({});
+
+  // Reset to page 1 when filters change
+  useEffect(() => { setCurrentPage(1); }, [status, search, pageFilter, typeFilter, mediaFilter, sortOrder]);
 
   const { data: rows = [], isLoading } = useQuery({
     queryKey: ["queue", status, search, pageFilter],
