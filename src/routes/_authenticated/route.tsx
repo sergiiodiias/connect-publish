@@ -1,7 +1,7 @@
 import { createFileRoute, Outlet, redirect, Link, useRouter } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
-import { BarChart3, CalendarClock, FileEdit, KeyRound, Layers, LayoutDashboard, LogOut, MessageSquare, Settings as SettingsIcon, Users } from "lucide-react";
+import { BarChart3, CalendarClock, FileEdit, FileSpreadsheet, KeyRound, Layers, LayoutDashboard, LogOut, MessageSquare, Settings as SettingsIcon, Users } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useQueryClient } from "@tanstack/react-query";
 
