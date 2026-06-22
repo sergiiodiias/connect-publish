@@ -49,6 +49,7 @@ export type Database = {
       }
       auto_comments: {
         Row: {
+          attempts: number
           created_at: string
           delay_seconds: number
           error: string | null
@@ -60,9 +61,11 @@ export type Database = {
           run_at: string | null
           status: Database["public"]["Enums"]["comment_status"]
           target_id: string | null
+          updated_at: string
           user_id: string
         }
         Insert: {
+          attempts?: number
           created_at?: string
           delay_seconds?: number
           error?: string | null
@@ -74,9 +77,11 @@ export type Database = {
           run_at?: string | null
           status?: Database["public"]["Enums"]["comment_status"]
           target_id?: string | null
+          updated_at?: string
           user_id: string
         }
         Update: {
+          attempts?: number
           created_at?: string
           delay_seconds?: number
           error?: string | null
@@ -88,6 +93,7 @@ export type Database = {
           run_at?: string | null
           status?: Database["public"]["Enums"]["comment_status"]
           target_id?: string | null
+          updated_at?: string
           user_id?: string
         }
         Relationships: [
@@ -541,7 +547,7 @@ export type Database = {
     }
     Enums: {
       app_role: "admin" | "user"
-      comment_status: "pending" | "posted" | "failed"
+      comment_status: "pending" | "posted" | "failed" | "publishing"
       post_status:
         | "draft"
         | "scheduled"
@@ -684,7 +690,7 @@ export const Constants = {
   public: {
     Enums: {
       app_role: ["admin", "user"],
-      comment_status: ["pending", "posted", "failed"],
+      comment_status: ["pending", "posted", "failed", "publishing"],
       post_status: [
         "draft",
         "scheduled",
