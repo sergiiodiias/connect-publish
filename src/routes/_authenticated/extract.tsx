@@ -242,8 +242,8 @@ function ExtractPage() {
       <div>
         <h1 className="text-2xl font-semibold tracking-tight">Extrair tokens</h1>
         <p className="text-sm text-muted-foreground">
-          Cole a resposta bruta do Graph API (ex.: <code>/me/accounts</code>) ou qualquer texto que contenha
-          <code> access_token</code>, <code>id</code> e <code>name</code>. O sistema extrai automaticamente.
+          Cole a resposta do Graph API (ex.: <code>/me/accounts</code>) <strong>ou</strong> apenas os tokens das páginas
+          (um por linha, começando com <code>EAA…</code>). O ID e nome da página são resolvidos automaticamente.
         </p>
       </div>
 
