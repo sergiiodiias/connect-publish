@@ -119,6 +119,7 @@ function QueuePage() {
             <SelectItem value="scheduled">Agendados</SelectItem>
             <SelectItem value="publishing">Publicando</SelectItem>
             <SelectItem value="published">Publicados</SelectItem>
+            <SelectItem value="partial">Parciais</SelectItem>
             <SelectItem value="failed">Falhou</SelectItem>
           </SelectContent>
         </Select>
