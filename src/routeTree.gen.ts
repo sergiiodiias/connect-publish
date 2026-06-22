@@ -18,6 +18,7 @@ import { Route as AuthenticatedQueueRouteImport } from './routes/_authenticated/
 import { Route as AuthenticatedPagesRouteImport } from './routes/_authenticated/pages'
 import { Route as AuthenticatedLogsRouteImport } from './routes/_authenticated/logs'
 import { Route as AuthenticatedGroupsRouteImport } from './routes/_authenticated/groups'
+import { Route as AuthenticatedExtractRouteImport } from './routes/_authenticated/extract'
 import { Route as AuthenticatedDashboardRouteImport } from './routes/_authenticated/dashboard'
 import { Route as AuthenticatedComposerRouteImport } from './routes/_authenticated/composer'
 import { Route as ApiPublicCronSchedulerRouteImport } from './routes/api/public/cron/scheduler'
@@ -66,6 +67,11 @@ const AuthenticatedGroupsRoute = AuthenticatedGroupsRouteImport.update({
   path: '/groups',
   getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
+const AuthenticatedExtractRoute = AuthenticatedExtractRouteImport.update({
+  id: '/extract',
+  path: '/extract',
+  getParentRoute: () => AuthenticatedRouteRoute,
+} as any)
 const AuthenticatedDashboardRoute = AuthenticatedDashboardRouteImport.update({
   id: '/dashboard',
   path: '/dashboard',
@@ -88,6 +94,7 @@ export interface FileRoutesByFullPath {
   '/reset-password': typeof ResetPasswordRoute
   '/composer': typeof AuthenticatedComposerRoute
   '/dashboard': typeof AuthenticatedDashboardRoute
+  '/extract': typeof AuthenticatedExtractRoute
   '/groups': typeof AuthenticatedGroupsRoute
   '/logs': typeof AuthenticatedLogsRoute
   '/pages': typeof AuthenticatedPagesRoute
@@ -101,6 +108,7 @@ export interface FileRoutesByTo {
   '/reset-password': typeof ResetPasswordRoute
   '/composer': typeof AuthenticatedComposerRoute
   '/dashboard': typeof AuthenticatedDashboardRoute
+  '/extract': typeof AuthenticatedExtractRoute
   '/groups': typeof AuthenticatedGroupsRoute
   '/logs': typeof AuthenticatedLogsRoute
   '/pages': typeof AuthenticatedPagesRoute
@@ -116,6 +124,7 @@ export interface FileRoutesById {
   '/reset-password': typeof ResetPasswordRoute
   '/_authenticated/composer': typeof AuthenticatedComposerRoute
   '/_authenticated/dashboard': typeof AuthenticatedDashboardRoute
+  '/_authenticated/extract': typeof AuthenticatedExtractRoute
   '/_authenticated/groups': typeof AuthenticatedGroupsRoute
   '/_authenticated/logs': typeof AuthenticatedLogsRoute
   '/_authenticated/pages': typeof AuthenticatedPagesRoute
@@ -131,6 +140,7 @@ export interface FileRouteTypes {
     | '/reset-password'
     | '/composer'
     | '/dashboard'
+    | '/extract'
     | '/groups'
     | '/logs'
     | '/pages'
@@ -144,6 +154,7 @@ export interface FileRouteTypes {
     | '/reset-password'
     | '/composer'
     | '/dashboard'
+    | '/extract'
     | '/groups'
     | '/logs'
     | '/pages'
@@ -158,6 +169,7 @@ export interface FileRouteTypes {
     | '/reset-password'
     | '/_authenticated/composer'
     | '/_authenticated/dashboard'
+    | '/_authenticated/extract'
     | '/_authenticated/groups'
     | '/_authenticated/logs'
     | '/_authenticated/pages'
@@ -239,6 +251,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedGroupsRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
+    '/_authenticated/extract': {
+      id: '/_authenticated/extract'
+      path: '/extract'
+      fullPath: '/extract'
+      preLoaderRoute: typeof AuthenticatedExtractRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
     '/_authenticated/dashboard': {
       id: '/_authenticated/dashboard'
       path: '/dashboard'
@@ -266,6 +285,7 @@ declare module '@tanstack/react-router' {
 interface AuthenticatedRouteRouteChildren {
   AuthenticatedComposerRoute: typeof AuthenticatedComposerRoute
   AuthenticatedDashboardRoute: typeof AuthenticatedDashboardRoute
+  AuthenticatedExtractRoute: typeof AuthenticatedExtractRoute
   AuthenticatedGroupsRoute: typeof AuthenticatedGroupsRoute
   AuthenticatedLogsRoute: typeof AuthenticatedLogsRoute
   AuthenticatedPagesRoute: typeof AuthenticatedPagesRoute
@@ -276,6 +296,7 @@ interface AuthenticatedRouteRouteChildren {
 const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
   AuthenticatedComposerRoute: AuthenticatedComposerRoute,
   AuthenticatedDashboardRoute: AuthenticatedDashboardRoute,
+  AuthenticatedExtractRoute: AuthenticatedExtractRoute,
   AuthenticatedGroupsRoute: AuthenticatedGroupsRoute,
   AuthenticatedLogsRoute: AuthenticatedLogsRoute,
   AuthenticatedPagesRoute: AuthenticatedPagesRoute,
