@@ -51,6 +51,7 @@ function QueuePage() {
   const publishFn = useServerFn(publishPostNow);
   const cancelFn = useServerFn(cancelScheduled);
   const delFn = useServerFn(deletePost);
+  const delAllFn = useServerFn(deleteAllPosts);
   const detailsFn = useServerFn(getPostDetails);
 
   const [status, setStatus] = useState<string>("all");
