@@ -22,6 +22,13 @@ export const Route = createFileRoute("/_authenticated/sheets")({
   component: ImportPage,
 });
 
+function basename(p: string) {
+  return (p.split(/[\\/]/).pop() ?? "").trim();
+}
+function normName(s: string) {
+  return s.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim();
+}
+
 function ImportPage() {
   const qc = useQueryClient();
   const readFn = useServerFn(readSheet);
@@ -36,8 +43,14 @@ function ImportPage() {
   const [pageSel, setPageSel] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
   const [results, setResults] = useState<{ row: number; ok: boolean; error?: string }[]>([]);
-  
+
   const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
+
+  // Map<normalizedFilename, signedUrl>
+  const [uploadedMedia, setUploadedMedia] = useState<Map<string, { url: string; name: string }>>(new Map());
+  const [uploading, setUploading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState<{ done: number; total: number } | null>(null);
+  const [mediaSource, setMediaSource] = useState<"upload" | "drive">("upload");
 
   const { data: pages = [] } = useQuery({ queryKey: ["pages"], queryFn: () => listFn() });
   const { data: groups = [] } = useQuery({
@@ -60,6 +73,41 @@ function ImportPage() {
       setPageSel((g?.page_group_members ?? []).map((m: any) => m.page_id));
     }
   };
+
+  const handleUpload = async (files: FileList | null) => {
+    if (!files || files.length === 0) return;
+    const { data: session } = await supabase.auth.getUser();
+    const uid = session.user?.id;
+    if (!uid) { toast.error("Faça login novamente"); return; }
+    setUploading(true);
+    setUploadProgress({ done: 0, total: files.length });
+    const next = new Map(uploadedMedia);
+    let done = 0;
+    for (const file of Array.from(files)) {
+      try {
+        const path = `${uid}/${Date.now()}-${file.name}`;
+        const { error: upErr } = await supabase.storage.from("post-media").upload(path, file, {
+          contentType: file.type || undefined, upsert: false,
+        });
+        if (upErr) throw upErr;
+        const { data: signed, error: sErr } = await supabase.storage.from("post-media")
+          .createSignedUrl(path, 60 * 60 * 24 * 365);
+        if (sErr || !signed) throw sErr ?? new Error("signed url falhou");
+        next.set(normName(file.name), { url: signed.signedUrl, name: file.name });
+      } catch (e: any) {
+        toast.error(`Falha ao enviar ${file.name}: ${e?.message ?? e}`);
+      }
+      done++;
+      setUploadProgress({ done, total: files.length });
+    }
+    setUploadedMedia(next);
+    setUploading(false);
+    setUploadProgress(null);
+    toast.success(`${done} arquivo(s) enviado(s)`);
+  };
+
+  const clearUploads = () => setUploadedMedia(new Map());
+
 
   const load = async () => {
     if (!sheetUrl.trim()) { toast.error("Cole o link da planilha"); return; }
