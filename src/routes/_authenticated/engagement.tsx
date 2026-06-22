@@ -247,10 +247,11 @@ function EngagementPage() {
             Análise de curtidas, comentários, compartilhamentos e visualizações das publicações
           </p>
         </div>
-        <Button onClick={() => refreshAll.mutate()} disabled={refreshAll.isPending || filtered.length === 0}>
+        <Button onClick={() => refreshAll.mutate()} disabled={refreshAll.isPending}>
           <RefreshCw className={`size-4 mr-1 ${refreshAll.isPending ? "animate-spin" : ""}`} />
           {refreshAll.isPending ? "Atualizando…" : "Atualizar métricas"}
         </Button>
+
       </div>
 
       {/* Totals strip */}
