@@ -27,6 +27,7 @@ export const Route = createFileRoute("/api/public/cron/scheduler")({
           let ok = 0, fl = 0;
           let batchCount = 0;
           for (const t of targets ?? []) {
+            // Throttle: pause every 10 targets to respect Facebook rate limits
             if (batchCount > 0 && batchCount % 10 === 0) {
               await new Promise((r) => setTimeout(r, 30000));
             }
@@ -54,9 +55,16 @@ export const Route = createFileRoute("/api/public/cron/scheduler")({
               }
               ok++;
             } catch (e: any) {
-              await supabaseAdmin.from("post_targets").update({ status: "failed", error: e.message }).eq("id", t.id);
+              const msg = e?.message ?? "";
+              await supabaseAdmin.from("post_targets").update({ status: "failed", error: msg }).eq("id", t.id);
               fl++;
+              // Heavy backoff if Facebook signals rate limit
+              if (/limit|#4|#17|#32|#613/i.test(msg)) {
+                await new Promise((r) => setTimeout(r, 60000));
+              }
             }
+            // Small spacing between every publish to avoid bursts
+            await new Promise((r) => setTimeout(r, 1500));
           }
           await supabaseAdmin.from("posts").update({
             status: fl === 0 ? "published" : (ok === 0 ? "failed" : "partial"),
