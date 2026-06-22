@@ -246,35 +246,56 @@ function QueuePage() {
     onError: (e: any) => toast.error(e.message),
   });
 
+  const [migrateProgress, setMigrateProgress] = useState<{ done: number; failed: number; total: number } | null>(null);
   const migrateToFb = useMutation({
     mutationFn: async () => {
-      // Loops the 25-per-batch server fn until nothing more is scheduled
-      // (avoids the 60s gateway timeout while still draining the full backlog).
+      // Count what's eligible upfront so we can show "X de Y enviados".
+      const { count: pendingTotal } = await supabase
+        .from("post_targets")
+        .select("id, posts!inner(scheduled_at)", { count: "exact", head: true })
+        .is("fb_post_id", null)
+        .in("status", ["pending", "failed"])
+        .gt("posts.scheduled_at", new Date(Date.now() + 11 * 60_000).toISOString());
+      const total = pendingTotal ?? 0;
+      setMigrateProgress({ done: 0, failed: 0, total });
+
+      const toastId = toast.loading(`Enviando ao Facebook… 0 / ${total}`);
       let totalScheduled = 0;
       let totalFailed = 0;
       const allErrors: any[] = [];
-      for (let i = 0; i < 60; i++) {
-        const r: any = await migrateFn({ data: {} });
-        if (!r || typeof r !== "object") throw new Error("Resposta inválida do servidor");
-        totalScheduled += r.scheduled ?? 0;
-        totalFailed += r.failed ?? 0;
-        if (r.errors?.length) allErrors.push(...r.errors);
-        // Stop when this batch did nothing new
-        if ((r.scheduled ?? 0) === 0 && (r.failed ?? 0) === 0) break;
-        // Refresh UI between batches
-        qc.invalidateQueries({ queryKey: ["queue"] });
+      try {
+        for (let i = 0; i < 60; i++) {
+          const r: any = await migrateFn({ data: {} });
+          if (!r || typeof r !== "object") throw new Error("Resposta inválida do servidor");
+          totalScheduled += r.scheduled ?? 0;
+          totalFailed += r.failed ?? 0;
+          if (r.errors?.length) allErrors.push(...r.errors);
+          setMigrateProgress({ done: totalScheduled, failed: totalFailed, total });
+          toast.loading(
+            `Enviando ao Facebook… ${totalScheduled} / ${total}${totalFailed ? ` · ${totalFailed} falha(s)` : ""}`,
+            { id: toastId },
+          );
+          if ((r.scheduled ?? 0) === 0 && (r.failed ?? 0) === 0) break;
+          qc.invalidateQueries({ queryKey: ["queue"] });
+        }
+      } finally {
+        toast.dismiss(toastId);
       }
-      return { scheduled: totalScheduled, failed: totalFailed, errors: allErrors };
+      return { scheduled: totalScheduled, failed: totalFailed, errors: allErrors, total };
     },
     onSuccess: (r) => {
       if (r.scheduled === 0 && r.failed === 0) toast.info("Nada para enviar (precisa ser >10 min no futuro e ainda não estar no FB)");
       else if (r.failed === 0) toast.success(`${r.scheduled} agendado(s) no Facebook`);
-      else toast.warning(`${r.scheduled} ok · ${r.failed} falha(s)`);
+      else toast.warning(`${r.scheduled} ok · ${r.failed} falha(s) de ${r.total}`);
       if (r.errors?.length) console.warn("Migrate errors:", r.errors);
       qc.invalidateQueries({ queryKey: ["queue"] });
       qc.invalidateQueries({ queryKey: ["queue-stuck"] });
+      setTimeout(() => setMigrateProgress(null), 4000);
     },
-    onError: (e: any) => toast.error(e?.message ?? "Falha ao enviar"),
+    onError: (e: any) => {
+      toast.error(e?.message ?? "Falha ao enviar");
+      setMigrateProgress(null);
+    },
   });
 
   const details = useQuery({
@@ -372,8 +393,12 @@ function QueuePage() {
             disabled={migrateToFb.isPending}
             title="Envia os posts agendados (>10 min no futuro) direto para o agendador do Facebook"
           >
-            <Send className="size-4 mr-1" />
-            {migrateToFb.isPending ? "Enviando…" : "Enviar agendados ao FB"}
+            <Send className={`size-4 mr-1 ${migrateToFb.isPending ? "animate-pulse" : ""}`} />
+            {migrateToFb.isPending && migrateProgress
+              ? `Enviando ${migrateProgress.done}/${migrateProgress.total}${migrateProgress.failed ? ` · ${migrateProgress.failed} falha(s)` : ""}`
+              : migrateToFb.isPending
+                ? "Enviando…"
+                : "Enviar agendados ao FB"}
           </Button>
           <Button asChild>
             <Link to="/composer">
