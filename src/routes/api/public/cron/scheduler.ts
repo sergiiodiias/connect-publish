@@ -306,11 +306,26 @@ export const Route = createFileRoute("/api/public/cron/scheduler")({
             .is("fb_post_id", null)
             .or(`next_retry_at.is.null,next_retry_at.lte.${nowIso}`);
 
+          const candidateTargets: any[] = [];
+          for (const target of targets ?? []) {
+            if (fallbackPublishedPages.has(target.page_id)) continue;
+            const { data: recentForPage } = await supabaseAdmin
+              .from("post_targets")
+              .select("id")
+              .eq("page_id", target.page_id)
+              .eq("status", "published")
+              .gte("published_at", new Date(Date.now() - PAGE_FALLBACK_COOLDOWN_MS).toISOString())
+              .limit(1);
+            if (recentForPage?.length) continue;
+            candidateTargets.push(target);
+          }
+
           const MAX_ATTEMPTS = 3;
           // Backoff between attempts (minutes): after attempt 1 -> 1m, after 2 -> 5m, after 3 -> 15m (unused, marked failed)
           const BACKOFF_MIN = [1, 5, 15];
 
           async function publishTarget(t: { id: string; page_id: string; attempts: number }) {
+            if (fallbackPublishedPages.has(t.page_id)) return;
             // Atomic claim — prevents another tick from re-publishing it.
             const { data: claimedT } = await supabaseAdmin
               .from("post_targets").update({ status: "publishing" })
@@ -323,6 +338,22 @@ export const Route = createFileRoute("/api/public/cron/scheduler")({
             if (!pg) { await supabaseAdmin.from("post_targets").update({ status: "failed", error: "página ausente", attempts: nextAttempt, last_attempt_at: nowStamp, next_retry_at: null }).eq("id", t.id); return; }
             if (pg.is_active === false) { await supabaseAdmin.from("post_targets").update({ status: "failed", error: "página inativa (token inválido)", attempts: nextAttempt, last_attempt_at: nowStamp, next_retry_at: null }).eq("id", t.id); return; }
             try {
+              const existingFbPost = await findMatchingFacebookPost(pg, post.message ?? "", post.scheduled_at);
+              if (existingFbPost) {
+                await supabaseAdmin.from("post_targets").update({
+                  status: existingFbPost.kind === "published" ? "published" : "pending",
+                  fb_post_id: existingFbPost.id,
+                  published_at: existingFbPost.kind === "published" ? nowStamp : null,
+                  attempts: nextAttempt, last_attempt_at: nowStamp,
+                  error: existingFbPost.kind === "published"
+                    ? "post já existia no Facebook; fallback não repostou"
+                    : "post agendado no Facebook; fallback não repostou",
+                  next_retry_at: null,
+                } as any).eq("id", t.id);
+                if (existingFbPost.kind === "published") fallbackPublishedPages.add(t.page_id);
+                return;
+              }
+
               const fbId = await publishFacebookPost({
                 type: post.type as any,
                 message: post.message ?? "",
@@ -336,6 +367,7 @@ export const Route = createFileRoute("/api/public/cron/scheduler")({
                 attempts: nextAttempt, last_attempt_at: nowStamp,
                 error: null, next_retry_at: null,
               }).eq("id", t.id);
+              fallbackPublishedPages.add(t.page_id);
               const { data: tmpl } = await supabaseAdmin.from("auto_comments").select("*").eq("post_id", post.id).is("target_id", null).eq("status", "pending");
               for (const c of tmpl ?? []) {
                 const { data: existing } = await supabaseAdmin
@@ -373,7 +405,7 @@ export const Route = createFileRoute("/api/public/cron/scheduler")({
             }
           }
 
-          for (const group of chunk(targets ?? [], CONCURRENCY)) {
+          for (const group of chunk(candidateTargets, CONCURRENCY)) {
             if (outOfTime() || rateLimitHit) break;
             await Promise.all(group.map(publishTarget));
           }
