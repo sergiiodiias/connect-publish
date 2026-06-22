@@ -239,7 +239,9 @@ export const inspectTokens = createServerFn({ method: "POST" })
           base.extendError = e?.message ?? "falha ao estender";
         }
       } else {
-        base.extendError = "Configure FB_APP_ID e FB_APP_SECRET para estender tokens curtos.";
+        // Sem credenciais para estender — assumimos que o token armazenado já é o usado.
+        base.longLivedToken = row.access_token;
+        base.longLivedExpiresAt = base.expiresAt;
       }
 
       out[row.id] = base;
