@@ -176,23 +176,27 @@ function QueuePage() {
   }, [rows, typeFilter, mediaFilter]);
 
   const totalFiltered = filteredRows.length;
-  const totalPages = Math.max(1, Math.ceil(totalFiltered / PAGE_SIZE));
-  const safePage = Math.min(currentPage, totalPages);
-  const pagedRows = useMemo(
-    () => filteredRows.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE),
-    [filteredRows, safePage],
-  );
 
-  // Group paginated rows by page
+  // Per-page expansion: show 5 next per page, with "Ver mais" to expand
+  const [expandedPages, setExpandedPages] = useState<Set<string>>(new Set());
+  const toggleExpand = (pageId: string) =>
+    setExpandedPages((prev) => {
+      const next = new Set(prev);
+      if (next.has(pageId)) next.delete(pageId);
+      else next.add(pageId);
+      return next;
+    });
+
+  // Group ALL filtered rows by page (no global pagination)
   const groups = useMemo(() => {
     const map = new Map<string, { pageId: string; pageName: string; rows: Row[] }>();
-    for (const r of pagedRows) {
+    for (const r of filteredRows) {
       const g = map.get(r.page_id) ?? { pageId: r.page_id, pageName: r.page_name, rows: [] };
       g.rows.push(r);
       map.set(r.page_id, g);
     }
     return [...map.values()].sort((a, b) => a.pageName.localeCompare(b.pageName));
-  }, [pagedRows]);
+  }, [filteredRows]);
 
   const totalPosts = totalFiltered;
 
