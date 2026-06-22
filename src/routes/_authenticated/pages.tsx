@@ -207,9 +207,9 @@ function PagesPage() {
                       : <Badge variant="destructive" className="gap-1"><AlertTriangle className="size-3" />inativa</Badge>}
                     {exp && (
                       <Badge variant="outline" className={`gap-1 ${toneClass}`} title={
-                        info?.expiresAt && info.expiresAt > 0
-                          ? `Expira em ${new Date(info.expiresAt * 1000).toLocaleString("pt-BR")}`
-                          : info?.expiresAt === 0 ? "Token de longa duração — não expira" : "Validade desconhecida"
+                        effectiveExpiresAt && effectiveExpiresAt > 0
+                          ? `Expira em ${new Date(effectiveExpiresAt * 1000).toLocaleString("pt-BR")}`
+                          : effectiveExpiresAt === 0 ? "Token de longa duração — não expira" : "Validade desconhecida"
                       }>
                         <Clock className="size-3" />
                         {exp.tone === "never" ? "não expira" : `expira em ${exp.label}`}
