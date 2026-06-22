@@ -15,7 +15,7 @@ import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { FileSpreadsheet, Wand2, AlertTriangle, ExternalLink } from "lucide-react";
 import { toast } from "sonner";
-import { ImportPreviewDialog } from "@/components/import-preview-dialog";
+
 
 export const Route = createFileRoute("/_authenticated/sheets")({
   head: () => ({ meta: [{ title: "Importar Planilha — PagePilot" }] }),
