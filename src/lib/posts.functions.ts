@@ -164,3 +164,18 @@ export const deletePost = createServerFn({ method: "POST" })
     if (error) throw new Error(error.message);
     return { ok: true };
   });
+
+export const getPostDetails = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((d) => z.object({ postId: z.string().uuid() }).parse(d))
+  .handler(async ({ data, context }) => {
+    const { supabase, userId } = context;
+    const { data: post } = await supabase.from("posts")
+      .select("id, error, status, message")
+      .eq("id", data.postId).eq("user_id", userId).single();
+    if (!post) throw new Error("Post não encontrado");
+    const { data: targets } = await supabase.from("post_targets")
+      .select("id, status, error, fb_post_id, published_at, page_id, fb_pages(name, fb_page_id)")
+      .eq("post_id", data.postId);
+    return { post, targets: targets ?? [] };
+  });
