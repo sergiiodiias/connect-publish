@@ -326,9 +326,14 @@ export const publishPostNow = createServerFn({ method: "POST" })
           .select("id, delay_seconds").eq("post_id", post.id).is("target_id", null).eq("status", "pending");
         if (comments?.length) {
           for (const c of comments) {
-            const { data: template } = await supabase.from("auto_comments").select("message").eq("id", c.id).single();
+            const { data: template } = await supabase
+              .from("auto_comments")
+              .select("message")
+              .eq("id", c.id)
+              .single();
             const message = template?.message ?? "";
-            const { data: existingComment } = await supabase.from("auto_comments")
+            const { data: existingComment } = await supabase
+              .from("auto_comments")
               .select("id")
               .eq("post_id", post.id)
               .eq("target_id", t.id)
@@ -336,7 +341,9 @@ export const publishPostNow = createServerFn({ method: "POST" })
               .limit(1);
             if (!existingComment?.length) {
               await supabase.from("auto_comments").insert({
-                user_id: userId, post_id: post.id, target_id: t.id,
+                user_id: userId,
+                post_id: post.id,
+                target_id: t.id,
                 message,
                 delay_seconds: c.delay_seconds,
                 run_at: new Date(Date.now() + c.delay_seconds * 1000).toISOString(),
