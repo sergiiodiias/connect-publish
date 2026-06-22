@@ -151,8 +151,11 @@ export const migrateScheduledToFacebook = createServerFn({ method: "POST" })
               run_at: new Date(baseMs + (c.delay_seconds ?? 0) * 1000).toISOString(),
             }));
             // Avoid duplicates if migrate runs twice for the same target
-            const { data: existing } = await supabase.from("auto_comments")
-              .select("id, post_id, target_id, message").eq("target_id", j.target.id).eq("post_id", j.post.id);
+            const { data: existing } = await supabase
+              .from("auto_comments")
+              .select("id, post_id, target_id, message")
+              .eq("target_id", j.target.id)
+              .eq("post_id", j.post.id);
             const existingKeys = new Set((existing ?? []).map((r: any) => `${r.post_id}::${r.target_id}::${r.message}`));
             const missingRows = rows.filter((r) => !existingKeys.has(`${r.post_id}::${r.target_id}::${r.message}`));
             if (missingRows.length) {
@@ -240,20 +243,23 @@ export const createPost = createServerFn({ method: "POST" })
               .update({ fb_post_id: fbId, error: null })
               .eq("id", t.id);
             if (data.autoComment) {
-              const { data: existingComment } = await supabase.from("auto_comments")
+              const { data: existingComment } = await supabase
+                .from("auto_comments")
                 .select("id")
                 .eq("post_id", post.id)
                 .eq("target_id", t.id)
                 .eq("message", data.autoComment.message)
                 .limit(1);
-              if (!existingComment?.length) await supabase.from("auto_comments").insert({
-                user_id: userId,
-                post_id: post.id,
-                target_id: t.id,
-                message: data.autoComment.message,
-                delay_seconds: data.autoComment.delaySeconds,
-                run_at: new Date(ts + data.autoComment.delaySeconds * 1000).toISOString(),
-              });
+              if (!existingComment?.length) {
+                await supabase.from("auto_comments").insert({
+                  user_id: userId,
+                  post_id: post.id,
+                  target_id: t.id,
+                  message: data.autoComment.message,
+                  delay_seconds: data.autoComment.delaySeconds,
+                  run_at: new Date(ts + data.autoComment.delaySeconds * 1000).toISOString(),
+                });
+              }
             }
             fbScheduled++;
 
