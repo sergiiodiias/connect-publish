@@ -59,7 +59,23 @@ export async function runRefreshTokens(): Promise<RefreshResult> {
         errors.push({ pageId: row.id, error: e?.message ?? "erro" });
       }
 
-      if (isValid && canExtend) {
+      // Only attempt token exchange when it's actually needed:
+      // - Token must be valid
+      // - App credentials must exist
+      // - Either no known expiry (long-lived/never expires shouldn't be refreshed)
+      //   OR expiry is within the next 20 days
+      // This avoids hammering Facebook's app-level rate limit (200 calls/h × users)
+      // because /oauth/access_token uses app context and DOES count toward that quota,
+      // unlike /debug_token called with the page token itself.
+      const TWENTY_DAYS_MS = 20 * 24 * 60 * 60 * 1000;
+      const needsExchange =
+        isValid &&
+        canExtend &&
+        expiresAt !== null &&
+        expiresAt > 0 &&
+        expiresAt * 1000 - Date.now() < TWENTY_DAYS_MS;
+
+      if (needsExchange) {
         try {
           const r = await fbGet<any>("/oauth/access_token", {
             grant_type: "fb_exchange_token",
@@ -76,8 +92,14 @@ export async function runRefreshTokens(): Promise<RefreshResult> {
                 : null;
             refreshed++;
           }
+          // Extra spacing after a heavy app-context call
+          await new Promise((r) => setTimeout(r, 1500));
         } catch (e: any) {
           console.warn(`[refresh-tokens] exchange failed for ${row.fb_page_id}:`, e?.message);
+          // If we got rate-limited, back off significantly
+          if (/limit|#4|#17|#32/i.test(e?.message ?? "")) {
+            await new Promise((r) => setTimeout(r, 60_000));
+          }
         }
       }
 
@@ -106,7 +128,7 @@ export async function runRefreshTokens(): Promise<RefreshResult> {
         status: isValid ? "ok" : "error",
       });
 
-    await new Promise((r) => setTimeout(r, 250));
+    await new Promise((r) => setTimeout(r, 1000));
   }
 
   return { ok: true, total: rows?.length ?? 0, debugged, refreshed, invalidated, canExtend, errors };
