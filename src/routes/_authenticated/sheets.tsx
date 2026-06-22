@@ -303,6 +303,16 @@ function ImportPage() {
           Nenhuma linha encontrada. Verifique se a aba tem cabeçalho na linha 1.
         </div>
       )}
+
+      <ImportPreviewDialog
+        open={previewOpen}
+        onOpenChange={setPreviewOpen}
+        rows={selectedRows}
+        pageCount={pageSel.length}
+        busy={busy}
+        progress={progress}
+        onConfirm={(idxs) => importAll(idxs)}
+      />
     </div>
   );
 }
