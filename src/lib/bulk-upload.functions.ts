@@ -96,9 +96,10 @@ export const createBulkJob = createServerFn({ method: "POST" })
       }
       if (g.sample.commentLink) {
         commentRows.push({
-          user_id: userId, post_id: pid, message: g.sample.commentLink, delay_seconds: 60,
+          user_id: userId, post_id: pid, message: g.sample.commentLink, delay_seconds: commentDelaySeconds,
         });
       }
+
     });
 
     for (const part of chunk(targetRows, 500)) {
