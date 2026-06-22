@@ -129,37 +129,76 @@ export const inspectTokens = createServerFn({ method: "POST" })
       .eq("user_id", userId);
     if (error) throw new Error(error.message);
 
+    const appId = process.env.FB_APP_ID;
+    const appSecret = process.env.FB_APP_SECRET;
+    const canExtend = !!(appId && appSecret);
+
     const out: Record<string, {
       isValid: boolean;
       expiresAt: number | null; // unix seconds; 0/null = never expires
       dataAccessExpiresAt: number | null;
       scopes: string[];
+      accessToken: string;
+      longLivedToken: string | null;
+      longLivedExpiresAt: number | null;
+      extendError?: string;
       error?: string;
     }> = {};
 
     await Promise.all((rows ?? []).map(async (row) => {
+      const base = {
+        isValid: false as boolean,
+        expiresAt: null as number | null,
+        dataAccessExpiresAt: null as number | null,
+        scopes: [] as string[],
+        accessToken: row.access_token as string,
+        longLivedToken: null as string | null,
+        longLivedExpiresAt: null as number | null,
+        extendError: undefined as string | undefined,
+        error: undefined as string | undefined,
+      };
+
       try {
         const r = await fbGet<any>("/debug_token", {
           input_token: row.access_token,
           access_token: row.access_token,
         });
         const d = r?.data ?? {};
-        out[row.id] = {
-          isValid: !!d.is_valid,
-          expiresAt: typeof d.expires_at === "number" ? d.expires_at : null,
-          dataAccessExpiresAt: typeof d.data_access_expires_at === "number" ? d.data_access_expires_at : null,
-          scopes: Array.isArray(d.scopes) ? d.scopes : [],
-          error: d.error?.message,
-        };
+        base.isValid = !!d.is_valid;
+        base.expiresAt = typeof d.expires_at === "number" ? d.expires_at : null;
+        base.dataAccessExpiresAt = typeof d.data_access_expires_at === "number" ? d.data_access_expires_at : null;
+        base.scopes = Array.isArray(d.scopes) ? d.scopes : [];
+        base.error = d.error?.message;
       } catch (e: any) {
-        out[row.id] = {
-          isValid: false,
-          expiresAt: null,
-          dataAccessExpiresAt: null,
-          scopes: [],
-          error: e?.message ?? "erro",
-        };
+        base.error = e?.message ?? "erro";
       }
+
+      // If token already never expires, it IS the long-lived version.
+      if (base.expiresAt === 0) {
+        base.longLivedToken = row.access_token;
+        base.longLivedExpiresAt = 0;
+      } else if (canExtend) {
+        try {
+          const r = await fbGet<any>("/oauth/access_token", {
+            grant_type: "fb_exchange_token",
+            client_id: appId!,
+            client_secret: appSecret!,
+            fb_exchange_token: row.access_token,
+          });
+          if (r?.access_token) {
+            base.longLivedToken = r.access_token;
+            base.longLivedExpiresAt = typeof r.expires_in === "number"
+              ? Math.floor(Date.now() / 1000) + r.expires_in
+              : 0;
+          }
+        } catch (e: any) {
+          base.extendError = e?.message ?? "falha ao estender";
+        }
+      } else {
+        base.extendError = "Configure FB_APP_ID e FB_APP_SECRET para estender tokens curtos.";
+      }
+
+      out[row.id] = base;
     }));
 
     return out;

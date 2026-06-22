@@ -9,7 +9,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
-import { Plus, Trash2, CheckCircle2, AlertTriangle, RefreshCw, Clock } from "lucide-react";
+import { Plus, Trash2, CheckCircle2, AlertTriangle, RefreshCw, Clock, Copy, Eye, EyeOff } from "lucide-react";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/_authenticated/pages")({
@@ -53,6 +53,7 @@ function PagesPage() {
   const [open, setOpen] = useState(false);
   const [token, setToken] = useState("");
   const [pageId, setPageId] = useState("");
+  const [revealed, setRevealed] = useState<Record<string, boolean>>({});
 
   const connect = useMutation({
     mutationFn: async () => {
@@ -125,34 +126,88 @@ function PagesPage() {
             exp?.tone === "warn" ? "border-warning/40 text-warning" :
             exp?.tone === "bad" ? "border-destructive/40 text-destructive" : "";
           return (
-            <div key={p.id} className="p-4 flex items-center gap-4">
-              <div className="size-12 rounded-full bg-muted overflow-hidden grid place-items-center">
-                {p.picture_url ? <img src={p.picture_url} alt="" className="w-full h-full object-cover" /> : <span className="text-muted-foreground text-xs">FB</span>}
-              </div>
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2 flex-wrap">
-                  <span className="font-medium">{p.name}</span>
-                  {p.is_active ? <Badge variant="outline" className="gap-1"><CheckCircle2 className="size-3 text-success" />ativa</Badge>
-                    : <Badge variant="destructive" className="gap-1"><AlertTriangle className="size-3" />inativa</Badge>}
-                  {exp && (
-                    <Badge variant="outline" className={`gap-1 ${toneClass}`} title={
-                      info?.expiresAt && info.expiresAt > 0
-                        ? `Expira em ${new Date(info.expiresAt * 1000).toLocaleString("pt-BR")}`
-                        : info?.expiresAt === 0 ? "Token de longa duração — não expira" : "Validade desconhecida"
-                    }>
-                      <Clock className="size-3" />
-                      {exp.tone === "never" ? "não expira" : `expira em ${exp.label}`}
-                    </Badge>
-                  )}
+            <div key={p.id} className="p-4 space-y-3">
+              <div className="flex items-center gap-4">
+                <div className="size-12 rounded-full bg-muted overflow-hidden grid place-items-center">
+                  {p.picture_url ? <img src={p.picture_url} alt="" className="w-full h-full object-cover" /> : <span className="text-muted-foreground text-xs">FB</span>}
                 </div>
-                <div className="text-xs text-muted-foreground">{p.category ?? "—"} · ID {p.fb_page_id}</div>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="font-medium">{p.name}</span>
+                    {p.is_active ? <Badge variant="outline" className="gap-1"><CheckCircle2 className="size-3 text-success" />ativa</Badge>
+                      : <Badge variant="destructive" className="gap-1"><AlertTriangle className="size-3" />inativa</Badge>}
+                    {exp && (
+                      <Badge variant="outline" className={`gap-1 ${toneClass}`} title={
+                        info?.expiresAt && info.expiresAt > 0
+                          ? `Expira em ${new Date(info.expiresAt * 1000).toLocaleString("pt-BR")}`
+                          : info?.expiresAt === 0 ? "Token de longa duração — não expira" : "Validade desconhecida"
+                      }>
+                        <Clock className="size-3" />
+                        {exp.tone === "never" ? "não expira" : `expira em ${exp.label}`}
+                      </Badge>
+                    )}
+                  </div>
+                  <div className="text-xs text-muted-foreground">{p.category ?? "—"} · ID {p.fb_page_id}</div>
+                </div>
+                <Button variant="ghost" size="icon" onClick={() => test.mutate(p.id)} title="Testar token"><RefreshCw className="size-4" /></Button>
+                <Button variant="ghost" size="icon" onClick={() => { if (confirm("Remover esta página?")) remove.mutate(p.id); }}><Trash2 className="size-4 text-destructive" /></Button>
               </div>
-              <Button variant="ghost" size="icon" onClick={() => test.mutate(p.id)} title="Testar token"><RefreshCw className="size-4" /></Button>
-              <Button variant="ghost" size="icon" onClick={() => { if (confirm("Remover esta página?")) remove.mutate(p.id); }}><Trash2 className="size-4 text-destructive" /></Button>
+              {info && (
+                <div className="ml-16 space-y-2">
+                  <TokenRow
+                    label="Token enviado"
+                    token={info.accessToken}
+                    revealed={revealed[`${p.id}:sent`]}
+                    onToggle={() => setRevealed(s => ({ ...s, [`${p.id}:sent`]: !s[`${p.id}:sent`] }))}
+                  />
+                  <TokenRow
+                    label="Token estendido (longa duração)"
+                    token={info.longLivedToken}
+                    placeholder={info.extendError ?? "—"}
+                    revealed={revealed[`${p.id}:ext`]}
+                    onToggle={() => setRevealed(s => ({ ...s, [`${p.id}:ext`]: !s[`${p.id}:ext`] }))}
+                  />
+                </div>
+              )}
             </div>
           );
         })}
       </div>
+    </div>
+  );
+}
+
+function TokenRow({
+  label, token, placeholder, revealed, onToggle,
+}: {
+  label: string;
+  token: string | null;
+  placeholder?: string;
+  revealed: boolean;
+  onToggle: () => void;
+}) {
+  const display = !token
+    ? (placeholder ?? "—")
+    : revealed
+      ? token
+      : `${token.slice(0, 14)}${"•".repeat(20)}${token.slice(-6)}`;
+  const copy = async () => {
+    if (!token) return;
+    await navigator.clipboard.writeText(token);
+    toast.success(`${label} copiado`);
+  };
+  return (
+    <div className="flex items-center gap-2">
+      <div className="text-xs text-muted-foreground w-44 shrink-0">{label}</div>
+      <code className="flex-1 text-[11px] font-mono bg-muted/40 rounded px-2 py-1 truncate" title={revealed && token ? token : undefined}>
+        {display}
+      </code>
+      <Button variant="ghost" size="icon" className="size-7" onClick={onToggle} disabled={!token} title={revealed ? "Ocultar" : "Mostrar"}>
+        {revealed ? <EyeOff className="size-3.5" /> : <Eye className="size-3.5" />}
+      </Button>
+      <Button variant="ghost" size="icon" className="size-7" onClick={copy} disabled={!token} title="Copiar">
+        <Copy className="size-3.5" />
+      </Button>
     </div>
   );
 }
