@@ -78,17 +78,17 @@ export const Route = createFileRoute("/api/public/cron/scheduler")({
           // Only pending targets — published/publishing/failed are skipped.
           const { data: targets } = await supabaseAdmin
             .from("post_targets").select("id,page_id").eq("post_id", post.id).eq("status", "pending");
-          let ok = 0, fl = 0;
-          for (const t of targets ?? []) {
-            if (outOfTime()) break;
-            // Atomic claim of this target — prevents another tick from re-publishing it.
+
+          async function publishTarget(t: { id: string; page_id: string }) {
+            // Atomic claim — prevents another tick from re-publishing it.
             const { data: claimedT } = await supabaseAdmin
               .from("post_targets").update({ status: "publishing" })
               .eq("id", t.id).eq("status", "pending").select("id").maybeSingle();
-            if (!claimedT) continue; // already taken by another tick
+            if (!claimedT) return;
 
-            const { data: pg } = await supabaseAdmin.from("fb_pages").select("fb_page_id, access_token").eq("id", t.page_id).single();
-            if (!pg) { await supabaseAdmin.from("post_targets").update({ status: "failed", error: "página ausente" }).eq("id", t.id); fl++; continue; }
+            const { data: pg } = await supabaseAdmin.from("fb_pages").select("fb_page_id, access_token, is_active").eq("id", t.page_id).single();
+            if (!pg) { await supabaseAdmin.from("post_targets").update({ status: "failed", error: "página ausente" }).eq("id", t.id); return; }
+            if (pg.is_active === false) { await supabaseAdmin.from("post_targets").update({ status: "failed", error: "página inativa (token inválido)" }).eq("id", t.id); return; }
             try {
               const fbId = await publishFacebookPost({
                 type: post.type as any,
@@ -107,15 +107,18 @@ export const Route = createFileRoute("/api/public/cron/scheduler")({
                   run_at: new Date(Date.now() + c.delay_seconds * 1000).toISOString(),
                 });
               }
-              ok++;
             } catch (e: any) {
               const msg = e?.message ?? "";
               await supabaseAdmin.from("post_targets").update({ status: "failed", error: msg }).eq("id", t.id);
-              fl++;
-              if (/limit|#4|#17|#32|#613/i.test(msg)) break;
+              if (/limit|#4|#17|#32|#613/i.test(msg)) rateLimitHit = true;
             }
-            await new Promise((r) => setTimeout(r, 800));
           }
+
+          for (const group of chunk(targets ?? [], CONCURRENCY)) {
+            if (outOfTime() || rateLimitHit) break;
+            await Promise.all(group.map(publishTarget));
+          }
+
           // Finalize: are there still pending/publishing targets?
           const { data: remaining } = await supabaseAdmin.from("post_targets").select("status").eq("post_id", post.id);
           const stillPending = (remaining ?? []).some((r) => r.status === "pending" || r.status === "publishing");
@@ -132,8 +135,10 @@ export const Route = createFileRoute("/api/public/cron/scheduler")({
             await supabaseAdmin.from("post_targets").update({ status: "pending" }).eq("post_id", post.id).eq("status", "publishing");
             await supabaseAdmin.from("posts").update({ status: "scheduled" }).eq("id", post.id);
           }
-          processed++; failed += fl;
+          processed++;
+          if (rateLimitHit) break;
         }
+
 
 
         return Response.json({ ok: true, processed, failed, comments, pendingComments: (dueComments ?? []).length });
