@@ -20,6 +20,7 @@ const NAV = [
   { to: "/composer", label: "Agendar postagens", icon: FileEdit },
   { to: "/sheets", label: "Importar Planilha", icon: FileSpreadsheet },
   { to: "/queue", label: "Agenda", icon: CalendarClock },
+  { to: "/engagement", label: "Engajamento", icon: TrendingUp },
   { to: "/pages", label: "Páginas", icon: Layers },
   { to: "/extract", label: "Extrair tokens", icon: KeyRound },
   { to: "/groups", label: "Grupos", icon: Users },
