@@ -172,11 +172,9 @@ export const Route = createFileRoute("/api/public/cron/scheduler")({
                   run_at: new Date(Date.now() + c.delay_seconds * 1000).toISOString(),
                 });
               }
-              if (tmpl?.length) {
-                await supabaseAdmin.from("auto_comments")
-                  .update({ status: "posted", posted_at: new Date().toISOString() })
-                  .in("id", tmpl.map((x: any) => x.id));
-              }
+              // NÃO marcar template como posted aqui — outros targets do mesmo post
+              // ainda precisam encontrar o template para instanciar seus comentários.
+              // O template é marcado posted na finalização do post (quando todos targets terminam).
             } catch (e: any) {
               const msg = e?.message ?? "";
               const isRate = /limit|#4|#17|#32|#613/i.test(msg);
@@ -214,6 +212,10 @@ export const Route = createFileRoute("/api/public/cron/scheduler")({
               status: failedCount === 0 ? "published" : (okCount === 0 ? "failed" : "partial"),
               published_at: new Date().toISOString(), error: failedCount ? `${failedCount} falha(s)` : null,
             }).eq("id", post.id);
+            // Agora sim marcar templates de comentário como posted (todos os targets foram processados)
+            await supabaseAdmin.from("auto_comments")
+              .update({ status: "posted", posted_at: new Date().toISOString() })
+              .eq("post_id", post.id).is("target_id", null).eq("status", "pending");
           } else {
             // Reset any orphan 'publishing' targets back to 'pending' so next tick retries them,
             // then hand the post back to 'scheduled'.
