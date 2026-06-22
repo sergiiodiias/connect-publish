@@ -10,7 +10,8 @@ export type RefreshResult = {
   errors: { pageId: string; error: string }[];
 };
 
-export async function runRefreshTokens(): Promise<RefreshResult> {
+export async function runRefreshTokens(opts: { force?: boolean } = {}): Promise<RefreshResult> {
+  const force = !!opts.force;
   const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
 
   const { data: rows, error } = await supabaseAdmin
