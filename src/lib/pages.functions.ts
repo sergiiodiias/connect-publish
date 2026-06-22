@@ -108,6 +108,50 @@ export const deletePage = createServerFn({ method: "POST" })
     return { ok: true };
   });
 
+export const updatePageToken = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((d) =>
+    z.object({ pageId: z.string().uuid(), accessToken: z.string().min(20) }).parse(d),
+  )
+  .handler(async ({ data, context }) => {
+    const { supabase, userId } = context;
+    const { data: row, error: rowErr } = await supabase
+      .from("fb_pages").select("id, fb_page_id").eq("id", data.pageId).eq("user_id", userId).single();
+    if (rowErr || !row) throw new Error("Página não encontrada");
+
+    // Validate the new token belongs to this page
+    let me: any;
+    try {
+      me = await fbGet("/me", { access_token: data.accessToken, fields: "id,name,category" });
+    } catch (e: any) {
+      return { ok: false as const, error: `Token inválido: ${e?.message ?? "erro"}` };
+    }
+    if (me.id !== row.fb_page_id) {
+      return {
+        ok: false as const,
+        error: `Este token pertence à página ${me.name ?? me.id} (ID ${me.id}), não à página atual (ID ${row.fb_page_id}).`,
+      };
+    }
+
+    const { error } = await supabase
+      .from("fb_pages")
+      .update({
+        access_token: data.accessToken,
+        is_active: true,
+        last_checked_at: new Date().toISOString(),
+      })
+      .eq("id", data.pageId)
+      .eq("user_id", userId);
+    if (error) throw new Error(error.message);
+
+    await supabase.from("activity_logs").insert({
+      user_id: userId, action: "page.token_updated", entity: "fb_page", entity_id: data.pageId,
+      metadata: { name: me.name }, status: "ok",
+    });
+
+    return { ok: true as const };
+  });
+
 export const listPages = createServerFn({ method: "GET" })
   .middleware([requireSupabaseAuth])
   .handler(async ({ context }) => {
