@@ -3,6 +3,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { supabase } from "@/integrations/supabase/client";
 import { publishPostNow, cancelScheduled, deletePost, deleteAllPosts, getPostDetails } from "@/lib/posts.functions";
+import { verifyPostPublished } from "@/lib/verify-posts.functions";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -10,7 +11,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { format } from "date-fns";
-import { Send, Trash2, X, AlertCircle, Info, RefreshCw, ExternalLink, HelpCircle } from "lucide-react";
+import { Send, Trash2, X, AlertCircle, Info, RefreshCw, ExternalLink, HelpCircle, ShieldCheck, CheckCircle2, XCircle } from "lucide-react";
 import { toast } from "sonner";
 import { useState } from "react";
 
@@ -53,10 +54,12 @@ function QueuePage() {
   const delFn = useServerFn(deletePost);
   const delAllFn = useServerFn(deleteAllPosts);
   const detailsFn = useServerFn(getPostDetails);
+  const verifyFn = useServerFn(verifyPostPublished);
 
   const [status, setStatus] = useState<string>("all");
   const [search, setSearch] = useState("");
   const [detailId, setDetailId] = useState<string | null>(null);
+  const [verifyResults, setVerifyResults] = useState<Record<string, Awaited<ReturnType<typeof verifyPostPublished>> | undefined>>({});
 
   const { data: posts = [], isLoading } = useQuery({
     queryKey: ["posts", status, search],
@@ -76,6 +79,19 @@ function QueuePage() {
   const removeAll = useMutation({
     mutationFn: (s: string) => delAllFn({ data: { status: s as any } }),
     onSuccess: (r: any) => { toast.success(`${r.count} post(s) removido(s)`); qc.invalidateQueries({ queryKey: ["posts"] }); },
+    onError: (e: any) => toast.error(e.message),
+  });
+  const verify = useMutation({
+    mutationFn: (id: string) => verifyFn({ data: { postId: id } }),
+    onSuccess: (r, id) => {
+      setVerifyResults((prev) => ({ ...prev, [id]: r }));
+      const msg = `${r.verified}/${r.total} confirmadas · ${r.missing} sumiram · ${r.errored} erro${r.skipped ? ` · ${r.skipped} ainda pendentes` : ""}`;
+      if (r.missing + r.errored === 0 && r.verified > 0) toast.success(msg);
+      else if (r.verified === 0) toast.error(msg);
+      else toast.warning(msg);
+      qc.invalidateQueries({ queryKey: ["posts"] });
+      qc.invalidateQueries({ queryKey: ["post-details", id] });
+    },
     onError: (e: any) => toast.error(e.message),
   });
 
@@ -103,6 +119,7 @@ function QueuePage() {
             <SelectItem value="scheduled">Agendados</SelectItem>
             <SelectItem value="publishing">Publicando</SelectItem>
             <SelectItem value="published">Publicados</SelectItem>
+            <SelectItem value="partial">Parciais</SelectItem>
             <SelectItem value="failed">Falhou</SelectItem>
           </SelectContent>
         </Select>
@@ -142,7 +159,7 @@ function QueuePage() {
             <Tooltip>
               <TooltipTrigger asChild>
                 <button type="button" className="inline-flex items-center gap-1 cursor-help">
-                  <Badge variant={p.status === "failed" ? "destructive" : p.status === "published" ? "default" : "outline"}>{p.status}</Badge>
+                  <Badge variant={p.status === "failed" ? "destructive" : p.status === "published" ? "default" : p.status === "partial" ? "secondary" : "outline"}>{p.status}</Badge>
                   <HelpCircle className="size-3 text-muted-foreground" />
                 </button>
               </TooltipTrigger>
@@ -150,12 +167,24 @@ function QueuePage() {
                 {explainStatus(p)}
               </TooltipContent>
             </Tooltip>
-            {(p.status === "failed" || p.error) && (
+            {verifyResults[p.id] && (
+              <Badge variant="outline" className="text-[10px] gap-1">
+                <ShieldCheck className="size-3" /> {verifyResults[p.id]!.verified}/{verifyResults[p.id]!.total}
+              </Badge>
+            )}
+            {(p.status === "published" || p.status === "partial" || p.status === "failed") && (
+              <Button size="sm" variant="outline" disabled={verify.isPending && verify.variables === p.id}
+                onClick={() => verify.mutate(p.id)} title="Confirma no Facebook se o post existe em cada página">
+                <ShieldCheck className="size-3 mr-1" />
+                {verify.isPending && verify.variables === p.id ? "Verificando…" : "Verificar"}
+              </Button>
+            )}
+            {(p.status === "failed" || p.status === "partial" || p.error) && (
               <Button size="sm" variant="outline" onClick={() => setDetailId(p.id)}>
                 <Info className="size-3 mr-1" /> detalhes
               </Button>
             )}
-            {p.status === "failed" && (
+            {(p.status === "failed" || p.status === "partial") && (
               <Button size="sm" variant="outline" onClick={() => publish.mutate(p.id)}>
                 <RefreshCw className="size-3 mr-1" /> tentar novamente
               </Button>
@@ -185,37 +214,70 @@ function QueuePage() {
                   <div className="text-xs break-words">{details.data.post.error}</div>
                 </div>
               )}
-              <div className="text-sm font-medium">Páginas-alvo</div>
-              <div className="border border-border rounded-md divide-y divide-border">
+              <div className="flex items-center justify-between gap-2 flex-wrap">
+                <div className="text-sm font-medium">Páginas-alvo</div>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={verify.isPending && verify.variables === detailId}
+                  onClick={() => detailId && verify.mutate(detailId)}
+                >
+                  <ShieldCheck className="size-3 mr-1" />
+                  {verify.isPending && verify.variables === detailId ? "Verificando…" : "Verificar no Facebook"}
+                </Button>
+              </div>
+              {detailId && verifyResults[detailId] && (
+                <div className="rounded-md border border-border bg-muted/40 p-3 text-xs space-y-1">
+                  <div className="flex flex-wrap gap-3">
+                    <span className="inline-flex items-center gap-1 text-success"><CheckCircle2 className="size-3" /> {verifyResults[detailId]!.verified} confirmadas</span>
+                    {verifyResults[detailId]!.missing > 0 && <span className="inline-flex items-center gap-1 text-destructive"><XCircle className="size-3" /> {verifyResults[detailId]!.missing} sumiram</span>}
+                    {verifyResults[detailId]!.errored > 0 && <span className="inline-flex items-center gap-1 text-amber-600"><AlertCircle className="size-3" /> {verifyResults[detailId]!.errored} erro</span>}
+                    {verifyResults[detailId]!.skipped > 0 && <span className="text-muted-foreground">{verifyResults[detailId]!.skipped} ainda pendentes</span>}
+                  </div>
+                </div>
+              )}
+              <div className="border border-border rounded-md divide-y divide-border max-h-96 overflow-y-auto">
                 {details.data.targets.length === 0 && (
                   <div className="p-3 text-xs text-muted-foreground">Nenhuma página-alvo encontrada.</div>
                 )}
-                {details.data.targets.map((t: any) => (
-                  <div key={t.id} className="p-3 space-y-1">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <span className="text-sm font-medium">{t.fb_pages?.name ?? "(página removida)"}</span>
-                      <Badge variant={t.status === "failed" ? "destructive" : t.status === "published" ? "default" : "outline"} className="text-[10px]">
-                        {t.status}
-                      </Badge>
-                      {t.fb_post_id && (
-                        <a
-                          href={`https://www.facebook.com/${t.fb_post_id}`}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="text-xs text-primary hover:underline inline-flex items-center gap-1"
-                        >
-                          <ExternalLink className="size-3" /> ver no Facebook
-                        </a>
+                {details.data.targets.map((t: any) => {
+                  const vr = detailId ? verifyResults[detailId]?.results.find((x) => x.targetId === t.id) : undefined;
+                  return (
+                    <div key={t.id} className="p-3 space-y-1">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="text-sm font-medium">{t.fb_pages?.name ?? "(página removida)"}</span>
+                        <Badge variant={t.status === "failed" || t.status === "missing" ? "destructive" : t.status === "published" ? "default" : "outline"} className="text-[10px]">
+                          {t.status}
+                        </Badge>
+                        {vr && (
+                          <Badge
+                            variant={vr.status === "verified" ? "default" : vr.status === "missing" ? "destructive" : "outline"}
+                            className="text-[10px] gap-1"
+                          >
+                            {vr.status === "verified" ? <CheckCircle2 className="size-3" /> : vr.status === "missing" ? <XCircle className="size-3" /> : <AlertCircle className="size-3" />}
+                            {vr.status}
+                          </Badge>
+                        )}
+                        {(vr?.permalink || t.fb_post_id) && (
+                          <a
+                            href={vr?.permalink ?? `https://www.facebook.com/${t.fb_post_id}`}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="text-xs text-primary hover:underline inline-flex items-center gap-1"
+                          >
+                            <ExternalLink className="size-3" /> ver no Facebook
+                          </a>
+                        )}
+                      </div>
+                      {(t.error || vr?.message) && (
+                        <div className="text-xs text-destructive break-words flex items-start gap-1">
+                          <AlertCircle className="size-3 mt-0.5 shrink-0" />
+                          {vr?.message ?? t.error}
+                        </div>
                       )}
                     </div>
-                    {t.error && (
-                      <div className="text-xs text-destructive break-words flex items-start gap-1">
-                        <AlertCircle className="size-3 mt-0.5 shrink-0" />
-                        {t.error}
-                      </div>
-                    )}
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             </div>
           )}

@@ -433,9 +433,20 @@ export type Database = {
     Enums: {
       app_role: "admin" | "user"
       comment_status: "pending" | "posted" | "failed"
-      post_status: "draft" | "scheduled" | "publishing" | "published" | "failed"
+      post_status:
+        | "draft"
+        | "scheduled"
+        | "publishing"
+        | "published"
+        | "failed"
+        | "partial"
       post_type: "text" | "photo" | "video" | "link"
-      target_status: "pending" | "publishing" | "published" | "failed"
+      target_status:
+        | "pending"
+        | "publishing"
+        | "published"
+        | "failed"
+        | "missing"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -565,9 +576,22 @@ export const Constants = {
     Enums: {
       app_role: ["admin", "user"],
       comment_status: ["pending", "posted", "failed"],
-      post_status: ["draft", "scheduled", "publishing", "published", "failed"],
+      post_status: [
+        "draft",
+        "scheduled",
+        "publishing",
+        "published",
+        "failed",
+        "partial",
+      ],
       post_type: ["text", "photo", "video", "link"],
-      target_status: ["pending", "publishing", "published", "failed"],
+      target_status: [
+        "pending",
+        "publishing",
+        "published",
+        "failed",
+        "missing",
+      ],
     },
   },
 } as const
