@@ -179,3 +179,43 @@ export const readSheet = createServerFn({ method: "POST" })
 
     return { rows, sheetName, tabs };
   });
+
+const DRIVE_GATEWAY = "https://connector-gateway.lovable.dev/google_drive/drive/v3";
+
+export const checkDriveFiles = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((d) =>
+    z.object({ filenames: z.array(z.string().min(1)).max(500) }).parse(d),
+  )
+  .handler(async ({ data }) => {
+    const lovKey = process.env.LOVABLE_API_KEY;
+    const gKey = process.env.GOOGLE_DRIVE_API_KEY;
+    if (!lovKey || !gKey) throw new Error("Conexão com Google Drive não configurada");
+    const headers = {
+      Authorization: `Bearer ${lovKey}`,
+      "X-Connection-Api-Key": gKey,
+    };
+    const unique = Array.from(new Set(data.filenames));
+    const result: Record<string, boolean> = {};
+
+    // Run in batches of 8 to avoid hammering the gateway
+    const batchSize = 8;
+    for (let i = 0; i < unique.length; i += batchSize) {
+      const batch = unique.slice(i, i + batchSize);
+      await Promise.all(
+        batch.map(async (name) => {
+          try {
+            const q = encodeURIComponent(`name = '${name.replace(/'/g, "\\'")}' and trashed = false`);
+            const url = `${DRIVE_GATEWAY}/files?q=${q}&fields=files(id)&pageSize=1&includeItemsFromAllDrives=true&supportsAllDrives=true`;
+            const r = await fetch(url, { headers });
+            if (!r.ok) { result[name] = false; return; }
+            const j: any = await r.json();
+            result[name] = Array.isArray(j.files) && j.files.length > 0;
+          } catch {
+            result[name] = false;
+          }
+        }),
+      );
+    }
+    return { result };
+  });
