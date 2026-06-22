@@ -38,7 +38,7 @@ export const migrateScheduledToFacebook = createServerFn({ method: "POST" })
     const { data: targetsRaw, error: terr } = await supabase
       .from("post_targets")
       .select(`
-        id, page_id, status, fb_post_id,
+        id, page_id, status, fb_post_id, post_id,
         posts!inner(id, type, message, link_url, media_urls, scheduled_at, user_id)
       `)
       .eq("user_id", userId)
@@ -48,6 +48,7 @@ export const migrateScheduledToFacebook = createServerFn({ method: "POST" })
       .lte("posts.scheduled_at", maxIso)
       .order("scheduled_at", { foreignTable: "posts", ascending: true })
       .limit(BATCH);
+
     if (terr) throw new Error(terr.message);
 
     type Job = {
