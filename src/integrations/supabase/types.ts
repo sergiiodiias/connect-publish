@@ -233,6 +233,91 @@ export type Database = {
         }
         Relationships: []
       }
+      post_insights: {
+        Row: {
+          captured_at: string
+          comments: number
+          created_at: string
+          engagement_score: number
+          fb_post_id: string
+          id: string
+          impressions: number | null
+          likes: number
+          page_id: string
+          post_id: string
+          post_target_id: string
+          raw: Json | null
+          reach: number | null
+          reactions: number
+          shares: number
+          snapshot_type: string
+          user_id: string
+          video_views: number | null
+        }
+        Insert: {
+          captured_at?: string
+          comments?: number
+          created_at?: string
+          engagement_score?: number
+          fb_post_id: string
+          id?: string
+          impressions?: number | null
+          likes?: number
+          page_id: string
+          post_id: string
+          post_target_id: string
+          raw?: Json | null
+          reach?: number | null
+          reactions?: number
+          shares?: number
+          snapshot_type: string
+          user_id: string
+          video_views?: number | null
+        }
+        Update: {
+          captured_at?: string
+          comments?: number
+          created_at?: string
+          engagement_score?: number
+          fb_post_id?: string
+          id?: string
+          impressions?: number | null
+          likes?: number
+          page_id?: string
+          post_id?: string
+          post_target_id?: string
+          raw?: Json | null
+          reach?: number | null
+          reactions?: number
+          shares?: number
+          snapshot_type?: string
+          user_id?: string
+          video_views?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "post_insights_page_id_fkey"
+            columns: ["page_id"]
+            isOneToOne: false
+            referencedRelation: "fb_pages"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "post_insights_post_id_fkey"
+            columns: ["post_id"]
+            isOneToOne: false
+            referencedRelation: "posts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "post_insights_post_target_id_fkey"
+            columns: ["post_target_id"]
+            isOneToOne: false
+            referencedRelation: "post_targets"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       post_targets: {
         Row: {
           created_at: string
