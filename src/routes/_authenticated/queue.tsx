@@ -201,6 +201,17 @@ function QueuePage() {
     },
     onError: (e: any) => toast.error(e.message),
   });
+  const importScheduled = useMutation({
+    mutationFn: (pid?: string) => importFn({ data: pid ? { pageId: pid } : {} }),
+    onSuccess: (r: any) => {
+      const errMsg = r.errors?.length ? ` · ${r.errors.length} erro(s)` : "";
+      if (r.imported === 0 && r.skipped === 0) toast.info("Nenhum post agendado encontrado no Facebook");
+      else toast.success(`${r.imported} importado(s) · ${r.skipped} já existiam${errMsg}`);
+      if (r.errors?.length) console.warn("Import errors:", r.errors);
+      qc.invalidateQueries({ queryKey: ["queue"] });
+    },
+    onError: (e: any) => toast.error(e.message),
+  });
 
   const details = useQuery({
     queryKey: ["post-details", detailId],
