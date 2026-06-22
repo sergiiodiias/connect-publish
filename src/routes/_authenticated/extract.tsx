@@ -19,63 +19,72 @@ type Extracted = { id: string; name: string; token: string; category?: string };
 function extractTokens(input: string): Extracted[] {
   if (!input.trim()) return [];
 
-  // 1) Try strict JSON parse (handles /me/accounts payloads directly)
-  const fromJson: Extracted[] = [];
-  const tryJson = (raw: string) => {
-    try {
-      const obj = JSON.parse(raw);
-      const walk = (n: any) => {
-        if (!n) return;
-        if (Array.isArray(n)) return n.forEach(walk);
-        if (typeof n === "object") {
-          if (typeof n.access_token === "string" && typeof n.id === "string") {
-            fromJson.push({
-              id: n.id,
-              name: typeof n.name === "string" ? n.name : "(sem nome)",
-              token: n.access_token,
-              category: typeof n.category === "string" ? n.category : undefined,
-            });
-          }
-          for (const k of Object.keys(n)) walk(n[k]);
-        }
-      };
-      walk(obj);
-    } catch {}
+  const results: Extracted[] = [];
+
+  // Helper: walk a parsed JS value and collect every object that has access_token + id at its OWN level
+  const collect = (n: any) => {
+    if (!n) return;
+    if (Array.isArray(n)) return n.forEach(collect);
+    if (typeof n === "object") {
+      if (typeof n.access_token === "string" && typeof n.id === "string") {
+        results.push({
+          id: n.id,
+          name: typeof n.name === "string" ? n.name : "(sem nome)",
+          token: n.access_token,
+          category: typeof n.category === "string" ? n.category : undefined,
+        });
+      }
+      for (const k of Object.keys(n)) collect(n[k]);
+    }
   };
-  tryJson(input);
-  // Some users paste a snippet starting with a "," — wrap it
-  if (fromJson.length === 0) tryJson(`{"data":[${input.replace(/^[\s,]+|[\s,]+$/g, "")}]}`);
-  if (fromJson.length > 0) {
-    return dedupe(fromJson);
+
+  // 1) Try strict parse of whole input
+  try { collect(JSON.parse(input)); } catch {}
+
+  // 2) Extract every balanced { ... } block from the raw text and parse individually.
+  //    This handles Graph API Explorer dumps that wrap JSON with "==== Query / Response" headers.
+  if (results.length === 0) {
+    const text = input;
+    for (let i = 0; i < text.length; i++) {
+      if (text[i] !== "{") continue;
+      // Find matching closing brace, respecting strings
+      let depth = 0;
+      let inStr = false;
+      let esc = false;
+      let end = -1;
+      for (let j = i; j < text.length; j++) {
+        const ch = text[j];
+        if (inStr) {
+          if (esc) esc = false;
+          else if (ch === "\\") esc = true;
+          else if (ch === '"') inStr = false;
+        } else {
+          if (ch === '"') inStr = true;
+          else if (ch === "{") depth++;
+          else if (ch === "}") {
+            depth--;
+            if (depth === 0) { end = j; break; }
+          }
+        }
+      }
+      if (end === -1) break;
+      const slice = text.slice(i, end + 1);
+      // Only try parsing blocks that mention access_token to save work
+      if (slice.includes("access_token")) {
+        try {
+          const obj = JSON.parse(slice);
+          const before = results.length;
+          collect(obj);
+          if (results.length > before) {
+            // Skip past this block to avoid reparsing nested ones we already collected
+            i = end;
+            continue;
+          }
+        } catch {}
+      }
+    }
   }
 
-  // 2) Regex fallback for malformed / partial paste
-  const results: Extracted[] = [];
-  const tokenRe = /"access_token"\s*:\s*"([A-Za-z0-9_\-]+)"/g;
-  let m: RegExpExecArray | null;
-  while ((m = tokenRe.exec(input))) {
-    const token = m[1];
-    const start = Math.max(0, m.index - 2000);
-    const end = Math.min(input.length, m.index + 2000);
-    const window = input.slice(start, end);
-    const idM = /"id"\s*:\s*"(\d{6,})"/g;
-    const nameM = /"name"\s*:\s*"([^"]+)"/;
-    const catM = /"category"\s*:\s*"([^"]+)"/;
-    // Find id closest to token offset within the window
-    let bestId = "";
-    let bestDist = Infinity;
-    const offsetInWindow = m.index - start;
-    let im: RegExpExecArray | null;
-    while ((im = idM.exec(window))) {
-      const d = Math.abs(im.index - offsetInWindow);
-      if (d < bestDist) { bestDist = d; bestId = im[1]; }
-    }
-    const n = nameM.exec(window);
-    const c = catM.exec(window);
-    if (bestId) {
-      results.push({ id: bestId, name: n?.[1] ?? "(sem nome)", token, category: c?.[1] });
-    }
-  }
   return dedupe(results);
 }
 
