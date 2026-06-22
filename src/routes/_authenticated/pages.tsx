@@ -54,6 +54,25 @@ function PagesPage() {
   const [token, setToken] = useState("");
   const [pageId, setPageId] = useState("");
   const [revealed, setRevealed] = useState<Record<string, boolean>>({});
+  const [updateFor, setUpdateFor] = useState<{ id: string; name: string } | null>(null);
+  const [newToken, setNewToken] = useState("");
+  const updateTokenFn = useServerFn(updatePageToken);
+  const updateMut = useMutation({
+    mutationFn: async () => {
+      if (!updateFor) throw new Error("Nenhuma página");
+      const r = await updateTokenFn({ data: { pageId: updateFor.id, accessToken: newToken.trim() } });
+      if (!r.ok) throw new Error(r.error);
+      return r;
+    },
+    onSuccess: () => {
+      toast.success("Token atualizado");
+      setUpdateFor(null);
+      setNewToken("");
+      qc.invalidateQueries({ queryKey: ["pages"] });
+      qc.invalidateQueries({ queryKey: ["pages-token-info"] });
+    },
+    onError: (e: any) => toast.error(e.message),
+  });
 
   const connect = useMutation({
     mutationFn: async () => {
