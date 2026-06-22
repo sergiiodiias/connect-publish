@@ -211,7 +211,13 @@ function BulkUploadPage() {
 
       // 3) Cria job (que cria posts agendados; cron publica)
       const r = await createJobFn({ data: { slots: resolved } });
-      toast.success(`Job criado: ${r.success} agendamento(s) · ${r.failed} falha(s)`);
+      console.log("[bulk] createBulkJob result:", r);
+      if (!r || typeof r !== "object") {
+        throw new Error("Resposta inválida do servidor ao criar o job. Veja o console.");
+      }
+      const ok = (r as any).success ?? 0;
+      const fail = (r as any).failed ?? 0;
+      toast.success(`Job criado: ${ok} agendamento(s)${fail ? ` · ${fail} falha(s)` : ""}`);
       // reset parcial
       setImported(null); setLocalMedia(new Map());
     } catch (e: any) {
