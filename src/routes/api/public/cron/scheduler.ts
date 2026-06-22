@@ -389,10 +389,11 @@ export const Route = createFileRoute("/api/public/cron/scheduler")({
 
           async function publishTarget(t: { id: string; page_id: string; attempts: number }) {
             if (fallbackPublishedPages.has(t.page_id)) return;
+            const nowStamp = new Date().toISOString();
             // Atomic claim — prevents another tick from re-publishing it.
             const { data: claimedT } = await supabaseAdmin
               .from("post_targets")
-              .update({ status: "publishing" })
+              .update({ status: "publishing", last_attempt_at: nowStamp } as any)
               .eq("id", t.id)
               .eq("status", "pending")
               .select("id,attempts")
@@ -400,7 +401,34 @@ export const Route = createFileRoute("/api/public/cron/scheduler")({
             if (!claimedT) return;
 
             const nextAttempt = (claimedT.attempts ?? 0) + 1;
-            const nowStamp = new Date().toISOString();
+            const pageCooldownIso = new Date(Date.now() - PAGE_FALLBACK_COOLDOWN_MS).toISOString();
+            const nextCooldownIso = new Date(Date.now() + PAGE_FALLBACK_COOLDOWN_MS).toISOString();
+            const { data: competingTargets } = await supabaseAdmin
+              .from("post_targets")
+              .select("id,last_attempt_at")
+              .eq("page_id", t.page_id)
+              .eq("status", "publishing")
+              .gte("last_attempt_at", pageCooldownIso)
+              .neq("id", t.id);
+            const earlierCompetingTarget = (competingTargets ?? []).some((row: any) => {
+              const otherStamp = row.last_attempt_at ?? "";
+              return otherStamp < nowStamp || (otherStamp === nowStamp && row.id < t.id);
+            });
+            const { data: recentPublishedTarget } = await supabaseAdmin
+              .from("post_targets")
+              .select("id")
+              .eq("page_id", t.page_id)
+              .eq("status", "published")
+              .gte("published_at", pageCooldownIso)
+              .neq("id", t.id)
+              .limit(1);
+            if (earlierCompetingTarget || recentPublishedTarget?.length) {
+              await supabaseAdmin
+                .from("post_targets")
+                .update({ status: "pending", next_retry_at: nextCooldownIso } as any)
+                .eq("id", t.id);
+              return;
+            }
             const { data: pg } = await supabaseAdmin
               .from("fb_pages")
               .select("fb_page_id, access_token, is_active")
