@@ -165,6 +165,20 @@ export const deletePost = createServerFn({ method: "POST" })
     return { ok: true };
   });
 
+export const deleteAllPosts = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((d) =>
+    z.object({ status: z.enum(["all", "draft", "scheduled", "publishing", "published", "failed"]).default("all") }).parse(d),
+  )
+  .handler(async ({ data, context }) => {
+    const { supabase, userId } = context;
+    let q = supabase.from("posts").delete().eq("user_id", userId);
+    if (data.status !== "all") q = q.eq("status", data.status as any);
+    const { error, count } = await q.select("id", { count: "exact", head: true });
+    if (error) throw new Error(error.message);
+    return { ok: true, count: count ?? 0 };
+  });
+
 export const getPostDetails = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((d) => z.object({ postId: z.string().uuid() }).parse(d))
