@@ -217,6 +217,21 @@ function CommentsPage() {
             Atualizar
           </Button>
           <Button
+            variant="secondary"
+            size="sm"
+            onClick={() => {
+              const v = prompt("Reprocessar comentários travados/falhados há mais de quantos minutos?", "10");
+              if (!v) return;
+              const m = parseInt(v, 10);
+              if (!Number.isFinite(m) || m < 0) return toast.error("Valor inválido");
+              retryStuck.mutate(m);
+            }}
+            disabled={retryStuck.isPending}
+          >
+            <RefreshCw className={`size-4 mr-1 ${retryStuck.isPending ? "animate-spin" : ""}`} />
+            Reprocessar travados
+          </Button>
+          <Button
             variant="destructive"
             size="sm"
             onClick={() => {
