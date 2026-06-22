@@ -344,6 +344,48 @@ export type Database = {
         }
         Relationships: []
       }
+      upload_jobs: {
+        Row: {
+          completed_at: string | null
+          created_at: string
+          error_count: number
+          errors: Json
+          id: string
+          payload: Json | null
+          processed_count: number
+          status: string
+          success_count: number
+          total_count: number
+          user_id: string
+        }
+        Insert: {
+          completed_at?: string | null
+          created_at?: string
+          error_count?: number
+          errors?: Json
+          id?: string
+          payload?: Json | null
+          processed_count?: number
+          status?: string
+          success_count?: number
+          total_count?: number
+          user_id: string
+        }
+        Update: {
+          completed_at?: string | null
+          created_at?: string
+          error_count?: number
+          errors?: Json
+          id?: string
+          payload?: Json | null
+          processed_count?: number
+          status?: string
+          success_count?: number
+          total_count?: number
+          user_id?: string
+        }
+        Relationships: []
+      }
       user_roles: {
         Row: {
           created_at: string
@@ -376,6 +418,16 @@ export type Database = {
           _user_id: string
         }
         Returns: boolean
+      }
+      increment_job_counts: {
+        Args: {
+          p_error_inc: number
+          p_job_id: string
+          p_processed: number
+          p_should_complete: boolean
+          p_success_inc: number
+        }
+        Returns: undefined
       }
     }
     Enums: {
