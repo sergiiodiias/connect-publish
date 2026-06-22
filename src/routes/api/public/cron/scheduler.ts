@@ -22,15 +22,23 @@ export const Route = createFileRoute("/api/public/cron/scheduler")({
         const MAX_RUN_MS = 45_000;
         const outOfTime = () => Date.now() - startedAt > MAX_RUN_MS;
 
+        const CONCURRENCY = 5;
+        const chunk = <T,>(arr: T[], size: number): T[][] => {
+          const out: T[][] = [];
+          for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size));
+          return out;
+        };
+        let rateLimitHit = false;
+
         // 1) Auto-comments due — process FIRST so they don't starve behind the publish loop.
         const { data: dueComments } = await supabaseAdmin
-          .from("auto_comments").select("*").eq("status", "pending").not("target_id", "is", null).lte("run_at", nowIso).limit(40);
-        for (const c of dueComments ?? []) {
-          if (outOfTime()) break;
+          .from("auto_comments").select("*").eq("status", "pending").not("target_id", "is", null).lte("run_at", nowIso).limit(60);
+
+        async function postComment(c: any) {
           const { data: target } = await supabaseAdmin.from("post_targets").select("fb_post_id, page_id").eq("id", c.target_id!).single();
-          if (!target?.fb_post_id) { await supabaseAdmin.from("auto_comments").update({ status: "failed", error: "post não publicado" }).eq("id", c.id); continue; }
+          if (!target?.fb_post_id) { await supabaseAdmin.from("auto_comments").update({ status: "failed", error: "post não publicado" }).eq("id", c.id); return; }
           const { data: pg } = await supabaseAdmin.from("fb_pages").select("access_token").eq("id", target.page_id).single();
-          if (!pg) { await supabaseAdmin.from("auto_comments").update({ status: "failed", error: "página ausente" }).eq("id", c.id); continue; }
+          if (!pg) { await supabaseAdmin.from("auto_comments").update({ status: "failed", error: "página ausente" }).eq("id", c.id); return; }
           try {
             const r: any = await fbPost(`/${target.fb_post_id}/comments`, { access_token: pg.access_token, message: c.message });
             await supabaseAdmin.from("auto_comments").update({ status: "posted", fb_comment_id: r.id, posted_at: new Date().toISOString() }).eq("id", c.id);
@@ -38,13 +46,15 @@ export const Route = createFileRoute("/api/public/cron/scheduler")({
           } catch (e: any) {
             const msg = e?.message ?? "";
             await supabaseAdmin.from("auto_comments").update({ status: "failed", error: msg }).eq("id", c.id);
-            if (/limit|#4|#17|#32|#613/i.test(msg)) {
-              // Hit rate limit — stop comments this tick, let next minute retry.
-              break;
-            }
+            if (/limit|#4|#17|#32|#613/i.test(msg)) rateLimitHit = true;
           }
-          await new Promise((r) => setTimeout(r, 800));
         }
+
+        for (const group of chunk(dueComments ?? [], CONCURRENCY)) {
+          if (outOfTime() || rateLimitHit) break;
+          await Promise.all(group.map(postComment));
+        }
+
 
         // 2) Scheduled posts whose time has come.
         // Atomic claim: only pick posts still 'scheduled' and flip them to 'publishing' in one update,
