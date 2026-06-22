@@ -2,6 +2,15 @@
 export const FB_GRAPH = "https://graph.facebook.com/v21.0";
 
 export type FbErr = { message: string; type?: string; code?: number; error_subcode?: number };
+const FB_TIMEOUT_MS = 25_000;
+
+function timeoutSignal(ms = FB_TIMEOUT_MS) {
+  const timeout = (AbortSignal as any).timeout as ((ms: number) => AbortSignal) | undefined;
+  if (timeout) return timeout(ms);
+  const controller = new AbortController();
+  setTimeout(() => controller.abort(), ms);
+  return controller.signal;
+}
 
 function fmtErr(json: any, fallback: string): string {
   const e = json?.error;
@@ -13,7 +22,7 @@ function fmtErr(json: any, fallback: string): string {
 export async function fbGet<T = any>(path: string, params: Record<string, string>): Promise<T> {
   const url = new URL(FB_GRAPH + path);
   for (const [k, v] of Object.entries(params)) url.searchParams.set(k, v);
-  const res = await fetch(url.toString());
+  const res = await fetch(url.toString(), { signal: timeoutSignal() });
   const json: any = await res.json();
   if (!res.ok || json.error) throw new Error(fmtErr(json, `Graph GET ${path} ${res.status}`));
   return json;
@@ -21,14 +30,14 @@ export async function fbGet<T = any>(path: string, params: Record<string, string
 
 export async function fbPost<T = any>(path: string, params: Record<string, string>): Promise<T> {
   const body = new URLSearchParams(params);
-  const res = await fetch(FB_GRAPH + path, { method: "POST", body });
+  const res = await fetch(FB_GRAPH + path, { method: "POST", body, signal: timeoutSignal() });
   const json: any = await res.json();
   if (!res.ok || json.error) throw new Error(fmtErr(json, `Graph POST ${path} ${res.status}`));
   return json;
 }
 
 export async function fbPostMultipart<T = any>(path: string, form: FormData): Promise<T> {
-  const res = await fetch(FB_GRAPH + path, { method: "POST", body: form });
+  const res = await fetch(FB_GRAPH + path, { method: "POST", body: form, signal: timeoutSignal(45_000) });
   const json: any = await res.json();
   if (!res.ok || json.error) throw new Error(fmtErr(json, `Graph multipart POST ${path} ${res.status}`));
   return json;
@@ -36,7 +45,7 @@ export async function fbPostMultipart<T = any>(path: string, form: FormData): Pr
 
 export async function fbDelete<T = any>(path: string, params: Record<string, string>): Promise<T> {
   const url = FB_GRAPH + path + "?" + new URLSearchParams(params).toString();
-  const res = await fetch(url, { method: "DELETE" });
+  const res = await fetch(url, { method: "DELETE", signal: timeoutSignal() });
   const json: any = await res.json();
   if (!res.ok || json.error) throw new Error(fmtErr(json, `Graph DELETE ${path} ${res.status}`));
   return json;

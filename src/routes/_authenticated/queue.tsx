@@ -247,7 +247,7 @@ function QueuePage() {
   });
 
   const migrateToFb = useMutation({
-    mutationFn: () => migrateFn(),
+    mutationFn: () => migrateFn({ data: {} }),
     onSuccess: (r: any) => {
       if (!r || typeof r !== "object") {
         toast.error("Resposta inválida do servidor — recarregue a página e tente de novo.");
