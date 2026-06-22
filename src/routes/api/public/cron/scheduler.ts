@@ -133,11 +133,16 @@ export const Route = createFileRoute("/api/public/cron/scheduler")({
 
 
         async function postComment(c: any) {
+          if (c.fb_comment_id) {
+            await supabaseAdmin.from("auto_comments").update({ status: "posted", error: null }).eq("id", c.id);
+            return;
+          }
           // Atomic claim: only one cron tick can flip pending -> publishing.
           const { data: claimed } = await supabaseAdmin
             .from("auto_comments")
             .update({ status: "publishing" } as any)
             .eq("id", c.id).eq("status", "pending")
+            .is("fb_comment_id", null)
             .select("id").maybeSingle();
           if (!claimed) return;
           const { data: target } = await supabaseAdmin.from("post_targets").select("fb_post_id, page_id").eq("id", c.target_id!).single();
@@ -145,6 +150,21 @@ export const Route = createFileRoute("/api/public/cron/scheduler")({
           const { data: pg } = await supabaseAdmin.from("fb_pages").select("access_token").eq("id", target.page_id).single();
           if (!pg) { await supabaseAdmin.from("auto_comments").update({ status: "failed", error: "página ausente" }).eq("id", c.id); return; }
           try {
+            const existing: any = await fbGet(`/${target.fb_post_id}/comments`, {
+              access_token: pg.access_token,
+              fields: "id,message,from{name,id}",
+              limit: "25",
+              order: "reverse_chronological",
+            });
+            const wanted = normalizeComment(c.message ?? "");
+            const alreadyThere = (existing?.data ?? []).find((item: any) => normalizeComment(item?.message ?? "") === wanted);
+            if (alreadyThere?.id) {
+              await supabaseAdmin.from("auto_comments").update({
+                status: "posted", fb_comment_id: alreadyThere.id, posted_at: new Date().toISOString(), error: "comentário já existia no Facebook; não repostado",
+              }).eq("id", c.id);
+              comments++;
+              return;
+            }
             const r: any = await fbPost(`/${target.fb_post_id}/comments`, { access_token: pg.access_token, message: c.message });
             await supabaseAdmin.from("auto_comments").update({ status: "posted", fb_comment_id: r.id, posted_at: new Date().toISOString() }).eq("id", c.id);
             comments++;
