@@ -8,10 +8,38 @@ import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { format } from "date-fns";
-import { Send, Trash2, X, AlertCircle, Info, RefreshCw, ExternalLink } from "lucide-react";
+import { Send, Trash2, X, AlertCircle, Info, RefreshCw, ExternalLink, HelpCircle } from "lucide-react";
 import { toast } from "sonner";
 import { useState } from "react";
+
+function explainStatus(p: { status: string; scheduled_at: string | null; published_at: string | null; error: string | null }): string {
+  switch (p.status) {
+    case "draft":
+      return "Rascunho: ainda não foi agendado nem enviado ao Facebook. Clique em Publicar para enviar agora ou defina um horário.";
+    case "scheduled":
+      return p.scheduled_at
+        ? `Agendado para ${format(new Date(p.scheduled_at), "dd/MM/yyyy HH:mm")}. O cron interno vai chamar a Graph API (/{page-id}/feed, /photos ou /videos) no horário marcado.`
+        : "Agendado, mas sem horário definido — será publicado na próxima execução do cron.";
+    case "publishing":
+      return "Em publicação: a Graph API foi chamada e estamos aguardando a resposta de cada página-alvo. Se travar aqui, provavelmente uma das chamadas /feed ou /photos não respondeu.";
+    case "published":
+      return p.published_at
+        ? `Publicado em ${format(new Date(p.published_at), "dd/MM/yyyy HH:mm")}. A Graph API retornou um id de post para todas as páginas-alvo (post_targets.status = published, com fb_post_id salvo).`
+        : "Publicado: a Graph API confirmou o envio em todas as páginas-alvo.";
+    case "partial":
+      return "Parcial: a Graph API publicou em algumas páginas e falhou em outras. Veja em Detalhes qual página retornou erro (token, permissão ou mídia inacessível).";
+    case "failed":
+      return p.error
+        ? `Falhou: a Graph API retornou erro em todas as páginas. Motivo: ${p.error}`
+        : "Falhou: a Graph API rejeitou a publicação. Abra Detalhes para ver o código/subcódigo retornado por página.";
+    case "canceled":
+      return "Cancelado manualmente antes do horário agendado. Nenhuma chamada foi feita à Graph API.";
+    default:
+      return `Status: ${p.status}`;
+  }
+}
 
 export const Route = createFileRoute("/_authenticated/queue")({
   head: () => ({ meta: [{ title: "Agenda — PagePilot" }] }),
@@ -53,6 +81,7 @@ function QueuePage() {
 
   return (
     <div className="p-8 space-y-6">
+    <TooltipProvider delayDuration={150}>
       <div>
         <h1 className="text-2xl font-semibold tracking-tight">Agenda & fila</h1>
         <p className="text-sm text-muted-foreground">Acompanhe agendamentos, rascunhos e publicações.</p>
@@ -92,7 +121,17 @@ function QueuePage() {
                 </div>
               )}
             </div>
-            <Badge variant={p.status === "failed" ? "destructive" : p.status === "published" ? "default" : "outline"}>{p.status}</Badge>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button type="button" className="inline-flex items-center gap-1 cursor-help">
+                  <Badge variant={p.status === "failed" ? "destructive" : p.status === "published" ? "default" : "outline"}>{p.status}</Badge>
+                  <HelpCircle className="size-3 text-muted-foreground" />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent side="left" className="max-w-xs text-xs leading-relaxed">
+                {explainStatus(p)}
+              </TooltipContent>
+            </Tooltip>
             {(p.status === "failed" || p.error) && (
               <Button size="sm" variant="outline" onClick={() => setDetailId(p.id)}>
                 <Info className="size-3 mr-1" /> detalhes
@@ -164,6 +203,7 @@ function QueuePage() {
           )}
         </DialogContent>
       </Dialog>
+    </TooltipProvider>
     </div>
   );
 }
