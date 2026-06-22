@@ -165,18 +165,36 @@ function QueuePage() {
     },
   });
 
-  // Group by page
+  // Apply client-side filters (type, media)
+  const filteredRows = useMemo(() => {
+    return rows.filter((r) => {
+      if (typeFilter !== "all" && r.type !== typeFilter) return false;
+      if (mediaFilter === "with" && (!r.media_urls || r.media_urls.length === 0)) return false;
+      if (mediaFilter === "without" && r.media_urls && r.media_urls.length > 0) return false;
+      return true;
+    });
+  }, [rows, typeFilter, mediaFilter]);
+
+  const totalFiltered = filteredRows.length;
+  const totalPages = Math.max(1, Math.ceil(totalFiltered / PAGE_SIZE));
+  const safePage = Math.min(currentPage, totalPages);
+  const pagedRows = useMemo(
+    () => filteredRows.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE),
+    [filteredRows, safePage],
+  );
+
+  // Group paginated rows by page
   const groups = useMemo(() => {
     const map = new Map<string, { pageId: string; pageName: string; rows: Row[] }>();
-    for (const r of rows) {
+    for (const r of pagedRows) {
       const g = map.get(r.page_id) ?? { pageId: r.page_id, pageName: r.page_name, rows: [] };
       g.rows.push(r);
       map.set(r.page_id, g);
     }
     return [...map.values()].sort((a, b) => a.pageName.localeCompare(b.pageName));
-  }, [rows]);
+  }, [pagedRows]);
 
-  const totalPosts = rows.length;
+  const totalPosts = totalFiltered;
 
   const publish = useMutation({
     mutationFn: (id: string) => publishFn({ data: { postId: id } }),
