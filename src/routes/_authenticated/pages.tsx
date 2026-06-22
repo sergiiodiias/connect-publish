@@ -155,7 +155,6 @@ function PagesPage() {
         </div>
       </div>
 
-      <div className="rounded-xl border border-border bg-card divide-y divide-border">
       {(expiringSoon.length > 0 || expired.length > 0) && (
         <div className="rounded-lg border border-warning/40 bg-warning/5 p-4 text-sm">
           <div className="flex items-start gap-2">
