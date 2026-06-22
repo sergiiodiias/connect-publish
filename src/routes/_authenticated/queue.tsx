@@ -54,10 +54,12 @@ function QueuePage() {
   const delFn = useServerFn(deletePost);
   const delAllFn = useServerFn(deleteAllPosts);
   const detailsFn = useServerFn(getPostDetails);
+  const verifyFn = useServerFn(verifyPostPublished);
 
   const [status, setStatus] = useState<string>("all");
   const [search, setSearch] = useState("");
   const [detailId, setDetailId] = useState<string | null>(null);
+  const [verifyResults, setVerifyResults] = useState<Record<string, Awaited<ReturnType<typeof verifyPostPublished>> | undefined>>({});
 
   const { data: posts = [], isLoading } = useQuery({
     queryKey: ["posts", status, search],
@@ -77,6 +79,19 @@ function QueuePage() {
   const removeAll = useMutation({
     mutationFn: (s: string) => delAllFn({ data: { status: s as any } }),
     onSuccess: (r: any) => { toast.success(`${r.count} post(s) removido(s)`); qc.invalidateQueries({ queryKey: ["posts"] }); },
+    onError: (e: any) => toast.error(e.message),
+  });
+  const verify = useMutation({
+    mutationFn: (id: string) => verifyFn({ data: { postId: id } }),
+    onSuccess: (r, id) => {
+      setVerifyResults((prev) => ({ ...prev, [id]: r }));
+      const msg = `${r.verified}/${r.total} confirmadas · ${r.missing} sumiram · ${r.errored} erro${r.skipped ? ` · ${r.skipped} ainda pendentes` : ""}`;
+      if (r.missing + r.errored === 0 && r.verified > 0) toast.success(msg);
+      else if (r.verified === 0) toast.error(msg);
+      else toast.warning(msg);
+      qc.invalidateQueries({ queryKey: ["posts"] });
+      qc.invalidateQueries({ queryKey: ["post-details", id] });
+    },
     onError: (e: any) => toast.error(e.message),
   });
 
