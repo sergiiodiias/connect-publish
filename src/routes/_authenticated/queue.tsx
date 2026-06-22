@@ -1,4 +1,4 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, Link } from "@tanstack/react-router";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { supabase } from "@/integrations/supabase/client";
@@ -9,43 +9,88 @@ import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
-import { format } from "date-fns";
-import { Send, Trash2, X, AlertCircle, Info, RefreshCw, ExternalLink, HelpCircle, ShieldCheck, CheckCircle2, XCircle } from "lucide-react";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { format, isToday, isTomorrow } from "date-fns";
+import { ptBR } from "date-fns/locale";
+import {
+  Send, Trash2, X, AlertCircle, Info, RefreshCw, ExternalLink,
+  ShieldCheck, CheckCircle2, XCircle, MoreHorizontal, ImageIcon,
+  Video, Link as LinkIcon, FileText, Plus, Calendar,
+} from "lucide-react";
 import { toast } from "sonner";
-import { useState } from "react";
-
-function explainStatus(p: { status: string; scheduled_at: string | null; published_at: string | null; error: string | null }): string {
-  switch (p.status) {
-    case "draft":
-      return "Rascunho: ainda não foi agendado nem enviado ao Facebook. Clique em Publicar para enviar agora ou defina um horário.";
-    case "scheduled":
-      return p.scheduled_at
-        ? `Agendado para ${format(new Date(p.scheduled_at), "dd/MM/yyyy HH:mm")}. O cron interno vai chamar a Graph API (/{page-id}/feed, /photos ou /videos) no horário marcado.`
-        : "Agendado, mas sem horário definido — será publicado na próxima execução do cron.";
-    case "publishing":
-      return "Em publicação: a Graph API foi chamada e estamos aguardando a resposta de cada página-alvo. Se travar aqui, provavelmente uma das chamadas /feed ou /photos não respondeu.";
-    case "published":
-      return p.published_at
-        ? `Publicado em ${format(new Date(p.published_at), "dd/MM/yyyy HH:mm")}. A Graph API retornou um id de post para todas as páginas-alvo (post_targets.status = published, com fb_post_id salvo).`
-        : "Publicado: a Graph API confirmou o envio em todas as páginas-alvo.";
-    case "partial":
-      return "Parcial: a Graph API publicou em algumas páginas e falhou em outras. Veja em Detalhes qual página retornou erro (token, permissão ou mídia inacessível).";
-    case "failed":
-      return p.error
-        ? `Falhou: a Graph API retornou erro em todas as páginas. Motivo: ${p.error}`
-        : "Falhou: a Graph API rejeitou a publicação. Abra Detalhes para ver o código/subcódigo retornado por página.";
-    case "canceled":
-      return "Cancelado manualmente antes do horário agendado. Nenhuma chamada foi feita à Graph API.";
-    default:
-      return `Status: ${p.status}`;
-  }
-}
+import { useMemo, useState } from "react";
 
 export const Route = createFileRoute("/_authenticated/queue")({
   head: () => ({ meta: [{ title: "Agenda — PagePilot" }] }),
   component: QueuePage,
 });
+
+// ---------- helpers ----------
+
+function formatWhen(iso: string | null): string {
+  if (!iso) return "—";
+  const d = new Date(iso);
+  if (isToday(d)) return `Hoje ${format(d, "HH:mm")}`;
+  if (isTomorrow(d)) return `Amanhã ${format(d, "HH:mm")}`;
+  return format(d, "dd MMM HH:mm", { locale: ptBR });
+}
+
+function typeMeta(t: string) {
+  switch (t) {
+    case "photo": return { label: "Foto", icon: ImageIcon, cls: "text-blue-400 bg-blue-500/10" };
+    case "video": return { label: "Vídeo", icon: Video, cls: "text-purple-400 bg-purple-500/10" };
+    case "link": return { label: "Link", icon: LinkIcon, cls: "text-emerald-400 bg-emerald-500/10" };
+    default: return { label: "Texto", icon: FileText, cls: "text-slate-400 bg-slate-500/10" };
+  }
+}
+
+const AVATAR_HUES = [
+  "bg-blue-500/15 text-blue-300 border-blue-500/20",
+  "bg-emerald-500/15 text-emerald-300 border-emerald-500/20",
+  "bg-purple-500/15 text-purple-300 border-purple-500/20",
+  "bg-amber-500/15 text-amber-300 border-amber-500/20",
+  "bg-rose-500/15 text-rose-300 border-rose-500/20",
+  "bg-cyan-500/15 text-cyan-300 border-cyan-500/20",
+];
+function hueFor(seed: string): string {
+  let h = 0; for (let i = 0; i < seed.length; i++) h = (h * 31 + seed.charCodeAt(i)) >>> 0;
+  return AVATAR_HUES[h % AVATAR_HUES.length];
+}
+
+function statusBadge(s: string) {
+  switch (s) {
+    case "scheduled": return { label: "Agendado", cls: "bg-primary/15 text-primary border-primary/20" };
+    case "publishing": return { label: "Publicando", cls: "bg-amber-500/15 text-amber-300 border-amber-500/20" };
+    case "published": return { label: "Publicado", cls: "bg-emerald-500/15 text-emerald-300 border-emerald-500/20" };
+    case "failed": return { label: "Falhou", cls: "bg-destructive/15 text-destructive border-destructive/20" };
+    case "pending": return { label: "Aguardando", cls: "bg-muted text-muted-foreground border-border" };
+    case "draft": return { label: "Rascunho", cls: "bg-muted text-muted-foreground border-border" };
+    default: return { label: s, cls: "bg-muted text-muted-foreground border-border" };
+  }
+}
+
+// ---------- types ----------
+
+type Row = {
+  target_id: string;
+  page_id: string;
+  page_name: string;
+  fb_page_id: string;
+  target_status: string;
+  target_error: string | null;
+  fb_post_id: string | null;
+  post_id: string;
+  type: string;
+  message: string | null;
+  media_urls: string[];
+  link_url: string | null;
+  status: string;
+  scheduled_at: string | null;
+  published_at: string | null;
+  created_at: string;
+};
+
+// ---------- page ----------
 
 function QueuePage() {
   const qc = useQueryClient();
@@ -56,40 +101,100 @@ function QueuePage() {
   const detailsFn = useServerFn(getPostDetails);
   const verifyFn = useServerFn(verifyPostPublished);
 
-  const [status, setStatus] = useState<string>("all");
+  const [status, setStatus] = useState<string>("scheduled");
   const [search, setSearch] = useState("");
+  const [pageFilter, setPageFilter] = useState<string>("all");
   const [detailId, setDetailId] = useState<string | null>(null);
   const [verifyResults, setVerifyResults] = useState<Record<string, Awaited<ReturnType<typeof verifyPostPublished>> | undefined>>({});
 
-  const { data: posts = [], isLoading } = useQuery({
-    queryKey: ["posts", status, search],
+  const { data: rows = [], isLoading } = useQuery({
+    queryKey: ["queue", status, search, pageFilter],
     queryFn: async () => {
-      let q = supabase.from("posts").select("id, type, message, status, scheduled_at, published_at, created_at, tags, error").order("created_at", { ascending: false });
-      if (status !== "all") q = q.eq("status", status as any);
-      if (search) q = q.ilike("message", `%${search}%`);
-      const { data, error } = await q;
+      let q = supabase
+        .from("post_targets")
+        .select(`
+          id, status, error, fb_post_id, page_id,
+          fb_pages!inner(name, fb_page_id),
+          posts!inner(id, type, message, media_urls, link_url, status, scheduled_at, published_at, created_at)
+        `)
+        .order("scheduled_at", { foreignTable: "posts", ascending: true });
+      if (status !== "all") q = q.eq("posts.status", status as any);
+      if (pageFilter !== "all") q = q.eq("page_id", pageFilter);
+      if (search) q = q.ilike("posts.message", `%${search}%`);
+      const { data, error } = await q.limit(2000);
       if (error) throw error;
+      return (data ?? []).map((r: any): Row => ({
+        target_id: r.id,
+        page_id: r.page_id,
+        page_name: r.fb_pages?.name ?? "(página removida)",
+        fb_page_id: r.fb_pages?.fb_page_id ?? "",
+        target_status: r.status,
+        target_error: r.error,
+        fb_post_id: r.fb_post_id,
+        post_id: r.posts.id,
+        type: r.posts.type,
+        message: r.posts.message,
+        media_urls: r.posts.media_urls ?? [],
+        link_url: r.posts.link_url,
+        status: r.posts.status,
+        scheduled_at: r.posts.scheduled_at,
+        published_at: r.posts.published_at,
+        created_at: r.posts.created_at,
+      }));
+    },
+  });
+
+  // List of pages for the filter
+  const { data: allPages = [] } = useQuery({
+    queryKey: ["queue-pages"],
+    queryFn: async () => {
+      const { data } = await supabase.from("fb_pages").select("id, name").order("name");
       return data ?? [];
     },
   });
 
-  const publish = useMutation({ mutationFn: (id: string) => publishFn({ data: { postId: id } }), onSuccess: () => { toast.success("Publicado"); qc.invalidateQueries({ queryKey: ["posts"] }); }, onError: (e: any) => toast.error(e.message) });
-  const cancel = useMutation({ mutationFn: (id: string) => cancelFn({ data: { postId: id } }), onSuccess: () => { toast.success("Cancelado"); qc.invalidateQueries({ queryKey: ["posts"] }); }, onError: (e: any) => toast.error(e.message) });
-  const remove = useMutation({ mutationFn: (id: string) => delFn({ data: { postId: id } }), onSuccess: () => { toast.success("Removido"); qc.invalidateQueries({ queryKey: ["posts"] }); }, onError: (e: any) => toast.error(e.message) });
+  // Group by page
+  const groups = useMemo(() => {
+    const map = new Map<string, { pageId: string; pageName: string; rows: Row[] }>();
+    for (const r of rows) {
+      const g = map.get(r.page_id) ?? { pageId: r.page_id, pageName: r.page_name, rows: [] };
+      g.rows.push(r);
+      map.set(r.page_id, g);
+    }
+    return [...map.values()].sort((a, b) => a.pageName.localeCompare(b.pageName));
+  }, [rows]);
+
+  const totalPosts = rows.length;
+
+  const publish = useMutation({
+    mutationFn: (id: string) => publishFn({ data: { postId: id } }),
+    onSuccess: () => { toast.success("Publicado"); qc.invalidateQueries({ queryKey: ["queue"] }); },
+    onError: (e: any) => toast.error(e.message),
+  });
+  const cancel = useMutation({
+    mutationFn: (id: string) => cancelFn({ data: { postId: id } }),
+    onSuccess: () => { toast.success("Cancelado"); qc.invalidateQueries({ queryKey: ["queue"] }); },
+    onError: (e: any) => toast.error(e.message),
+  });
+  const remove = useMutation({
+    mutationFn: (id: string) => delFn({ data: { postId: id } }),
+    onSuccess: () => { toast.success("Removido"); qc.invalidateQueries({ queryKey: ["queue"] }); },
+    onError: (e: any) => toast.error(e.message),
+  });
   const removeAll = useMutation({
     mutationFn: (s: string) => delAllFn({ data: { status: s as any } }),
-    onSuccess: (r: any) => { toast.success(`${r.count} post(s) removido(s)`); qc.invalidateQueries({ queryKey: ["posts"] }); },
+    onSuccess: (r: any) => { toast.success(`${r.count} post(s) removido(s)`); qc.invalidateQueries({ queryKey: ["queue"] }); },
     onError: (e: any) => toast.error(e.message),
   });
   const verify = useMutation({
     mutationFn: (id: string) => verifyFn({ data: { postId: id } }),
     onSuccess: (r, id) => {
       setVerifyResults((prev) => ({ ...prev, [id]: r }));
-      const msg = `${r.verified}/${r.total} confirmadas · ${r.missing} sumiram · ${r.errored} erro${r.skipped ? ` · ${r.skipped} ainda pendentes` : ""}`;
+      const msg = `${r.verified}/${r.total} confirmadas · ${r.missing} sumiram · ${r.errored} erro`;
       if (r.missing + r.errored === 0 && r.verified > 0) toast.success(msg);
       else if (r.verified === 0) toast.error(msg);
       else toast.warning(msg);
-      qc.invalidateQueries({ queryKey: ["posts"] });
+      qc.invalidateQueries({ queryKey: ["queue"] });
       qc.invalidateQueries({ queryKey: ["post-details", id] });
     },
     onError: (e: any) => toast.error(e.message),
@@ -102,104 +207,126 @@ function QueuePage() {
   });
 
   return (
-    <div className="p-8 space-y-6">
-    <TooltipProvider delayDuration={150}>
-      <div>
-        <h1 className="text-2xl font-semibold tracking-tight">Agenda & fila</h1>
-        <p className="text-sm text-muted-foreground">Acompanhe agendamentos, rascunhos e publicações.</p>
+    <div className="p-6 md:p-8 space-y-8">
+      {/* Header */}
+      <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-4">
+        <div className="min-w-0">
+          <h1 className="text-2xl font-bold tracking-tight truncate">Fila de Publicações</h1>
+          <p className="text-sm text-muted-foreground">
+            {isLoading ? "Carregando…" : `${totalPosts} ${totalPosts === 1 ? "publicação" : "publicações"} em ${groups.length} ${groups.length === 1 ? "página" : "páginas"}`}
+          </p>
+        </div>
+        <Button asChild className="shrink-0">
+          <Link to="/composer">
+            <Plus className="size-4 mr-1" /> Criar post
+          </Link>
+        </Button>
       </div>
 
-      <div className="flex gap-3">
-        <Input placeholder="Buscar texto…" value={search} onChange={e => setSearch(e.target.value)} className="max-w-sm" />
+      {/* Filters */}
+      <div className="flex flex-wrap gap-3 items-center">
+        <Input
+          placeholder="Buscar texto…"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          className="max-w-xs"
+        />
         <Select value={status} onValueChange={setStatus}>
           <SelectTrigger className="w-44"><SelectValue /></SelectTrigger>
           <SelectContent>
-            <SelectItem value="all">Todos</SelectItem>
-            <SelectItem value="draft">Rascunhos</SelectItem>
+            <SelectItem value="all">Todos status</SelectItem>
             <SelectItem value="scheduled">Agendados</SelectItem>
             <SelectItem value="publishing">Publicando</SelectItem>
             <SelectItem value="published">Publicados</SelectItem>
             <SelectItem value="partial">Parciais</SelectItem>
             <SelectItem value="failed">Falhou</SelectItem>
+            <SelectItem value="draft">Rascunhos</SelectItem>
+          </SelectContent>
+        </Select>
+        <Select value={pageFilter} onValueChange={setPageFilter}>
+          <SelectTrigger className="w-56"><SelectValue placeholder="Todas as páginas" /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">Todas as páginas</SelectItem>
+            {allPages.map((p) => (
+              <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>
+            ))}
           </SelectContent>
         </Select>
         <Button
-          variant="destructive"
-          className="ml-auto"
-          disabled={removeAll.isPending || posts.length === 0}
+          variant="ghost"
+          size="sm"
+          className="ml-auto text-destructive hover:text-destructive hover:bg-destructive/10"
+          disabled={removeAll.isPending || totalPosts === 0}
           onClick={() => {
-            const label = status === "all" ? "TODOS os posts" : `todos os posts com status "${status}"`;
+            const label = status === "all" ? "TODOS os posts" : `todos os posts ${statusBadge(status).label.toLowerCase()}`;
             if (confirm(`Excluir ${label}? Esta ação não pode ser desfeita.`)) removeAll.mutate(status);
           }}
         >
           <Trash2 className="size-4 mr-1" />
-          {status === "all" ? "Excluir todos" : `Excluir filtrados (${posts.length})`}
+          Excluir {status === "all" ? "todos" : `(${new Set(rows.map((r) => r.post_id)).size})`}
         </Button>
       </div>
 
-      <div className="rounded-xl border border-border bg-card divide-y divide-border">
-        {isLoading && <div className="p-8 text-center text-sm text-muted-foreground">Carregando…</div>}
-        {!isLoading && posts.length === 0 && <div className="p-12 text-center text-sm text-muted-foreground">Nada por aqui.</div>}
-        {posts.map(p => (
-          <div key={p.id} className="p-4 flex items-start gap-4">
-            <div className="flex-1 min-w-0">
-              <div className="text-sm truncate">{p.message || <span className="italic text-muted-foreground">Sem texto</span>}</div>
-              <div className="text-xs text-muted-foreground mt-1 flex gap-2 items-center flex-wrap">
-                <Badge variant="outline">{p.type}</Badge>
-                <span>{p.scheduled_at ? `agendado ${format(new Date(p.scheduled_at), "dd/MM HH:mm")}` : p.published_at ? `publicado ${format(new Date(p.published_at), "dd/MM HH:mm")}` : format(new Date(p.created_at), "dd/MM HH:mm")}</span>
-                {p.tags?.length > 0 && p.tags.map(t => <Badge key={t} variant="secondary" className="text-[10px]">#{t}</Badge>)}
-              </div>
-              {p.error && (
-                <div className="text-xs text-destructive mt-2 flex items-start gap-1">
-                  <AlertCircle className="size-3 mt-0.5 shrink-0" />
-                  <span className="break-words">{p.error}</span>
-                </div>
-              )}
-            </div>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <button type="button" className="inline-flex items-center gap-1 cursor-help">
-                  <Badge variant={p.status === "failed" ? "destructive" : p.status === "published" ? "default" : p.status === "partial" ? "secondary" : "outline"}>{p.status}</Badge>
-                  <HelpCircle className="size-3 text-muted-foreground" />
-                </button>
-              </TooltipTrigger>
-              <TooltipContent side="left" className="max-w-xs text-xs leading-relaxed">
-                {explainStatus(p)}
-              </TooltipContent>
-            </Tooltip>
-            {verifyResults[p.id] && (
-              <Badge variant="outline" className="text-[10px] gap-1">
-                <ShieldCheck className="size-3" /> {verifyResults[p.id]!.verified}/{verifyResults[p.id]!.total}
-              </Badge>
-            )}
-            {(p.status === "published" || p.status === "partial" || p.status === "failed") && (
-              <Button size="sm" variant="outline" disabled={verify.isPending && verify.variables === p.id}
-                onClick={() => verify.mutate(p.id)} title="Confirma no Facebook se o post existe em cada página">
-                <ShieldCheck className="size-3 mr-1" />
-                {verify.isPending && verify.variables === p.id ? "Verificando…" : "Verificar"}
-              </Button>
-            )}
-            {(p.status === "failed" || p.status === "partial" || p.error) && (
-              <Button size="sm" variant="outline" onClick={() => setDetailId(p.id)}>
-                <Info className="size-3 mr-1" /> detalhes
-              </Button>
-            )}
-            {(p.status === "failed" || p.status === "partial") && (
-              <Button size="sm" variant="outline" onClick={() => publish.mutate(p.id)}>
-                <RefreshCw className="size-3 mr-1" /> tentar novamente
-              </Button>
-            )}
-            {(p.status === "draft" || p.status === "scheduled") && (
-              <Button size="sm" onClick={() => publish.mutate(p.id)}><Send className="size-3 mr-1" />Publicar</Button>
-            )}
-            {p.status === "scheduled" && (
-              <Button size="sm" variant="ghost" onClick={() => cancel.mutate(p.id)}><X className="size-4" /></Button>
-            )}
-            <Button size="sm" variant="ghost" onClick={() => { if (confirm("Excluir post?")) remove.mutate(p.id); }}><Trash2 className="size-4 text-destructive" /></Button>
-          </div>
-        ))}
-      </div>
+      {/* Empty / loading */}
+      {isLoading && (
+        <div className="rounded-xl border border-border bg-card p-12 text-center text-sm text-muted-foreground">
+          Carregando…
+        </div>
+      )}
+      {!isLoading && groups.length === 0 && (
+        <div className="rounded-xl border border-dashed border-border bg-card/40 p-16 text-center">
+          <Calendar className="size-10 mx-auto text-muted-foreground mb-3" />
+          <p className="text-sm font-medium">Nenhuma publicação aqui</p>
+          <p className="text-xs text-muted-foreground mt-1">Crie um novo post para começar a agendar.</p>
+          <Button asChild size="sm" className="mt-4">
+            <Link to="/composer"><Plus className="size-4 mr-1" /> Criar post</Link>
+          </Button>
+        </div>
+      )}
 
+      {/* Page groups */}
+      {!isLoading && groups.map((group) => {
+        const initial = group.pageName.charAt(0).toUpperCase() || "?";
+        const hue = hueFor(group.pageId);
+        return (
+          <section key={group.pageId} className="space-y-4">
+            <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 pb-2 border-b border-border">
+              <div className="flex items-center gap-3 min-w-0">
+                <div className={`size-10 shrink-0 rounded-full grid place-items-center font-bold border ${hue}`}>
+                  {initial}
+                </div>
+                <div className="min-w-0">
+                  <h2 className="font-semibold text-foreground truncate">{group.pageName}</h2>
+                  <p className="text-xs text-muted-foreground">
+                    {group.rows.length} {group.rows.length === 1 ? "publicação" : "publicações"}
+                  </p>
+                </div>
+              </div>
+              <Button variant="ghost" size="sm" onClick={() => setPageFilter(group.pageId)} className="shrink-0">
+                Ver só esta
+              </Button>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+              {group.rows.map((r) => (
+                <PostCard
+                  key={r.target_id}
+                  row={r}
+                  onPublish={() => publish.mutate(r.post_id)}
+                  onCancel={() => cancel.mutate(r.post_id)}
+                  onDelete={() => { if (confirm("Excluir esta publicação (todas as páginas)?")) remove.mutate(r.post_id); }}
+                  onDetails={() => setDetailId(r.post_id)}
+                  onVerify={() => verify.mutate(r.post_id)}
+                  verifying={verify.isPending && verify.variables === r.post_id}
+                  verifyResult={verifyResults[r.post_id]}
+                />
+              ))}
+            </div>
+          </section>
+        );
+      })}
+
+      {/* Details dialog */}
       <Dialog open={!!detailId} onOpenChange={(o) => !o && setDetailId(null)}>
         <DialogContent className="max-w-2xl">
           <DialogHeader>
@@ -231,7 +358,7 @@ function QueuePage() {
                   <div className="flex flex-wrap gap-3">
                     <span className="inline-flex items-center gap-1 text-success"><CheckCircle2 className="size-3" /> {verifyResults[detailId]!.verified} confirmadas</span>
                     {verifyResults[detailId]!.missing > 0 && <span className="inline-flex items-center gap-1 text-destructive"><XCircle className="size-3" /> {verifyResults[detailId]!.missing} sumiram</span>}
-                    {verifyResults[detailId]!.errored > 0 && <span className="inline-flex items-center gap-1 text-amber-600"><AlertCircle className="size-3" /> {verifyResults[detailId]!.errored} erro</span>}
+                    {verifyResults[detailId]!.errored > 0 && <span className="inline-flex items-center gap-1 text-warning"><AlertCircle className="size-3" /> {verifyResults[detailId]!.errored} erro</span>}
                     {verifyResults[detailId]!.skipped > 0 && <span className="text-muted-foreground">{verifyResults[detailId]!.skipped} ainda pendentes</span>}
                   </div>
                 </div>
@@ -283,7 +410,132 @@ function QueuePage() {
           )}
         </DialogContent>
       </Dialog>
-    </TooltipProvider>
     </div>
+  );
+}
+
+// ---------- card ----------
+
+function PostCard({
+  row, onPublish, onCancel, onDelete, onDetails, onVerify, verifying, verifyResult,
+}: {
+  row: Row;
+  onPublish: () => void;
+  onCancel: () => void;
+  onDelete: () => void;
+  onDetails: () => void;
+  onVerify: () => void;
+  verifying: boolean;
+  verifyResult?: Awaited<ReturnType<typeof verifyPostPublished>>;
+}) {
+  const type = typeMeta(row.type);
+  const TypeIcon = type.icon;
+  const badge = statusBadge(row.target_status === "failed" ? "failed" : row.status);
+  const whenSrc = row.scheduled_at ?? row.published_at ?? row.created_at;
+  const thumb = row.media_urls?.[0];
+  const isImage = thumb && /\.(jpe?g|png|webp|gif)(\?|$)/i.test(thumb);
+  const isVideo = thumb && /\.(mp4|mov|webm)(\?|$)/i.test(thumb);
+
+  return (
+    <article className="group bg-card rounded-xl border border-border overflow-hidden shadow-sm hover:border-primary/30 hover:shadow-md transition-all flex flex-col">
+      {/* Thumbnail */}
+      <div className="aspect-video bg-muted relative overflow-hidden">
+        {isImage ? (
+          <img src={thumb} alt="" loading="lazy" className="w-full h-full object-cover" />
+        ) : isVideo ? (
+          <video src={thumb} className="w-full h-full object-cover" muted playsInline />
+        ) : (
+          <div className="absolute inset-0 grid place-items-center text-muted-foreground">
+            <TypeIcon className="size-8" />
+          </div>
+        )}
+        <span className="absolute top-2 right-2 px-2 py-1 bg-background/90 backdrop-blur rounded text-[10px] font-bold text-foreground shadow-sm uppercase tracking-wider">
+          {formatWhen(whenSrc)}
+        </span>
+        <span className={`absolute top-2 left-2 inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-medium ${type.cls}`}>
+          <TypeIcon className="size-3" /> {type.label}
+        </span>
+      </div>
+
+      {/* Body */}
+      <div className="p-4 flex flex-col gap-3 flex-1">
+        <p className="text-sm text-foreground/80 line-clamp-3 min-h-[3.75rem]">
+          {row.message?.trim() || <span className="italic text-muted-foreground">Sem texto</span>}
+        </p>
+
+        <div className="flex items-center justify-between gap-2 mt-auto">
+          <span className={`text-[11px] font-medium px-2 py-0.5 rounded border ${badge.cls}`}>
+            {badge.label}
+          </span>
+
+          <div className="flex items-center gap-1">
+            {verifyResult && (
+              <span className="text-[10px] text-muted-foreground inline-flex items-center gap-1">
+                <ShieldCheck className="size-3" />
+                {verifyResult.verified}/{verifyResult.total}
+              </span>
+            )}
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <button
+                  type="button"
+                  aria-label="Ações"
+                  className="size-7 grid place-items-center rounded text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+                >
+                  <MoreHorizontal className="size-4" />
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-48">
+                {(row.status === "draft" || row.status === "scheduled") && (
+                  <DropdownMenuItem onClick={onPublish}>
+                    <Send className="size-3.5 mr-2" /> Publicar agora
+                  </DropdownMenuItem>
+                )}
+                {(row.status === "failed" || row.status === "partial") && (
+                  <DropdownMenuItem onClick={onPublish}>
+                    <RefreshCw className="size-3.5 mr-2" /> Tentar novamente
+                  </DropdownMenuItem>
+                )}
+                {(row.status === "published" || row.status === "partial" || row.status === "failed") && (
+                  <DropdownMenuItem onClick={onVerify} disabled={verifying}>
+                    <ShieldCheck className="size-3.5 mr-2" />
+                    {verifying ? "Verificando…" : "Verificar no FB"}
+                  </DropdownMenuItem>
+                )}
+                <DropdownMenuItem onClick={onDetails}>
+                  <Info className="size-3.5 mr-2" /> Detalhes
+                </DropdownMenuItem>
+                {row.fb_post_id && (
+                  <DropdownMenuItem asChild>
+                    <a href={`https://www.facebook.com/${row.fb_post_id}`} target="_blank" rel="noreferrer">
+                      <ExternalLink className="size-3.5 mr-2" /> Ver no Facebook
+                    </a>
+                  </DropdownMenuItem>
+                )}
+                {row.status === "scheduled" && (
+                  <DropdownMenuItem onClick={onCancel}>
+                    <X className="size-3.5 mr-2" /> Cancelar agendamento
+                  </DropdownMenuItem>
+                )}
+                <DropdownMenuSeparator />
+                <DropdownMenuItem
+                  onClick={onDelete}
+                  className="text-destructive focus:text-destructive focus:bg-destructive/10"
+                >
+                  <Trash2 className="size-3.5 mr-2" /> Excluir
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
+        </div>
+
+        {(row.target_error || (row.status === "failed" && row.media_urls.length === 0)) && (
+          <div className="text-[11px] text-destructive flex items-start gap-1 leading-relaxed">
+            <AlertCircle className="size-3 mt-0.5 shrink-0" />
+            <span className="break-words line-clamp-2">{row.target_error ?? "Falhou — abra os detalhes"}</span>
+          </div>
+        )}
+      </div>
+    </article>
   );
 }
