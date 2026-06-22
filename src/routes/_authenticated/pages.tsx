@@ -156,6 +156,24 @@ function PagesPage() {
       </div>
 
       <div className="rounded-xl border border-border bg-card divide-y divide-border">
+      {(expiringSoon.length > 0 || expired.length > 0) && (
+        <div className="rounded-lg border border-warning/40 bg-warning/5 p-4 text-sm">
+          <div className="flex items-start gap-2">
+            <AlertTriangle className="size-4 text-warning mt-0.5 shrink-0" />
+            <div className="space-y-1">
+              {expired.length > 0 && (
+                <div><strong>{expired.length}</strong> página(s) com token expirado: {expired.map((p: any) => p.name).join(", ")}</div>
+              )}
+              {expiringSoon.length > 0 && (
+                <div><strong>{expiringSoon.length}</strong> página(s) expirando em menos de 7 dias: {expiringSoon.map((p: any) => p.name).join(", ")}</div>
+              )}
+              <div className="text-xs text-muted-foreground">A depuração automática roda todo dia 1 do mês. Clique em "Renovar agora" para forçar.</div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <div className="rounded-xl border border-border bg-card divide-y divide-border">
         {isLoading && <div className="p-8 text-sm text-muted-foreground text-center">Carregando…</div>}
         {!isLoading && pages.length === 0 && (
           <div className="p-12 text-center">
