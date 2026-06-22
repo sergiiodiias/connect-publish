@@ -162,11 +162,20 @@ export const Route = createFileRoute("/api/public/cron/scheduler")({
               }).eq("id", t.id);
               const { data: tmpl } = await supabaseAdmin.from("auto_comments").select("*").eq("post_id", post.id).is("target_id", null).eq("status", "pending");
               for (const c of tmpl ?? []) {
+                const { data: existing } = await supabaseAdmin
+                  .from("auto_comments").select("id")
+                  .eq("post_id", post.id).eq("target_id", t.id).eq("message", c.message).limit(1);
+                if (existing && existing.length) continue;
                 await supabaseAdmin.from("auto_comments").insert({
                   user_id: post.user_id, post_id: post.id, target_id: t.id,
                   message: c.message, delay_seconds: c.delay_seconds,
                   run_at: new Date(Date.now() + c.delay_seconds * 1000).toISOString(),
                 });
+              }
+              if (tmpl?.length) {
+                await supabaseAdmin.from("auto_comments")
+                  .update({ status: "posted", posted_at: new Date().toISOString() })
+                  .in("id", tmpl.map((x: any) => x.id));
               }
             } catch (e: any) {
               const msg = e?.message ?? "";
