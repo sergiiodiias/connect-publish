@@ -288,7 +288,7 @@ function QueuePage() {
             `Enviando ao Facebook… ${totalScheduled} / ${total}${totalFailed ? ` · ${totalFailed} falha(s)` : ""}`,
             { id: toastId },
           );
-          if ((r.scheduled ?? 0) === 0 && (r.failed ?? 0) === 0) break;
+          if ((r.batchSize ?? 0) === 0) break;
           qc.invalidateQueries({ queryKey: ["queue"] });
         }
       } finally {
