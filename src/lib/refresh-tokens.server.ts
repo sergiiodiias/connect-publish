@@ -10,7 +10,8 @@ export type RefreshResult = {
   errors: { pageId: string; error: string }[];
 };
 
-export async function runRefreshTokens(): Promise<RefreshResult> {
+export async function runRefreshTokens(opts: { force?: boolean } = {}): Promise<RefreshResult> {
+  const force = !!opts.force;
   const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
 
   const { data: rows, error } = await supabaseAdmin
@@ -68,12 +69,9 @@ export async function runRefreshTokens(): Promise<RefreshResult> {
       // because /oauth/access_token uses app context and DOES count toward that quota,
       // unlike /debug_token called with the page token itself.
       const TWENTY_DAYS_MS = 20 * 24 * 60 * 60 * 1000;
-      const needsExchange =
-        isValid &&
-        canExtend &&
-        expiresAt !== null &&
-        expiresAt > 0 &&
-        expiresAt * 1000 - Date.now() < TWENTY_DAYS_MS;
+      const withinWindow =
+        expiresAt !== null && expiresAt > 0 && expiresAt * 1000 - Date.now() < TWENTY_DAYS_MS;
+      const needsExchange = isValid && canExtend && (force || withinWindow);
 
       if (needsExchange) {
         try {
