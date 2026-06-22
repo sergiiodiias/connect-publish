@@ -264,8 +264,21 @@ function QueuePage() {
       let totalFailed = 0;
       const allErrors: any[] = [];
       try {
-        for (let i = 0; i < 60; i++) {
-          const r: any = await migrateFn({ data: {} });
+        for (let i = 0; i < 80; i++) {
+          let r: any;
+          try {
+            r = await migrateFn({ data: {} });
+          } catch (err: any) {
+            // 504 or transient — skip this batch, keep going
+            console.warn("Batch failed, retrying:", err?.message);
+            totalFailed += 0;
+            toast.loading(
+              `Lote ${i + 1} falhou, tentando próximo… ${totalScheduled}/${total}`,
+              { id: toastId },
+            );
+            await new Promise((res) => setTimeout(res, 1500));
+            continue;
+          }
           if (!r || typeof r !== "object") throw new Error("Resposta inválida do servidor");
           totalScheduled += r.scheduled ?? 0;
           totalFailed += r.failed ?? 0;

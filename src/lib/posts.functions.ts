@@ -28,7 +28,8 @@ export const migrateScheduledToFacebook = createServerFn({ method: "POST" })
   .inputValidator((d) => z.object({}).parse(d ?? {}))
   .handler(async ({ context }) => {
     const { supabase, userId } = context;
-    const nowIso = new Date().toISOString();
+    const BATCH = 10;            // posts per invocation
+    const CONCURRENCY = 5;       // parallel FB calls
     const maxIso = new Date(Date.now() + FB_MAX_SCHEDULE_MS).toISOString();
     const minIso = new Date(Date.now() + 10 * 60 * 1000 + 30_000).toISOString();
 
@@ -40,50 +41,77 @@ export const migrateScheduledToFacebook = createServerFn({ method: "POST" })
       .gte("scheduled_at", minIso)
       .lte("scheduled_at", maxIso)
       .order("scheduled_at", { ascending: true })
-      .limit(25);
+      .limit(BATCH);
+
+    // Collect every target needing FB scheduling across the batch first.
+    type Job = {
+      target: { id: string; page_id: string };
+      post: { id: string; type: string; message: string | null; link_url: string | null; media_urls: string[] | null };
+      scheduledUnix: number;
+    };
+    const jobs: Job[] = [];
+    for (const p of posts ?? []) {
+      const ts = new Date(p.scheduled_at!).getTime();
+      if (ts - Date.now() < 10 * 60 * 1000 + 30_000) continue;
+      const { data: targets } = await supabase.from("post_targets")
+        .select("id, page_id")
+        .eq("post_id", p.id)
+        .is("fb_post_id", null)
+        .in("status", ["pending", "failed"]);
+      for (const t of targets ?? []) {
+        jobs.push({ target: t as any, post: p as any, scheduledUnix: Math.floor(ts / 1000) });
+      }
+    }
+
+    // Resolve all page tokens in one query (avoid N round-trips to PG).
+    const pageIds = [...new Set(jobs.map((j) => j.target.page_id))];
+    const { data: pages } = pageIds.length
+      ? await supabase.from("fb_pages")
+          .select("id, fb_page_id, access_token, is_active, name")
+          .in("id", pageIds)
+      : { data: [] as any[] };
+    const pageMap = new Map((pages ?? []).map((p: any) => [p.id, p]));
 
     let scheduled = 0, skipped = 0, failed = 0;
     const errors: string[] = [];
 
-    for (const p of posts ?? []) {
-      const { data: targets } = await supabase.from("post_targets")
-        .select("id, page_id, fb_post_id, status")
-        .eq("post_id", p.id)
-        .is("fb_post_id", null)
-        .in("status", ["pending", "failed"]);
-      const ts = new Date(p.scheduled_at!).getTime();
-      if (ts - Date.now() < 10 * 60 * 1000 + 30_000) { skipped += (targets?.length ?? 0); continue; }
-      const scheduledUnix = Math.floor(ts / 1000);
-
-      for (const t of targets ?? []) {
-        if (scheduled + failed >= 25) break;
-        const { data: pg } = await supabase.from("fb_pages")
-          .select("fb_page_id, access_token, is_active, name")
-          .eq("id", t.page_id).single();
+    // Process jobs with bounded concurrency.
+    let cursor = 0;
+    await Promise.all(Array.from({ length: Math.min(CONCURRENCY, jobs.length) }, async () => {
+      while (true) {
+        const i = cursor++;
+        if (i >= jobs.length) return;
+        const j = jobs[i];
+        const pg = pageMap.get(j.target.page_id);
         if (!pg || pg.is_active === false) { skipped++; continue; }
         try {
           const fbId = await publishFacebookPost({
-            type: p.type as any,
-            message: p.message ?? "",
-            linkUrl: p.link_url ?? undefined,
-            mediaUrls: p.media_urls ?? [],
+            type: j.post.type as any,
+            message: j.post.message ?? "",
+            linkUrl: j.post.link_url ?? undefined,
+            mediaUrls: j.post.media_urls ?? [],
             fbPageId: pg.fb_page_id,
             pageToken: pg.access_token,
-            scheduledUnix,
+            scheduledUnix: j.scheduledUnix,
           });
           await supabase.from("post_targets")
             .update({ fb_post_id: fbId, status: "pending", error: null, next_retry_at: null } as any)
-            .eq("id", t.id);
+            .eq("id", j.target.id);
           scheduled++;
         } catch (e: any) {
           failed++;
-          errors.push(`${pg.name}: ${e?.message ?? String(e)}`);
+          const msg = e?.message ?? String(e);
+          errors.push(`${pg.name}: ${msg}`);
+          await supabase.from("post_targets")
+            .update({ error: `FB schedule: ${msg}` })
+            .eq("id", j.target.id);
         }
       }
-    }
-    void nowIso;
+    }));
+
     return { ok: true, scheduled, skipped, failed, errors: errors.slice(0, 20) };
   });
+
 
 export const createPost = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
