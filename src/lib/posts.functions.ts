@@ -2,6 +2,7 @@ import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import { publishFacebookPost } from "@/lib/fb-publish";
+import { fbGet } from "@/lib/fb-graph";
 
 const PostInput = z.object({
   type: z.enum(["text", "photo", "video", "link"]),
@@ -20,6 +21,32 @@ const PostInput = z.object({
 // Facebook requires scheduled_publish_time to be between 10 min and 6 months from now.
 const FB_MIN_SCHEDULE_MS = 10 * 60 * 1000 + 30_000; // small buffer
 const FB_MAX_SCHEDULE_MS = 75 * 24 * 60 * 60 * 1000; // 75 days (FB hard cap is 6mo; stay safer)
+const FB_SCHEDULE_MATCH_WINDOW_SECONDS = 90;
+
+function normalizeFbText(value: string) {
+  return value.trim().replace(/\s+/g, " ").toLowerCase();
+}
+
+async function findExistingScheduledFacebookPost(opts: {
+  fbPageId: string;
+  pageToken: string;
+  message: string;
+  scheduledUnix: number;
+}) {
+  const wanted = normalizeFbText(opts.message || "");
+  if (!wanted) return null;
+  const scheduled: any = await fbGet(`/${opts.fbPageId}/scheduled_posts`, {
+    access_token: opts.pageToken,
+    fields: "id,message,scheduled_publish_time",
+    limit: "100",
+  });
+  const match = (scheduled?.data ?? []).find((item: any) => {
+    if (normalizeFbText(item?.message ?? "") !== wanted) return false;
+    const fbTime = Number(item?.scheduled_publish_time ?? 0);
+    return Math.abs(fbTime - opts.scheduledUnix) <= FB_SCHEDULE_MATCH_WINDOW_SECONDS;
+  });
+  return match?.id ? String(match.id) : null;
+}
 
 // Push existing scheduled posts to Facebook's native scheduler.
 // Targets that already have fb_post_id are skipped.
@@ -125,6 +152,19 @@ export const migrateScheduledToFacebook = createServerFn({ method: "POST" })
           .maybeSingle();
         if (!claimed) { skipped++; continue; }
         try {
+          const existingFbId = await findExistingScheduledFacebookPost({
+            fbPageId: pg.fb_page_id,
+            pageToken: pg.access_token,
+            message: j.post.message ?? "",
+            scheduledUnix: j.scheduledUnix,
+          });
+          if (existingFbId) {
+            await supabase.from("post_targets")
+              .update({ fb_post_id: existingFbId, status: "pending", error: "agendamento já existia no Facebook; não duplicado", next_retry_at: null } as any)
+              .eq("id", j.target.id);
+            skipped++;
+            continue;
+          }
           const fbId = await publishFacebookPost({
             type: j.post.type as any,
             message: j.post.message ?? "",
@@ -165,6 +205,23 @@ export const migrateScheduledToFacebook = createServerFn({ method: "POST" })
           scheduled++;
 
         } catch (e: any) {
+          try {
+            const existingFbId = await findExistingScheduledFacebookPost({
+              fbPageId: pg.fb_page_id,
+              pageToken: pg.access_token,
+              message: j.post.message ?? "",
+              scheduledUnix: j.scheduledUnix,
+            });
+            if (existingFbId) {
+              await supabase.from("post_targets")
+                .update({ fb_post_id: existingFbId, status: "pending", error: "agendamento confirmado após retorno instável do Facebook", next_retry_at: null } as any)
+                .eq("id", j.target.id);
+              scheduled++;
+              continue;
+            }
+          } catch {
+            // If the reconciliation read also fails, keep the normal retry path.
+          }
           failed++;
           const msg = e?.message ?? String(e);
           errors.push(`${pg.name}: ${msg}`);
@@ -230,6 +287,19 @@ export const createPost = createServerFn({ method: "POST" })
             .eq("id", t.page_id).single();
           if (!pg || pg.is_active === false) continue;
           try {
+            const existingFbId = await findExistingScheduledFacebookPost({
+              fbPageId: pg.fb_page_id,
+              pageToken: pg.access_token,
+              message: data.message ?? "",
+              scheduledUnix,
+            });
+            if (existingFbId) {
+              await supabase.from("post_targets")
+                .update({ fb_post_id: existingFbId, error: "agendamento já existia no Facebook; não duplicado" })
+                .eq("id", t.id);
+              fbScheduled++;
+              continue;
+            }
             const fbId = await publishFacebookPost({
               type: data.type as any,
               message: data.message ?? "",
@@ -264,6 +334,23 @@ export const createPost = createServerFn({ method: "POST" })
             fbScheduled++;
 
           } catch (e: any) {
+            try {
+              const existingFbId = await findExistingScheduledFacebookPost({
+                fbPageId: pg.fb_page_id,
+                pageToken: pg.access_token,
+                message: data.message ?? "",
+                scheduledUnix,
+              });
+              if (existingFbId) {
+                await supabase.from("post_targets")
+                  .update({ fb_post_id: existingFbId, error: "agendamento confirmado após retorno instável do Facebook" })
+                  .eq("id", t.id);
+                fbScheduled++;
+                continue;
+              }
+            } catch {
+              // If the reconciliation read also fails, keep the fallback path.
+            }
             fbErrors.push(`${pg.name}: ${e?.message ?? String(e)}`);
             await supabase.from("post_targets")
               .update({ error: `agendamento FB falhou — fallback no cron: ${e?.message ?? ""}` })

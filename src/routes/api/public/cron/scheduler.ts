@@ -68,6 +68,23 @@ export const Route = createFileRoute("/api/public/cron/scheduler")({
           }
 
           try {
+            const existingPhotos: any = await fbGet(`/${pg.fb_page_id}/photos`, {
+              access_token: pg.access_token,
+              fields: "id,name,created_time",
+              type: "uploaded",
+              limit: "50",
+            });
+            const match = (existingPhotos?.data ?? []).find((item: any) => {
+              if (normalizeComment(item?.name ?? "") !== wanted) return false;
+              const createdMs = item?.created_time ? new Date(item.created_time).getTime() : scheduledMs;
+              return Math.abs(createdMs - scheduledMs) <= FB_EXISTING_WINDOW_MS;
+            });
+            if (match?.id) return { id: match.id, kind: "published" };
+          } catch {
+            // Photo posts are not always returned by /posts; this extra guard prevents duplicates.
+          }
+
+          try {
             const scheduled: any = await fbGet(`/${pg.fb_page_id}/scheduled_posts`, {
               access_token: pg.access_token,
               fields: "id,message,scheduled_publish_time",
