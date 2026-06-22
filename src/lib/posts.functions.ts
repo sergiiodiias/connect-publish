@@ -28,39 +28,44 @@ export const migrateScheduledToFacebook = createServerFn({ method: "POST" })
   .inputValidator((d) => z.object({}).parse(d ?? {}))
   .handler(async ({ context }) => {
     const { supabase, userId } = context;
-    const BATCH = 10;            // posts per invocation
+    const BATCH = 10;            // targets per invocation
     const CONCURRENCY = 5;       // parallel FB calls
     const maxIso = new Date(Date.now() + FB_MAX_SCHEDULE_MS).toISOString();
     const minIso = new Date(Date.now() + 10 * 60 * 1000 + 30_000).toISOString();
 
-    const { data: posts } = await supabase
-      .from("posts")
-      .select("id,type,message,link_url,media_urls,scheduled_at")
+    // Query targets directly so we don't miss posts whose status is
+    // publishing/partial/failed/draft but still have unsent targets.
+    const { data: targetsRaw, error: terr } = await supabase
+      .from("post_targets")
+      .select(`
+        id, page_id, status, fb_post_id,
+        posts!inner(id, type, message, link_url, media_urls, scheduled_at, user_id)
+      `)
       .eq("user_id", userId)
-      .eq("status", "scheduled")
-      .gte("scheduled_at", minIso)
-      .lte("scheduled_at", maxIso)
-      .order("scheduled_at", { ascending: true })
+      .is("fb_post_id", null)
+      .in("status", ["pending", "failed"])
+      .gte("posts.scheduled_at", minIso)
+      .lte("posts.scheduled_at", maxIso)
+      .order("scheduled_at", { foreignTable: "posts", ascending: true })
       .limit(BATCH);
+    if (terr) throw new Error(terr.message);
 
-    // Collect every target needing FB scheduling across the batch first.
     type Job = {
       target: { id: string; page_id: string };
       post: { id: string; type: string; message: string | null; link_url: string | null; media_urls: string[] | null };
       scheduledUnix: number;
     };
     const jobs: Job[] = [];
-    for (const p of posts ?? []) {
-      const ts = new Date(p.scheduled_at!).getTime();
+    for (const t of (targetsRaw ?? []) as any[]) {
+      const sched = t.posts?.scheduled_at;
+      if (!sched) continue;
+      const ts = new Date(sched).getTime();
       if (ts - Date.now() < 10 * 60 * 1000 + 30_000) continue;
-      const { data: targets } = await supabase.from("post_targets")
-        .select("id, page_id")
-        .eq("post_id", p.id)
-        .is("fb_post_id", null)
-        .in("status", ["pending", "failed"]);
-      for (const t of targets ?? []) {
-        jobs.push({ target: t as any, post: p as any, scheduledUnix: Math.floor(ts / 1000) });
-      }
+      jobs.push({
+        target: { id: t.id, page_id: t.page_id },
+        post: t.posts,
+        scheduledUnix: Math.floor(ts / 1000),
+      });
     }
 
     // Resolve all page tokens in one query (avoid N round-trips to PG).
@@ -75,7 +80,6 @@ export const migrateScheduledToFacebook = createServerFn({ method: "POST" })
     let scheduled = 0, skipped = 0, failed = 0;
     const errors: string[] = [];
 
-    // Process jobs with bounded concurrency.
     let cursor = 0;
     await Promise.all(Array.from({ length: Math.min(CONCURRENCY, jobs.length) }, async () => {
       while (true) {
@@ -83,7 +87,13 @@ export const migrateScheduledToFacebook = createServerFn({ method: "POST" })
         if (i >= jobs.length) return;
         const j = jobs[i];
         const pg = pageMap.get(j.target.page_id);
-        if (!pg || pg.is_active === false) { skipped++; continue; }
+        if (!pg || pg.is_active === false) {
+          skipped++;
+          await supabase.from("post_targets")
+            .update({ error: pg ? "página inativa" : "página não encontrada" })
+            .eq("id", j.target.id);
+          continue;
+        }
         try {
           const fbId = await publishFacebookPost({
             type: j.post.type as any,
@@ -109,7 +119,7 @@ export const migrateScheduledToFacebook = createServerFn({ method: "POST" })
       }
     }));
 
-    return { ok: true, scheduled, skipped, failed, errors: errors.slice(0, 20) };
+    return { ok: true, scheduled, skipped, failed, errors: errors.slice(0, 20), batchSize: jobs.length };
   });
 
 
