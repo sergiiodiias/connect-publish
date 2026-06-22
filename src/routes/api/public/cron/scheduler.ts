@@ -15,6 +15,12 @@ export const Route = createFileRoute("/api/public/cron/scheduler")({
         const { publishFacebookPost } = await import("@/lib/fb-publish");
 
         const nowIso = new Date().toISOString();
+        // Give Facebook's native scheduler time to publish before using our fallback.
+        // This prevents a native scheduled post and our cron fallback from posting together.
+        const FALLBACK_GRACE_MS = 10 * 60_000;
+        const PAGE_FALLBACK_COOLDOWN_MS = 20 * 60_000;
+        const FB_EXISTING_WINDOW_MS = 30 * 60_000;
+        const fallbackReadyIso = new Date(Date.now() - FALLBACK_GRACE_MS).toISOString();
         let processed = 0, failed = 0, comments = 0;
 
         // Budget the whole run so a single invocation doesn't starve the next cron tick.
@@ -30,6 +36,51 @@ export const Route = createFileRoute("/api/public/cron/scheduler")({
         };
         const normalizeComment = (value: string) => value.trim().replace(/\s+/g, " ").toLowerCase();
         let rateLimitHit = false;
+        const fallbackPublishedPages = new Set<string>();
+
+        async function findMatchingFacebookPost(
+          pg: { fb_page_id: string; access_token: string },
+          message: string,
+          scheduledAt?: string | null,
+        ): Promise<{ id: string; kind: "published" | "scheduled" } | null> {
+          const wanted = normalizeComment(message ?? "");
+          if (wanted.length < 8) return null;
+          const scheduledMs = scheduledAt ? new Date(scheduledAt).getTime() : Date.now();
+          const since = Math.floor((scheduledMs - FB_EXISTING_WINDOW_MS) / 1000);
+          const until = Math.floor((Date.now() + FB_EXISTING_WINDOW_MS) / 1000);
+
+          try {
+            const existing: any = await fbGet(`/${pg.fb_page_id}/posts`, {
+              access_token: pg.access_token,
+              fields: "id,message,created_time",
+              since: String(since),
+              until: String(until),
+              limit: "25",
+            });
+            const match = (existing?.data ?? []).find((item: any) => normalizeComment(item?.message ?? "") === wanted);
+            if (match?.id) return { id: match.id, kind: "published" };
+          } catch {
+            // Best-effort guard only; if Facebook search fails, keep the normal fallback flow.
+          }
+
+          try {
+            const scheduled: any = await fbGet(`/${pg.fb_page_id}/scheduled_posts`, {
+              access_token: pg.access_token,
+              fields: "id,message,scheduled_publish_time",
+              limit: "50",
+            });
+            const match = (scheduled?.data ?? []).find((item: any) => {
+              if (normalizeComment(item?.message ?? "") !== wanted) return false;
+              const fbTime = item?.scheduled_publish_time ? Number(item.scheduled_publish_time) * 1000 : scheduledMs;
+              return Math.abs(fbTime - scheduledMs) <= FB_EXISTING_WINDOW_MS;
+            });
+            if (match?.id) return { id: match.id, kind: "scheduled" };
+          } catch {
+            // Some page tokens cannot read scheduled_posts; ignore and continue safely.
+          }
+
+          return null;
+        }
 
         // -2) Reconcilia targets que já foram agendados nativamente no Facebook.
         // Qualquer target com fb_post_id NÃO deve ser publicado de novo pelo cron.
