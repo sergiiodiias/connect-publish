@@ -93,6 +93,28 @@ function PagesPage() {
     onSuccess: (r) => { r.ok ? toast.success("Token válido") : toast.error(r.error ?? "Token inválido"); qc.invalidateQueries({ queryKey: ["pages"] }); },
     onError: (e: any) => toast.error(e.message),
   });
+  const refreshFn = useServerFn(refreshTokensNow);
+  const refreshAll = useMutation({
+    mutationFn: () => refreshFn(),
+    onSuccess: (r) => {
+      toast.success(`Depurados ${r.debugged}/${r.total} · ${r.refreshed} renovado(s)${r.invalidated ? ` · ${r.invalidated} inválido(s)` : ""}`);
+      qc.invalidateQueries({ queryKey: ["pages"] });
+      qc.invalidateQueries({ queryKey: ["pages-token-info"] });
+    },
+    onError: (e: any) => toast.error(e.message),
+  });
+
+  // Alerts derived from persisted token_expires_at
+  const now = Date.now();
+  const expiringSoon = pages.filter((p: any) => {
+    if (!p.token_expires_at) return false;
+    const ms = new Date(p.token_expires_at).getTime() - now;
+    return ms > 0 && ms < 7 * 24 * 3600 * 1000;
+  });
+  const expired = pages.filter((p: any) => {
+    if (!p.token_expires_at) return false;
+    return new Date(p.token_expires_at).getTime() <= now;
+  });
 
   return (
     <div className="p-8 space-y-6">
