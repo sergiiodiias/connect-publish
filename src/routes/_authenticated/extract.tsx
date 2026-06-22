@@ -248,21 +248,49 @@ function ExtractPage() {
 
       {extracted.length > 0 && (
         <div className="rounded-xl border border-border bg-card divide-y divide-border">
-          <div className="p-4 flex items-center gap-3">
-            <Checkbox
-              checked={selected.size === extracted.length}
-              onCheckedChange={toggleAll}
-            />
-            <span className="text-sm font-medium">Selecionar todas</span>
-            <Button
-              size="sm"
-              className="ml-auto gap-2"
-              onClick={connectSelected}
-              disabled={busy || selected.size === 0}
-            >
-              <Wand2 className="size-4" />
-              {busy ? "Conectando…" : `Conectar ${selected.size || ""}`}
-            </Button>
+          <div className="p-4 space-y-3">
+            <div className="grid sm:grid-cols-2 gap-3">
+              <div>
+                <Label className="text-xs">Adicionar ao grupo</Label>
+                <Select value={groupChoice} onValueChange={setGroupChoice}>
+                  <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">Nenhum grupo</SelectItem>
+                    <SelectItem value="new">+ Criar novo grupo</SelectItem>
+                    {groups.map((g) => (
+                      <SelectItem key={g.id} value={g.id}>{g.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              {groupChoice === "new" && (
+                <div>
+                  <Label className="text-xs">Nome do novo grupo</Label>
+                  <Input
+                    className="mt-1"
+                    value={newGroupName}
+                    onChange={(e) => setNewGroupName(e.target.value)}
+                    placeholder="ex.: Receitas"
+                  />
+                </div>
+              )}
+            </div>
+            <div className="flex items-center gap-3">
+              <Checkbox
+                checked={selected.size === extracted.length}
+                onCheckedChange={toggleAll}
+              />
+              <span className="text-sm font-medium">Selecionar todas ({extracted.length})</span>
+              <Button
+                size="sm"
+                className="ml-auto gap-2"
+                onClick={connectSelected}
+                disabled={busy || selected.size === 0}
+              >
+                <Wand2 className="size-4" />
+                {busy ? "Conectando…" : `Conectar ${selected.size || ""}`}
+              </Button>
+            </div>
           </div>
           {extracted.map((p) => {
             const r = results.find((x) => x.id === p.id);
