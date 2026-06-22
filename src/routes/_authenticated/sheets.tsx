@@ -15,7 +15,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { FileSpreadsheet, Wand2, AlertTriangle, ExternalLink } from "lucide-react";
 import { toast } from "sonner";
 
-export const Route = createFileRoute("/_authenticated/import")({
+export const Route = createFileRoute("/_authenticated/sheets")({
   head: () => ({ meta: [{ title: "Importar Planilha — PagePilot" }] }),
   component: ImportPage,
 });
