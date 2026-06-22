@@ -21,30 +21,27 @@ export async function publishFacebookPost(opts: {
   const { type, message, linkUrl, mediaUrls, fbPageId, pageToken } = opts;
 
   if (type === "photo" && mediaUrls[0]) {
-    try {
-      const media = await fetchMediaAsBlob(mediaUrls[0]);
-      if (isFacebookSafePhoto(media.blob, media.filename)) {
-        const form = new FormData();
-        form.set("access_token", pageToken);
-        form.set("caption", message);
-        form.set("source", media.blob, media.filename);
-        const r = await fbPostMultipart<any>(`/${fbPageId}/photos`, form);
-        return r.post_id ?? r.id;
-      }
-      if (message.trim()) return publishFeed({ message, linkUrl, fbPageId, pageToken });
-      throw new Error("A imagem não está em um formato/tamanho aceito pelo Facebook");
-    } catch (error) {
-      if (!message.trim() || !isFacebookPhotoUploadFileError(error)) throw error;
-      return publishFeed({ message, linkUrl, fbPageId, pageToken });
+    const media = await fetchMediaAsBlob(mediaUrls[0]);
+    if (!isFacebookSafePhoto(media.blob, media.filename)) {
+      throw new Error(
+        `Imagem inválida para o Facebook (${media.filename}, ${(media.blob.size / 1024 / 1024).toFixed(2)}MB, ${media.blob.type || "tipo desconhecido"}). Use JPEG/PNG/GIF até ~3.9MB.`,
+      );
     }
+    const form = new FormData();
+    form.set("access_token", pageToken);
+    form.set("caption", message);
+    form.set("source", media.blob, media.filename);
+    const r = await fbPostMultipart<any>(`/${fbPageId}/photos`, form);
+    return r.post_id ?? r.id;
   }
 
   if (type === "video" && mediaUrls[0]) {
-    const r = await fbPost<any>(`/${fbPageId}/videos`, {
-      access_token: pageToken,
-      file_url: mediaUrls[0],
-      description: message,
-    });
+    const media = await fetchMediaAsBlob(mediaUrls[0]);
+    const form = new FormData();
+    form.set("access_token", pageToken);
+    form.set("description", message);
+    form.set("source", media.blob, media.filename);
+    const r = await fbPostMultipart<any>(`/${fbPageId}/videos`, form);
     return r.post_id ?? r.id;
   }
 
