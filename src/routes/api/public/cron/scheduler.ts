@@ -73,6 +73,13 @@ export const Route = createFileRoute("/api/public/cron/scheduler")({
 
 
         async function postComment(c: any) {
+          // Atomic claim: only one cron tick can flip pending -> publishing.
+          const { data: claimed } = await supabaseAdmin
+            .from("auto_comments")
+            .update({ status: "publishing" } as any)
+            .eq("id", c.id).eq("status", "pending")
+            .select("id").maybeSingle();
+          if (!claimed) return;
           const { data: target } = await supabaseAdmin.from("post_targets").select("fb_post_id, page_id").eq("id", c.target_id!).single();
           if (!target?.fb_post_id) { await supabaseAdmin.from("auto_comments").update({ status: "failed", error: "post não publicado" }).eq("id", c.id); return; }
           const { data: pg } = await supabaseAdmin.from("fb_pages").select("access_token").eq("id", target.page_id).single();
