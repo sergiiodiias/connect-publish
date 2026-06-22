@@ -146,17 +146,12 @@ function ImportPage() {
     }
     setBusy(false);
     setProgress(null);
-    setPreviewOpen(false);
     qc.invalidateQueries();
     const okCount = out.filter((x) => x.ok).length;
     if (okCount === list.length) toast.success(`${okCount} postagem(ns) importada(s)`);
     else toast.error(`${list.length - okCount} falha(s) na importação`);
   };
 
-  const selectedRows = useMemo(
-    () => (data ? data.rows.filter((r) => selected.has(r.rowIndex)) : []),
-    [data, selected],
-  );
 
   return (
     <div className="p-8 space-y-6 max-w-6xl">
