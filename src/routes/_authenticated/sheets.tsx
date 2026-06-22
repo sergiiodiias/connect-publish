@@ -105,18 +105,20 @@ function ImportPage() {
     };
   }, [data, selected]);
 
-  const importAll = async () => {
+  const importAll = async (rowIndexes?: number[]) => {
     if (!data) return;
-    const list = data.rows.filter((r) => selected.has(r.rowIndex));
+    const allowed = rowIndexes ? new Set(rowIndexes) : selected;
+    const list = data.rows.filter((r) => allowed.has(r.rowIndex));
     if (list.length === 0) return toast.error("Selecione ao menos uma linha");
     if (pageSel.length === 0) return toast.error("Selecione ao menos uma página de destino");
 
     setBusy(true);
     setResults([]);
+    setProgress({ done: 0, total: list.length });
     const out: typeof results = [];
+    let i = 0;
     for (const r of list) {
       try {
-        // Determine type and media
         const useMedia = r.fotoOk;
         const type = useMedia ? r.tipo : (r.tipo === "photo" ? "text" : r.tipo);
 
@@ -136,14 +138,23 @@ function ImportPage() {
       } catch (e: any) {
         out.push({ row: r.rowIndex, ok: false, error: e?.message ?? "erro" });
       }
+      i++;
+      setProgress({ done: i, total: list.length });
       setResults([...out]);
     }
     setBusy(false);
+    setProgress(null);
+    setPreviewOpen(false);
     qc.invalidateQueries();
     const okCount = out.filter((x) => x.ok).length;
     if (okCount === list.length) toast.success(`${okCount} postagem(ns) importada(s)`);
     else toast.error(`${list.length - okCount} falha(s) na importação`);
   };
+
+  const selectedRows = useMemo(
+    () => (data ? data.rows.filter((r) => selected.has(r.rowIndex)) : []),
+    [data, selected],
+  );
 
   return (
     <div className="p-8 space-y-6 max-w-6xl">
