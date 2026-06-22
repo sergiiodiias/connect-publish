@@ -229,11 +229,21 @@ function QueuePage() {
             {isLoading ? "Carregando…" : `${totalPosts} ${totalPosts === 1 ? "publicação" : "publicações"} em ${groups.length} ${groups.length === 1 ? "página" : "páginas"}`}
           </p>
         </div>
-        <Button asChild className="shrink-0">
-          <Link to="/composer">
-            <Plus className="size-4 mr-1" /> Criar post
-          </Link>
-        </Button>
+        <div className="flex items-center gap-2 shrink-0">
+          <Button
+            variant="outline"
+            onClick={() => importScheduled.mutate(pageFilter === "all" ? undefined : pageFilter)}
+            disabled={importScheduled.isPending}
+          >
+            <Download className="size-4 mr-1" />
+            {importScheduled.isPending ? "Importando…" : "Importar do Facebook"}
+          </Button>
+          <Button asChild>
+            <Link to="/composer">
+              <Plus className="size-4 mr-1" /> Criar post
+            </Link>
+          </Button>
+        </div>
       </div>
 
       {/* Filters */}
