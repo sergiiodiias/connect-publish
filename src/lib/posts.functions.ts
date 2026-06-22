@@ -181,6 +181,7 @@ export const createPost = createServerFn({ method: "POST" })
   .handler(async ({ data, context }) => {
     const { supabase, userId } = context;
     const status = data.scheduledAt ? "scheduled" : "draft";
+    const uniquePageIds = [...new Set(data.pageIds)];
 
     const { data: post, error } = await supabase.from("posts").insert({
       user_id: userId,
@@ -194,7 +195,7 @@ export const createPost = createServerFn({ method: "POST" })
     }).select().single();
     if (error || !post) throw new Error(error?.message ?? "Falha ao salvar");
 
-    const targets = data.pageIds.map((pid) => ({
+    const targets = uniquePageIds.map((pid) => ({
       post_id: post.id, page_id: pid, user_id: userId, status: "pending" as const,
     }));
     const { data: insertedTargets, error: terr } = await supabase.from("post_targets").insert(targets).select("id, page_id");
@@ -270,10 +271,10 @@ export const publishPostNow = createServerFn({ method: "POST" })
     const { supabase, userId } = context;
     const { data: post } = await supabase.from("posts").select("*").eq("id", data.postId).eq("user_id", userId).single();
     if (!post) throw new Error("Post não encontrado");
-    const { data: allTargets } = await supabase.from("post_targets").select("id,page_id,status").eq("post_id", post.id);
+    const { data: allTargets } = await supabase.from("post_targets").select("id,page_id,status,fb_post_id").eq("post_id", post.id);
     if (!allTargets?.length) throw new Error("Sem páginas-alvo");
-    const targets = allTargets.filter((t) => t.status !== "published");
-    if (!targets.length) throw new Error("Nada a publicar — todos os targets já foram publicados");
+    const targets = allTargets.filter((t) => (t.status === "pending" || t.status === "failed") && !t.fb_post_id);
+    if (!targets.length) throw new Error("Nada a publicar — páginas já publicadas, em publicação ou já agendadas no Facebook");
 
     await supabase.from("posts").update({ status: "publishing" }).eq("id", post.id);
 
@@ -290,7 +291,14 @@ export const publishPostNow = createServerFn({ method: "POST" })
         failCount++; continue;
       }
       try {
-        await supabase.from("post_targets").update({ status: "publishing" }).eq("id", t.id);
+        const { data: claimed } = await supabase.from("post_targets")
+          .update({ status: "publishing" } as any)
+          .eq("id", t.id)
+          .in("status", ["pending", "failed"] as any)
+          .is("fb_post_id", null)
+          .select("id")
+          .maybeSingle();
+        if (!claimed) continue;
         const fbId = await publishFacebookPost({
           type: post.type as any, message: post.message ?? "", linkUrl: post.link_url ?? undefined,
           mediaUrls: post.media_urls ?? [], fbPageId: pg.fb_page_id, pageToken: pg.access_token,

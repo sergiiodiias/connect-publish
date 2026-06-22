@@ -328,7 +328,7 @@ function QueuePage() {
       const { data } = await supabase
         .from("post_targets")
         .select(`
-          id, status, error, attempts, last_attempt_at, next_retry_at, page_id,
+          id, status, error, attempts, last_attempt_at, next_retry_at, page_id, fb_post_id,
           fb_pages!inner(name),
           posts!inner(id, message, scheduled_at, status)
         `)
@@ -337,6 +337,7 @@ function QueuePage() {
         .limit(200);
       const rows = (data ?? []) as any[];
       return rows.filter((r) => {
+        if (r.fb_post_id) return false;
         const sched = r.posts?.scheduled_at;
         if (r.status === "failed") return (r.attempts ?? 0) > 0 || (sched && sched < cutoff);
         // pending: stuck if scheduled before cutoff
@@ -362,11 +363,13 @@ function QueuePage() {
       await supabase.from("post_targets")
         .update({ status: "pending", attempts: 0, next_retry_at: null, error: null } as any)
         .eq("post_id", postId)
+        .is("fb_post_id", null)
         .in("status", ["failed"]);
       // Also drop the retry gate on pending targets so they're tried immediately.
       await supabase.from("post_targets")
         .update({ next_retry_at: null } as any)
         .eq("post_id", postId)
+        .is("fb_post_id", null)
         .eq("status", "pending");
       // Make sure the post is scheduled so the cron picks it up.
       await supabase.from("posts").update({ status: "scheduled", error: null }).eq("id", postId);
@@ -794,12 +797,12 @@ function PostCard({
                 </button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="w-48">
-                {(row.status === "draft" || row.status === "scheduled") && (
+                {(row.status === "draft" || row.status === "scheduled") && !row.fb_post_id && (
                   <DropdownMenuItem onClick={onPublish}>
                     <Send className="size-3.5 mr-2" /> Publicar agora
                   </DropdownMenuItem>
                 )}
-                {(row.status === "failed" || row.status === "partial") && (
+                {(row.status === "failed" || row.status === "partial") && !row.fb_post_id && (
                   <DropdownMenuItem onClick={onPublish}>
                     <RefreshCw className="size-3.5 mr-2" /> Tentar novamente
                   </DropdownMenuItem>

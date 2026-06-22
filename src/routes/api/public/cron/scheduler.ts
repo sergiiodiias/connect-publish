@@ -30,6 +30,37 @@ export const Route = createFileRoute("/api/public/cron/scheduler")({
         };
         let rateLimitHit = false;
 
+        // -2) Reconcilia targets que já foram agendados nativamente no Facebook.
+        // Qualquer target com fb_post_id NÃO deve ser publicado de novo pelo cron.
+        const { data: nativeScheduledPosts } = await supabaseAdmin
+          .from("posts")
+          .select("id")
+          .in("status", ["scheduled", "publishing"] as any)
+          .lte("scheduled_at", nowIso)
+          .limit(100);
+        for (const p of nativeScheduledPosts ?? []) {
+          const { data: rows } = await supabaseAdmin
+            .from("post_targets")
+            .select("id, fb_post_id, status")
+            .eq("post_id", p.id);
+          if (!rows?.length) continue;
+          await supabaseAdmin.from("post_targets")
+            .update({ status: "published", published_at: nowIso, error: null } as any)
+            .eq("post_id", p.id)
+            .not("fb_post_id", "is", null)
+            .neq("status", "published");
+          const allNative = rows.every((r) => !!r.fb_post_id);
+          const hasUnsentPending = rows.some((r) => !r.fb_post_id && (r.status === "pending" || r.status === "publishing"));
+          if (allNative || !hasUnsentPending) {
+            const failedCount = rows.filter((r) => !r.fb_post_id && r.status === "failed").length;
+            await supabaseAdmin.from("posts").update({
+              status: failedCount ? "partial" : "published",
+              published_at: nowIso,
+              error: failedCount ? `${failedCount} falha(s)` : null,
+            }).eq("id", p.id);
+          }
+        }
+
         // -1) Auto-recuperação de comentários travados
         // Resetar 'publishing' parado há mais de 5min (worker crashou no meio)
         const stuckPublishingCutoff = new Date(Date.now() - 5 * 60_000).toISOString();
@@ -135,6 +166,13 @@ export const Route = createFileRoute("/api/public/cron/scheduler")({
           .from("posts").select("id").eq("status", "scheduled").lte("scheduled_at", nowIso).limit(10);
         const due: any[] = [];
         for (const row of dueIds ?? []) {
+          const { count: unsentTargets } = await supabaseAdmin
+            .from("post_targets")
+            .select("id", { count: "exact", head: true })
+            .eq("post_id", row.id)
+            .is("fb_post_id", null)
+            .in("status", ["pending", "failed"] as any);
+          if (!unsentTargets) continue;
           const { data: claimed } = await supabaseAdmin
             .from("posts").update({ status: "publishing" })
             .eq("id", row.id).eq("status", "scheduled").select("*").maybeSingle();
