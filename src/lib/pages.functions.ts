@@ -157,10 +157,31 @@ export const listPages = createServerFn({ method: "GET" })
   .handler(async ({ context }) => {
     const { data, error } = await context.supabase
       .from("fb_pages")
-      .select("id, fb_page_id, name, category, picture_url, is_active, last_checked_at, created_at")
+      .select("id, fb_page_id, name, category, picture_url, is_active, last_checked_at, created_at, token_expires_at, token_data_access_expires_at, token_scopes, token_last_debugged_at, token_last_refreshed_at, token_debug_error")
       .order("created_at", { ascending: false });
     if (error) throw new Error(error.message);
     return data;
+  });
+
+// Triggers the same monthly debug+refresh routine on demand.
+// Calls the public cron endpoint server-to-server.
+export const refreshTokensNow = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .handler(async () => {
+    const base = process.env.PUBLIC_APP_URL ?? "http://localhost:8080";
+    const url = `${base.replace(/\/$/, "")}/api/public/cron/refresh-tokens`;
+    const res = await fetch(url, { method: "POST" });
+    const json: any = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(json?.error ?? `HTTP ${res.status}`);
+    return json as {
+      ok: boolean;
+      total: number;
+      debugged: number;
+      refreshed: number;
+      invalidated: number;
+      canExtend: boolean;
+      errors: { pageId: string; error: string }[];
+    };
   });
 
 export const inspectTokens = createServerFn({ method: "POST" })
