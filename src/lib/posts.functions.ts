@@ -25,6 +25,7 @@ const FB_MAX_SCHEDULE_MS = 75 * 24 * 60 * 60 * 1000; // 75 days (FB hard cap is 
 // Targets that already have fb_post_id are skipped.
 export const migrateScheduledToFacebook = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
+  .inputValidator((d) => z.object({}).parse(d ?? {}))
   .handler(async ({ context }) => {
     const { supabase, userId } = context;
     const nowIso = new Date().toISOString();
