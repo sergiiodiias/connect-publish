@@ -163,8 +163,9 @@ export const migrateScheduledToFacebook = createServerFn({ method: "POST" })
           failed++;
           const msg = e?.message ?? String(e);
           errors.push(`${pg.name}: ${msg}`);
+          // Revert claim so the next run can retry this target.
           await supabase.from("post_targets")
-            .update({ error: `FB schedule: ${msg}` })
+            .update({ status: "pending", error: `FB schedule: ${msg}` } as any)
             .eq("id", j.target.id);
         }
       }
