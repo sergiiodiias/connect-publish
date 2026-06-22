@@ -21,6 +21,68 @@ const PostInput = z.object({
 const FB_MIN_SCHEDULE_MS = 10 * 60 * 1000 + 30_000; // small buffer
 const FB_MAX_SCHEDULE_MS = 75 * 24 * 60 * 60 * 1000; // 75 days (FB hard cap is 6mo; stay safer)
 
+// Push existing scheduled posts to Facebook's native scheduler.
+// Targets that already have fb_post_id are skipped.
+export const migrateScheduledToFacebook = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .handler(async ({ context }) => {
+    const { supabase, userId } = context;
+    const nowIso = new Date().toISOString();
+    const maxIso = new Date(Date.now() + FB_MAX_SCHEDULE_MS).toISOString();
+    const minIso = new Date(Date.now() + 10 * 60 * 1000 + 30_000).toISOString();
+
+    const { data: posts } = await supabase
+      .from("posts")
+      .select("id,type,message,link_url,media_urls,scheduled_at")
+      .eq("user_id", userId)
+      .eq("status", "scheduled")
+      .gte("scheduled_at", minIso)
+      .lte("scheduled_at", maxIso)
+      .order("scheduled_at", { ascending: true })
+      .limit(500);
+
+    let scheduled = 0, skipped = 0, failed = 0;
+    const errors: string[] = [];
+
+    for (const p of posts ?? []) {
+      const { data: targets } = await supabase.from("post_targets")
+        .select("id, page_id, fb_post_id, status")
+        .eq("post_id", p.id)
+        .is("fb_post_id", null)
+        .in("status", ["pending", "failed"]);
+      const ts = new Date(p.scheduled_at!).getTime();
+      if (ts - Date.now() < 10 * 60 * 1000 + 30_000) { skipped += (targets?.length ?? 0); continue; }
+      const scheduledUnix = Math.floor(ts / 1000);
+
+      for (const t of targets ?? []) {
+        const { data: pg } = await supabase.from("fb_pages")
+          .select("fb_page_id, access_token, is_active, name")
+          .eq("id", t.page_id).single();
+        if (!pg || pg.is_active === false) { skipped++; continue; }
+        try {
+          const fbId = await publishFacebookPost({
+            type: p.type as any,
+            message: p.message ?? "",
+            linkUrl: p.link_url ?? undefined,
+            mediaUrls: p.media_urls ?? [],
+            fbPageId: pg.fb_page_id,
+            pageToken: pg.access_token,
+            scheduledUnix,
+          });
+          await supabase.from("post_targets")
+            .update({ fb_post_id: fbId, status: "pending", error: null, next_retry_at: null } as any)
+            .eq("id", t.id);
+          scheduled++;
+        } catch (e: any) {
+          failed++;
+          errors.push(`${pg.name}: ${e?.message ?? String(e)}`);
+        }
+      }
+    }
+    void nowIso;
+    return { ok: true, scheduled, skipped, failed, errors: errors.slice(0, 20) };
+  });
+
 export const createPost = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((d) => PostInput.parse(d))
