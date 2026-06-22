@@ -15,7 +15,7 @@ import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { FileSpreadsheet, Wand2, AlertTriangle, ExternalLink } from "lucide-react";
 import { toast } from "sonner";
-import { ImportPreviewDialog } from "@/components/import-preview-dialog";
+
 
 export const Route = createFileRoute("/_authenticated/sheets")({
   head: () => ({ meta: [{ title: "Importar Planilha — PagePilot" }] }),
@@ -36,7 +36,7 @@ function ImportPage() {
   const [pageSel, setPageSel] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
   const [results, setResults] = useState<{ row: number; ok: boolean; error?: string }[]>([]);
-  const [previewOpen, setPreviewOpen] = useState(false);
+  
   const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
 
   const { data: pages = [] } = useQuery({ queryKey: ["pages"], queryFn: () => listFn() });
@@ -146,17 +146,12 @@ function ImportPage() {
     }
     setBusy(false);
     setProgress(null);
-    setPreviewOpen(false);
     qc.invalidateQueries();
     const okCount = out.filter((x) => x.ok).length;
     if (okCount === list.length) toast.success(`${okCount} postagem(ns) importada(s)`);
     else toast.error(`${list.length - okCount} falha(s) na importação`);
   };
 
-  const selectedRows = useMemo(
-    () => (data ? data.rows.filter((r) => selected.has(r.rowIndex)) : []),
-    [data, selected],
-  );
 
   return (
     <div className="p-8 space-y-6 max-w-6xl">
@@ -238,11 +233,13 @@ function ImportPage() {
               <Button
                 size="sm"
                 className="ml-auto gap-2"
-                onClick={() => setPreviewOpen(true)}
+                onClick={() => importAll()}
                 disabled={busy || selected.size === 0 || pageSel.length === 0}
               >
                 <Wand2 className="size-4" />
-                {busy ? "Importando…" : `Importar ${selected.size || ""}`}
+                {busy
+                  ? `Importando ${progress?.done ?? 0}/${progress?.total ?? selected.size}…`
+                  : `Importar ${selected.size || ""}`}
               </Button>
             </div>
             <div className="divide-y divide-border max-h-[60vh] overflow-y-auto">
@@ -306,15 +303,6 @@ function ImportPage() {
         </div>
       )}
 
-      <ImportPreviewDialog
-        open={previewOpen}
-        onOpenChange={setPreviewOpen}
-        rows={selectedRows}
-        pageCount={pageSel.length}
-        busy={busy}
-        progress={progress}
-        onConfirm={(idxs, sched) => importAll(idxs, sched)}
-      />
     </div>
   );
 }
