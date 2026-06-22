@@ -540,29 +540,29 @@ function PostCard({
   const isVideo = thumb && /\.(mp4|mov|webm)(\?|$)/i.test(thumb);
 
   return (
-    <article className="group bg-card rounded-xl border border-border overflow-hidden shadow-sm hover:border-primary/30 hover:shadow-md transition-all flex flex-col">
+    <article className="group bg-card rounded-lg border border-border overflow-hidden shadow-sm hover:border-primary/30 hover:shadow-md transition-all flex flex-col">
       {/* Thumbnail */}
-      <div className="aspect-video bg-muted relative overflow-hidden">
+      <div className="aspect-square bg-muted relative overflow-hidden">
         {isImage ? (
           <img src={thumb} alt="" loading="lazy" className="w-full h-full object-cover" />
         ) : isVideo ? (
           <video src={thumb} className="w-full h-full object-cover" muted playsInline />
         ) : (
           <div className="absolute inset-0 grid place-items-center text-muted-foreground">
-            <TypeIcon className="size-8" />
+            <TypeIcon className="size-6" />
           </div>
         )}
-        <span className="absolute top-2 right-2 px-2 py-1 bg-background/90 backdrop-blur rounded text-[10px] font-bold text-foreground shadow-sm uppercase tracking-wider">
+        <span className="absolute top-1.5 right-1.5 px-1.5 py-0.5 bg-background/90 backdrop-blur rounded text-[9px] font-bold text-foreground shadow-sm uppercase tracking-wider">
           {formatWhen(whenSrc)}
         </span>
-        <span className={`absolute top-2 left-2 inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-medium ${type.cls}`}>
-          <TypeIcon className="size-3" /> {type.label}
+        <span className={`absolute top-1.5 left-1.5 inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[9px] font-medium ${type.cls}`}>
+          <TypeIcon className="size-2.5" /> {type.label}
         </span>
       </div>
 
       {/* Body */}
-      <div className="p-4 flex flex-col gap-3 flex-1">
-        <p className="text-sm text-foreground/80 line-clamp-3 min-h-[3.75rem]">
+      <div className="p-2.5 flex flex-col gap-2 flex-1">
+        <p className="text-xs text-foreground/80 line-clamp-2 min-h-[2rem]">
           {row.message?.trim() || <span className="italic text-muted-foreground">Sem texto</span>}
         </p>
 
