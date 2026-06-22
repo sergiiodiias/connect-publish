@@ -236,7 +236,7 @@ function ImportPage() {
               <Button
                 size="sm"
                 className="ml-auto gap-2"
-                onClick={importAll}
+                onClick={() => setPreviewOpen(true)}
                 disabled={busy || selected.size === 0 || pageSel.length === 0}
               >
                 <Wand2 className="size-4" />
