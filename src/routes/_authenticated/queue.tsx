@@ -105,6 +105,7 @@ function QueuePage() {
   const detailsFn = useServerFn(getPostDetails);
   const verifyFn = useServerFn(verifyPostPublished);
   const importFn = useServerFn(importFbScheduled);
+  const migrateFn = useServerFn(migrateScheduledToFacebook);
 
   const [status, setStatus] = useState<string>("scheduled");
   const [search, setSearch] = useState("");
