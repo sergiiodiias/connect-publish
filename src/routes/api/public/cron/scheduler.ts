@@ -11,7 +11,7 @@ export const Route = createFileRoute("/api/public/cron/scheduler")({
         }
 
         const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-        const { fbPost } = await import("@/lib/fb-graph");
+        const { fbGet, fbPost } = await import("@/lib/fb-graph");
         const { publishFacebookPost } = await import("@/lib/fb-publish");
 
         const nowIso = new Date().toISOString();
@@ -28,6 +28,7 @@ export const Route = createFileRoute("/api/public/cron/scheduler")({
           for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size));
           return out;
         };
+        const normalizeComment = (value: string) => value.trim().replace(/\s+/g, " ").toLowerCase();
         let rateLimitHit = false;
 
         // -2) Reconcilia targets que já foram agendados nativamente no Facebook.
@@ -75,6 +76,7 @@ export const Route = createFileRoute("/api/public/cron/scheduler")({
           .select("id, attempts, error")
           .eq("status", "failed")
           .not("target_id", "is", null)
+          .is("fb_comment_id", null)
           .limit(100);
         const transientRe = /limit|rate|timeout|temporar|network|fetch failed|#4\b|#17\b|#32\b|#613/i;
         for (const r of (retryable ?? []) as any[]) {
