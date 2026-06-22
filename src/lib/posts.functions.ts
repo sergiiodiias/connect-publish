@@ -2,6 +2,7 @@ import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import { publishFacebookPost } from "@/lib/fb-publish";
+import { fbGet } from "@/lib/fb-graph";
 
 const PostInput = z.object({
   type: z.enum(["text", "photo", "video", "link"]),
@@ -20,6 +21,32 @@ const PostInput = z.object({
 // Facebook requires scheduled_publish_time to be between 10 min and 6 months from now.
 const FB_MIN_SCHEDULE_MS = 10 * 60 * 1000 + 30_000; // small buffer
 const FB_MAX_SCHEDULE_MS = 75 * 24 * 60 * 60 * 1000; // 75 days (FB hard cap is 6mo; stay safer)
+const FB_SCHEDULE_MATCH_WINDOW_SECONDS = 90;
+
+function normalizeFbText(value: string) {
+  return value.trim().replace(/\s+/g, " ").toLowerCase();
+}
+
+async function findExistingScheduledFacebookPost(opts: {
+  fbPageId: string;
+  pageToken: string;
+  message: string;
+  scheduledUnix: number;
+}) {
+  const wanted = normalizeFbText(opts.message || "");
+  if (!wanted) return null;
+  const scheduled: any = await fbGet(`/${opts.fbPageId}/scheduled_posts`, {
+    access_token: opts.pageToken,
+    fields: "id,message,scheduled_publish_time",
+    limit: "100",
+  });
+  const match = (scheduled?.data ?? []).find((item: any) => {
+    if (normalizeFbText(item?.message ?? "") !== wanted) return false;
+    const fbTime = Number(item?.scheduled_publish_time ?? 0);
+    return Math.abs(fbTime - opts.scheduledUnix) <= FB_SCHEDULE_MATCH_WINDOW_SECONDS;
+  });
+  return match?.id ? String(match.id) : null;
+}
 
 // Push existing scheduled posts to Facebook's native scheduler.
 // Targets that already have fb_post_id are skipped.
