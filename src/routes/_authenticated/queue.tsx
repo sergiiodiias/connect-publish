@@ -17,9 +17,12 @@ import {
   Send, Trash2, X, AlertCircle, Info, RefreshCw, ExternalLink,
   ShieldCheck, CheckCircle2, XCircle, MoreHorizontal, ImageIcon,
   Video, Link as LinkIcon, FileText, Plus, Calendar, Download,
+  ChevronLeft, ChevronRight,
 } from "lucide-react";
 import { toast } from "sonner";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+
+const PAGE_SIZE = 20;
 
 export const Route = createFileRoute("/_authenticated/queue")({
   head: () => ({ meta: [{ title: "Agenda — PagePilot" }] }),
