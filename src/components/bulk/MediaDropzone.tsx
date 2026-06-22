@@ -34,21 +34,29 @@ async function readEntries(entry: any): Promise<File[]> {
 export function MediaDropzone({ expectedFilenames, onChange }: Props) {
   const [map, setMap] = useState<Map<string, LocalMedia>>(new Map());
   const [dragging, setDragging] = useState(false);
-  const inputRef = useRef<HTMLInputElement>(null);
+  const [strict, setStrict] = useState(true);
+  const [lastSkipped, setLastSkipped] = useState<string[]>([]);
+  const filesRef = useRef<HTMLInputElement>(null);
+  const folderRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => onChange(map), [map, onChange]);
 
   const addFiles = (files: File[]) => {
     const next = new Map(map);
     let added = 0;
+    const skipped: string[] = [];
     for (const f of files) {
       const key = f.name.toLowerCase();
-      if (!expectedFilenames.has(key)) continue;
+      if (strict && expectedFilenames.size > 0 && !expectedFilenames.has(key)) {
+        skipped.push(f.name);
+        continue;
+      }
       if (next.has(key)) continue;
       next.set(key, { file: f, name: f.name, url: IMG.test(f.name) ? URL.createObjectURL(f) : undefined });
       added++;
     }
     setMap(next);
+    setLastSkipped(skipped.slice(0, 8));
     return added;
   };
 
@@ -69,10 +77,10 @@ export function MediaDropzone({ expectedFilenames, onChange }: Props) {
     addFiles(collected);
   };
 
-  const clear = () => { map.forEach((v) => v.url && URL.revokeObjectURL(v.url)); setMap(new Map()); };
+  const clear = () => { map.forEach((v) => v.url && URL.revokeObjectURL(v.url)); setMap(new Map()); setLastSkipped([]); };
 
   const matched = map.size;
-  const missing = expectedFilenames.size - matched;
+  const missing = Math.max(0, expectedFilenames.size - matched);
 
   return (
     <div className="space-y-3">
@@ -80,26 +88,50 @@ export function MediaDropzone({ expectedFilenames, onChange }: Props) {
         onDragOver={(e) => { e.preventDefault(); setDragging(true); }}
         onDragLeave={() => setDragging(false)}
         onDrop={onDrop}
-        onClick={() => inputRef.current?.click()}
-        className={`rounded-xl border-2 border-dashed p-8 text-center cursor-pointer transition-colors ${
-          dragging ? "border-primary bg-primary/5" : "border-border bg-card hover:bg-muted/30"
+        className={`rounded-xl border-2 border-dashed p-6 text-center transition-colors ${
+          dragging ? "border-primary bg-primary/5" : "border-border bg-card"
         }`}
       >
         <UploadCloud className="size-8 mx-auto mb-2 text-muted-foreground" />
-        <div className="text-sm font-medium">Arraste arquivos ou pastas, ou clique para selecionar</div>
+        <div className="text-sm font-medium">Arraste arquivos ou pastas aqui</div>
         <div className="text-xs text-muted-foreground mt-1">
-          Apenas arquivos cujo nome bate com a coluna "CAMINHO" da planilha são aceitos.
+          Funciona com Google Drive (Stream), OneDrive ou pastas locais.
+        </div>
+        <div className="flex items-center justify-center gap-2 mt-3 flex-wrap">
+          <Button type="button" size="sm" variant="default" onClick={() => filesRef.current?.click()}>
+            Selecionar arquivos
+          </Button>
+          <Button type="button" size="sm" variant="outline" onClick={() => folderRef.current?.click()}>
+            Selecionar pasta
+          </Button>
         </div>
         <input
-          ref={inputRef}
+          ref={filesRef}
+          type="file"
+          multiple
+          accept="image/*,video/*"
+          hidden
+          onChange={(e) => { addFiles(Array.from(e.target.files ?? [])); e.target.value = ""; }}
+        />
+        <input
+          ref={folderRef}
           type="file"
           multiple
           hidden
           // @ts-expect-error directory attrs
           webkitdirectory=""
+          directory=""
           onChange={(e) => { addFiles(Array.from(e.target.files ?? [])); e.target.value = ""; }}
         />
       </div>
+
+      <div className="flex items-center gap-3 text-xs">
+        <label className="inline-flex items-center gap-2 cursor-pointer select-none">
+          <input type="checkbox" checked={strict} onChange={(e) => setStrict(e.target.checked)} />
+          <span>Filtrar por nomes da planilha (desmarque para aceitar qualquer arquivo)</span>
+        </label>
+      </div>
+
       <div className="flex items-center gap-2 text-sm flex-wrap">
         <span className="inline-flex items-center gap-1"><CheckCircle2 className="size-4 text-success" /> {matched} casadas</span>
         <span className="inline-flex items-center gap-1"><XCircle className="size-4 text-destructive" /> {missing} faltando</span>
@@ -109,10 +141,19 @@ export function MediaDropzone({ expectedFilenames, onChange }: Props) {
           </Button>
         )}
       </div>
+
+      {strict && lastSkipped.length > 0 && (
+        <div className="text-xs text-muted-foreground rounded-md border border-border p-2">
+          <div className="font-medium mb-1">Ignorados por não baterem com a planilha:</div>
+          <div className="font-mono truncate">{lastSkipped.join(", ")}</div>
+          <div className="mt-1">Desmarque o filtro acima se os nomes na planilha não coincidem exatamente com os arquivos.</div>
+        </div>
+      )}
+
       {matched > 0 && (
         <div className="grid grid-cols-4 md:grid-cols-6 lg:grid-cols-8 gap-2 max-h-64 overflow-y-auto p-2 rounded-md border border-border">
           {Array.from(map.values()).map((m) => (
-            <div key={m.name} className="aspect-square rounded-md bg-muted overflow-hidden flex items-center justify-center text-muted-foreground">
+            <div key={m.name} className="aspect-square rounded-md bg-muted overflow-hidden flex items-center justify-center text-muted-foreground" title={m.name}>
               {m.url ? (
                 <img src={m.url} alt={m.name} loading="lazy" className="size-full object-cover" />
               ) : IMG.test(m.name) ? <ImageIcon className="size-6" /> : <Film className="size-6" />}
