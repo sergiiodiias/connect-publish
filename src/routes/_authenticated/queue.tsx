@@ -101,6 +101,7 @@ function QueuePage() {
   const delAllFn = useServerFn(deleteAllPosts);
   const detailsFn = useServerFn(getPostDetails);
   const verifyFn = useServerFn(verifyPostPublished);
+  const importFn = useServerFn(importFbScheduled);
 
   const [status, setStatus] = useState<string>("scheduled");
   const [search, setSearch] = useState("");
