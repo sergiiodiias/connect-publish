@@ -2,14 +2,14 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
-import { listPages, connectPage, deletePage, testPageToken, inspectTokens } from "@/lib/pages.functions";
+import { listPages, connectPage, deletePage, testPageToken, inspectTokens, updatePageToken } from "@/lib/pages.functions";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
-import { Plus, Trash2, CheckCircle2, AlertTriangle, RefreshCw, Clock, Copy, Eye, EyeOff } from "lucide-react";
+import { Plus, Trash2, CheckCircle2, AlertTriangle, RefreshCw, Clock, Copy, Eye, EyeOff, KeyRound } from "lucide-react";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/_authenticated/pages")({
@@ -54,6 +54,25 @@ function PagesPage() {
   const [token, setToken] = useState("");
   const [pageId, setPageId] = useState("");
   const [revealed, setRevealed] = useState<Record<string, boolean>>({});
+  const [updateFor, setUpdateFor] = useState<{ id: string; name: string } | null>(null);
+  const [newToken, setNewToken] = useState("");
+  const updateTokenFn = useServerFn(updatePageToken);
+  const updateMut = useMutation({
+    mutationFn: async () => {
+      if (!updateFor) throw new Error("Nenhuma página");
+      const r = await updateTokenFn({ data: { pageId: updateFor.id, accessToken: newToken.trim() } });
+      if (!r.ok) throw new Error(r.error);
+      return r;
+    },
+    onSuccess: () => {
+      toast.success("Token atualizado");
+      setUpdateFor(null);
+      setNewToken("");
+      qc.invalidateQueries({ queryKey: ["pages"] });
+      qc.invalidateQueries({ queryKey: ["pages-token-info"] });
+    },
+    onError: (e: any) => toast.error(e.message),
+  });
 
   const connect = useMutation({
     mutationFn: async () => {
@@ -149,6 +168,7 @@ function PagesPage() {
                   </div>
                   <div className="text-xs text-muted-foreground">{p.category ?? "—"} · ID {p.fb_page_id}</div>
                 </div>
+                <Button variant="ghost" size="icon" onClick={() => { setUpdateFor({ id: p.id, name: p.name }); setNewToken(""); }} title="Atualizar token"><KeyRound className="size-4" /></Button>
                 <Button variant="ghost" size="icon" onClick={() => test.mutate(p.id)} title="Testar token"><RefreshCw className="size-4" /></Button>
                 <Button variant="ghost" size="icon" onClick={() => { if (confirm("Remover esta página?")) remove.mutate(p.id); }}><Trash2 className="size-4 text-destructive" /></Button>
               </div>
@@ -173,6 +193,33 @@ function PagesPage() {
           );
         })}
       </div>
+
+      <Dialog open={!!updateFor} onOpenChange={(o) => !o && setUpdateFor(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Atualizar token{updateFor ? ` — ${updateFor.name}` : ""}</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-2">
+            <Label>Novo Access Token (estendido)</Label>
+            <Textarea
+              rows={5}
+              value={newToken}
+              onChange={(e) => setNewToken(e.target.value)}
+              placeholder="Cole aqui o token estendido (longa duração) da página"
+              className="font-mono text-xs"
+            />
+            <p className="text-xs text-muted-foreground">
+              O token precisa pertencer à mesma página — validamos antes de salvar.
+            </p>
+          </div>
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setUpdateFor(null)}>Cancelar</Button>
+            <Button disabled={!newToken.trim() || updateMut.isPending} onClick={() => updateMut.mutate()}>
+              {updateMut.isPending ? "Salvando…" : "Salvar token"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
