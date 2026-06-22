@@ -385,7 +385,7 @@ function QueuePage() {
               </Button>
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3">
               {group.rows.map((r) => (
                 <PostCard
                   key={r.target_id}
@@ -403,6 +403,31 @@ function QueuePage() {
           </section>
         );
       })}
+
+      {/* Pagination */}
+      {!isLoading && totalFiltered > 0 && totalPages > 1 && (
+        <div className="flex items-center justify-center gap-2 pt-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+            disabled={safePage <= 1}
+          >
+            <ChevronLeft className="size-4" /> Anterior
+          </Button>
+          <span className="text-sm text-muted-foreground px-2">
+            Página {safePage} de {totalPages}
+          </span>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+            disabled={safePage >= totalPages}
+          >
+            Próxima <ChevronRight className="size-4" />
+          </Button>
+        </div>
+      )}
 
       {/* Details dialog */}
       <Dialog open={!!detailId} onOpenChange={(o) => !o && setDetailId(null)}>
