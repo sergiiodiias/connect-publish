@@ -55,6 +55,7 @@ export const migrateScheduledToFacebook = createServerFn({ method: "POST" })
       target: { id: string; page_id: string };
       post: { id: string; type: string; message: string | null; link_url: string | null; media_urls: string[] | null };
       scheduledUnix: number;
+      scheduledAtIso: string;
     };
     const jobs: Job[] = [];
     for (const t of (targetsRaw ?? []) as any[]) {
@@ -66,8 +67,25 @@ export const migrateScheduledToFacebook = createServerFn({ method: "POST" })
         target: { id: t.id, page_id: t.page_id },
         post: t.posts,
         scheduledUnix: Math.floor(ts / 1000),
+        scheduledAtIso: sched,
       });
     }
+
+    // Preload auto_comment templates (target_id IS NULL) for all posts in this batch
+    const postIdSet = [...new Set(jobs.map((j) => j.post.id))];
+    const { data: tmplRows } = postIdSet.length
+      ? await supabase.from("auto_comments")
+          .select("id, post_id, message, delay_seconds")
+          .in("post_id", postIdSet)
+          .is("target_id", null)
+      : { data: [] as any[] };
+    const tmplByPost = new Map<string, any[]>();
+    for (const r of (tmplRows ?? []) as any[]) {
+      const arr = tmplByPost.get(r.post_id) ?? [];
+      arr.push(r);
+      tmplByPost.set(r.post_id, arr);
+    }
+
 
     // Resolve all page tokens in one query (avoid N round-trips to PG).
     const pageIds = [...new Set(jobs.map((j) => j.target.page_id))];
