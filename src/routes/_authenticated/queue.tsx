@@ -4,6 +4,7 @@ import { useServerFn } from "@tanstack/react-start";
 import { supabase } from "@/integrations/supabase/client";
 import { publishPostNow, cancelScheduled, deletePost, deleteAllPosts, getPostDetails } from "@/lib/posts.functions";
 import { verifyPostPublished } from "@/lib/verify-posts.functions";
+import { importFbScheduled } from "@/lib/import-fb-scheduled.functions";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
