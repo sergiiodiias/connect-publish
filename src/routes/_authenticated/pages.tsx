@@ -125,30 +125,49 @@ function PagesPage() {
             exp?.tone === "warn" ? "border-warning/40 text-warning" :
             exp?.tone === "bad" ? "border-destructive/40 text-destructive" : "";
           return (
-            <div key={p.id} className="p-4 flex items-center gap-4">
-              <div className="size-12 rounded-full bg-muted overflow-hidden grid place-items-center">
-                {p.picture_url ? <img src={p.picture_url} alt="" className="w-full h-full object-cover" /> : <span className="text-muted-foreground text-xs">FB</span>}
-              </div>
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2 flex-wrap">
-                  <span className="font-medium">{p.name}</span>
-                  {p.is_active ? <Badge variant="outline" className="gap-1"><CheckCircle2 className="size-3 text-success" />ativa</Badge>
-                    : <Badge variant="destructive" className="gap-1"><AlertTriangle className="size-3" />inativa</Badge>}
-                  {exp && (
-                    <Badge variant="outline" className={`gap-1 ${toneClass}`} title={
-                      info?.expiresAt && info.expiresAt > 0
-                        ? `Expira em ${new Date(info.expiresAt * 1000).toLocaleString("pt-BR")}`
-                        : info?.expiresAt === 0 ? "Token de longa duração — não expira" : "Validade desconhecida"
-                    }>
-                      <Clock className="size-3" />
-                      {exp.tone === "never" ? "não expira" : `expira em ${exp.label}`}
-                    </Badge>
-                  )}
+            <div key={p.id} className="p-4 space-y-3">
+              <div className="flex items-center gap-4">
+                <div className="size-12 rounded-full bg-muted overflow-hidden grid place-items-center">
+                  {p.picture_url ? <img src={p.picture_url} alt="" className="w-full h-full object-cover" /> : <span className="text-muted-foreground text-xs">FB</span>}
                 </div>
-                <div className="text-xs text-muted-foreground">{p.category ?? "—"} · ID {p.fb_page_id}</div>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="font-medium">{p.name}</span>
+                    {p.is_active ? <Badge variant="outline" className="gap-1"><CheckCircle2 className="size-3 text-success" />ativa</Badge>
+                      : <Badge variant="destructive" className="gap-1"><AlertTriangle className="size-3" />inativa</Badge>}
+                    {exp && (
+                      <Badge variant="outline" className={`gap-1 ${toneClass}`} title={
+                        info?.expiresAt && info.expiresAt > 0
+                          ? `Expira em ${new Date(info.expiresAt * 1000).toLocaleString("pt-BR")}`
+                          : info?.expiresAt === 0 ? "Token de longa duração — não expira" : "Validade desconhecida"
+                      }>
+                        <Clock className="size-3" />
+                        {exp.tone === "never" ? "não expira" : `expira em ${exp.label}`}
+                      </Badge>
+                    )}
+                  </div>
+                  <div className="text-xs text-muted-foreground">{p.category ?? "—"} · ID {p.fb_page_id}</div>
+                </div>
+                <Button variant="ghost" size="icon" onClick={() => test.mutate(p.id)} title="Testar token"><RefreshCw className="size-4" /></Button>
+                <Button variant="ghost" size="icon" onClick={() => { if (confirm("Remover esta página?")) remove.mutate(p.id); }}><Trash2 className="size-4 text-destructive" /></Button>
               </div>
-              <Button variant="ghost" size="icon" onClick={() => test.mutate(p.id)} title="Testar token"><RefreshCw className="size-4" /></Button>
-              <Button variant="ghost" size="icon" onClick={() => { if (confirm("Remover esta página?")) remove.mutate(p.id); }}><Trash2 className="size-4 text-destructive" /></Button>
+              {info && (
+                <div className="ml-16 space-y-2">
+                  <TokenRow
+                    label="Token enviado"
+                    token={info.accessToken}
+                    revealed={revealed[`${p.id}:sent`]}
+                    onToggle={() => setRevealed(s => ({ ...s, [`${p.id}:sent`]: !s[`${p.id}:sent`] }))}
+                  />
+                  <TokenRow
+                    label="Token estendido (longa duração)"
+                    token={info.longLivedToken}
+                    placeholder={info.extendError ?? "—"}
+                    revealed={revealed[`${p.id}:ext`]}
+                    onToggle={() => setRevealed(s => ({ ...s, [`${p.id}:ext`]: !s[`${p.id}:ext`] }))}
+                  />
+                </div>
+              )}
             </div>
           );
         })}
