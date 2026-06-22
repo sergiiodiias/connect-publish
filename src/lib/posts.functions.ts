@@ -205,6 +205,23 @@ export const migrateScheduledToFacebook = createServerFn({ method: "POST" })
           scheduled++;
 
         } catch (e: any) {
+          try {
+            const existingFbId = await findExistingScheduledFacebookPost({
+              fbPageId: pg.fb_page_id,
+              pageToken: pg.access_token,
+              message: j.post.message ?? "",
+              scheduledUnix: j.scheduledUnix,
+            });
+            if (existingFbId) {
+              await supabase.from("post_targets")
+                .update({ fb_post_id: existingFbId, status: "pending", error: "agendamento confirmado após retorno instável do Facebook", next_retry_at: null } as any)
+                .eq("id", j.target.id);
+              scheduled++;
+              continue;
+            }
+          } catch {
+            // If the reconciliation read also fails, keep the normal retry path.
+          }
           failed++;
           const msg = e?.message ?? String(e);
           errors.push(`${pg.name}: ${msg}`);
@@ -317,6 +334,23 @@ export const createPost = createServerFn({ method: "POST" })
             fbScheduled++;
 
           } catch (e: any) {
+            try {
+              const existingFbId = await findExistingScheduledFacebookPost({
+                fbPageId: pg.fb_page_id,
+                pageToken: pg.access_token,
+                message: data.message ?? "",
+                scheduledUnix,
+              });
+              if (existingFbId) {
+                await supabase.from("post_targets")
+                  .update({ fb_post_id: existingFbId, error: "agendamento confirmado após retorno instável do Facebook" })
+                  .eq("id", t.id);
+                fbScheduled++;
+                continue;
+              }
+            } catch {
+              // If the reconciliation read also fails, keep the fallback path.
+            }
             fbErrors.push(`${pg.name}: ${e?.message ?? String(e)}`);
             await supabase.from("post_targets")
               .update({ error: `agendamento FB falhou — fallback no cron: ${e?.message ?? ""}` })
