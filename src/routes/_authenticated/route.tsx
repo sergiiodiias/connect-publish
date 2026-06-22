@@ -17,7 +17,7 @@ export const Route = createFileRoute("/_authenticated")({
 
 const NAV = [
   { to: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
-  { to: "/composer", label: "Compor", icon: FileEdit },
+  { to: "/composer", label: "Agendar postagens", icon: FileEdit },
   { to: "/queue", label: "Agenda", icon: CalendarClock },
   { to: "/pages", label: "Páginas", icon: Layers },
   { to: "/extract", label: "Extrair tokens", icon: KeyRound },

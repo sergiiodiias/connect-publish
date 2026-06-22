@@ -16,7 +16,7 @@ import { Send, CalendarClock } from "lucide-react";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/_authenticated/composer")({
-  head: () => ({ meta: [{ title: "Compor — PagePilot" }] }),
+  head: () => ({ meta: [{ title: "Agendar postagens — PagePilot" }] }),
   component: ComposerPage,
 });
 
@@ -26,18 +26,41 @@ function ComposerPage() {
   const createFn = useServerFn(createPost);
   const publishFn = useServerFn(publishPostNow);
   const { data: pages = [] } = useQuery({ queryKey: ["pages"], queryFn: () => listFn() });
+  const { data: groups = [] } = useQuery({
+    queryKey: ["groups"],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("page_groups")
+        .select("id, name, page_group_members(page_id)")
+        .order("created_at", { ascending: false });
+      if (error) throw error;
+      return data ?? [];
+    },
+  });
 
   const [type, setType] = useState<"text" | "photo" | "video" | "link">("text");
   const [message, setMessage] = useState("");
   const [linkUrl, setLinkUrl] = useState("");
   const [mediaUrl, setMediaUrl] = useState("");
   const [selected, setSelected] = useState<string[]>([]);
+  const [groupFilter, setGroupFilter] = useState<string>("all");
   const [scheduleOn, setScheduleOn] = useState(false);
   const [scheduledAt, setScheduledAt] = useState("");
   const [autoOn, setAutoOn] = useState(false);
   const [commentMsg, setCommentMsg] = useState("");
   const [commentDelay, setCommentDelay] = useState(60);
   const [tagsInput, setTagsInput] = useState("");
+
+  const applyGroup = (groupId: string) => {
+    setGroupFilter(groupId);
+    if (groupId === "all") {
+      setSelected(pages.map((p) => p.id));
+    } else {
+      const g = groups.find((x: any) => x.id === groupId);
+      const ids = (g?.page_group_members ?? []).map((m: any) => m.page_id);
+      setSelected(ids);
+    }
+  };
 
   const toggleAll = () => setSelected(selected.length === pages.length ? [] : pages.map(p => p.id));
 
@@ -86,8 +109,8 @@ function ComposerPage() {
     <div className="p-8 grid lg:grid-cols-[1fr_360px] gap-6">
       <div className="space-y-6">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight">Nova publicação</h1>
-          <p className="text-sm text-muted-foreground">Componha uma vez, publique em várias páginas.</p>
+          <h1 className="text-2xl font-semibold tracking-tight">Agendar postagens</h1>
+          <p className="text-sm text-muted-foreground">Componha uma vez, publique ou agende em várias páginas.</p>
         </div>
 
         <div className="rounded-xl border border-border bg-card p-6 space-y-4">
@@ -164,9 +187,25 @@ function ComposerPage() {
 
       <aside className="space-y-3">
         <div className="rounded-xl border border-border bg-card">
-          <div className="px-4 py-3 border-b border-border flex items-center justify-between">
-            <span className="font-medium text-sm">Páginas-alvo</span>
-            <button onClick={toggleAll} className="text-xs text-primary hover:underline">{selected.length === pages.length ? "limpar" : "selecionar todas"}</button>
+          <div className="px-4 py-3 border-b border-border space-y-3">
+            <div className="flex items-center justify-between">
+              <span className="font-medium text-sm">Páginas-alvo</span>
+              <button onClick={toggleAll} className="text-xs text-primary hover:underline">{selected.length === pages.length ? "limpar" : "selecionar todas"}</button>
+            </div>
+            <div>
+              <Label className="text-xs">Selecionar por grupo</Label>
+              <Select value={groupFilter} onValueChange={applyGroup}>
+                <SelectTrigger className="mt-1"><SelectValue placeholder="Escolha um grupo" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Todas as páginas</SelectItem>
+                  {groups.map((g: any) => (
+                    <SelectItem key={g.id} value={g.id}>
+                      {g.name} ({g.page_group_members?.length ?? 0})
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
           </div>
           <div className="max-h-[60vh] overflow-y-auto divide-y divide-border">
             {pages.length === 0 && <div className="p-6 text-center text-sm text-muted-foreground">Conecte páginas primeiro.</div>}
