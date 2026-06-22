@@ -23,7 +23,13 @@ export const connectPage = createServerFn({ method: "POST" })
     try {
       me = await fbGet("/me", { access_token: data.accessToken, fields: "id,name,category" });
     } catch (e: any) {
-      throw new Error("Token inválido: " + e.message);
+      const message = e?.message ?? "não foi possível validar o token";
+      return {
+        ok: false,
+        error: message.toLowerCase().includes("session has expired")
+          ? "Token expirado. Gere um novo token da página e tente novamente."
+          : `Token inválido: ${message}`,
+      };
     }
 
     if (me.category) {
@@ -31,9 +37,14 @@ export const connectPage = createServerFn({ method: "POST" })
       pageId = me.id;
     } else {
       // It's a user token — try to find pages
-      const pages = await fbGet<{ data: any[] }>("/me/accounts", { access_token: data.accessToken, fields: "id,name,category,access_token" });
+      let pages: { data: any[] };
+      try {
+        pages = await fbGet<{ data: any[] }>("/me/accounts", { access_token: data.accessToken, fields: "id,name,category,access_token" });
+      } catch (e: any) {
+        return { ok: false, error: `Não consegui listar páginas com esse token: ${e?.message ?? "erro desconhecido"}` };
+      }
       const chosen = pageId ? pages.data.find((p) => p.id === pageId) : pages.data[0];
-      if (!chosen) throw new Error("Nenhuma página encontrada para esse token");
+      if (!chosen) return { ok: false, error: "Nenhuma página encontrada para esse token" };
       pageId = chosen.id;
       pageToken = chosen.access_token;
       me = chosen;

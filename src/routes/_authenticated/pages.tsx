@@ -30,7 +30,11 @@ function PagesPage() {
   const [pageId, setPageId] = useState("");
 
   const connect = useMutation({
-    mutationFn: () => connectFn({ data: { accessToken: token.trim(), pageId: pageId.trim() || undefined } }),
+    mutationFn: async () => {
+      const response = await connectFn({ data: { accessToken: token.trim(), pageId: pageId.trim() || undefined } });
+      if (!response.ok) throw new Error(response.error);
+      return response;
+    },
     onSuccess: () => { toast.success("Página conectada"); setOpen(false); setToken(""); setPageId(""); qc.invalidateQueries({ queryKey: ["pages"] }); },
     onError: (e: any) => toast.error(e.message),
   });

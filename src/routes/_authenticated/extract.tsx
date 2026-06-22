@@ -128,8 +128,12 @@ function ExtractPage() {
     const out: typeof results = [];
     for (const p of list) {
       try {
-        await connectFn({ data: { accessToken: p.token, pageId: p.id } });
-        out.push({ id: p.id, name: p.name, ok: true });
+        const response = await connectFn({ data: { accessToken: p.token, pageId: p.id } });
+        if (!response.ok) {
+          out.push({ id: p.id, name: p.name, ok: false, error: response.error });
+        } else {
+          out.push({ id: p.id, name: p.name, ok: true });
+        }
       } catch (e: any) {
         out.push({ id: p.id, name: p.name, ok: false, error: e?.message ?? "erro" });
       }
@@ -137,7 +141,8 @@ function ExtractPage() {
     }
     setBusy(false);
     const okCount = out.filter((r) => r.ok).length;
-    toast.success(`${okCount}/${list.length} páginas conectadas`);
+    if (okCount === list.length) toast.success(`${okCount}/${list.length} páginas conectadas`);
+    else toast.error(`${list.length - okCount} token(s) expirado(s) ou inválido(s)`);
   };
 
   return (
@@ -202,7 +207,7 @@ function ExtractPage() {
                   </div>
                 </div>
                 {r && (
-                  <Badge variant={r.ok ? "default" : "destructive"}>
+                  <Badge variant={r.ok ? "default" : "destructive"} title={r.error}>
                     {r.ok ? "Conectada" : r.error?.slice(0, 40) ?? "Falhou"}
                   </Badge>
                 )}
