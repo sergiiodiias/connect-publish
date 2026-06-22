@@ -88,7 +88,7 @@ export const Route = createFileRoute("/api/public/cron/scheduler")({
           .from("posts")
           .select("id")
           .in("status", ["scheduled", "publishing"] as any)
-          .lte("scheduled_at", nowIso)
+          .lte("scheduled_at", fallbackReadyIso)
           .limit(100);
         for (const p of nativeScheduledPosts ?? []) {
           const { data: rows } = await supabaseAdmin
@@ -274,7 +274,7 @@ export const Route = createFileRoute("/api/public/cron/scheduler")({
         // Atomic claim: only pick posts still 'scheduled' and flip them to 'publishing' in one update,
         // so concurrent cron ticks never grab the same post.
         const { data: dueIds } = await supabaseAdmin
-          .from("posts").select("id").eq("status", "scheduled").lte("scheduled_at", nowIso).limit(10);
+          .from("posts").select("id").eq("status", "scheduled").lte("scheduled_at", fallbackReadyIso).limit(10);
         const due: any[] = [];
         for (const row of dueIds ?? []) {
           const { count: unsentTargets } = await supabaseAdmin
