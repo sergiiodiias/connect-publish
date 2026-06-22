@@ -1,56 +1,60 @@
-# Plano: SaaS de Publicação em Páginas do Facebook
+## Objetivo
+Adicionar uma etapa de **prévia + validação** antes de importar as linhas selecionadas da planilha, para que você veja exatamente o que vai ser criado e evite erros (foto quebrada, sem páginas, data inválida, texto vazio, etc.).
 
-## Visão geral
-Aplicação para conectar Páginas do Facebook via Access Token (Graph API), publicar em massa, agendar, rotacionar conteúdo, comentar automaticamente e gerenciar grupos de páginas.
+## Fluxo novo do botão Importar
 
-## Fase 1 — Fundação (esta entrega)
-Vou começar pelo núcleo funcional. Recursos avançados (webhooks, API interna, rotação por tipo) ficam para fases seguintes para evitar um build gigante e instável.
+Hoje: clicar em Importar → cria tudo direto no banco.
 
-1. **Backend (Lovable Cloud)**
-   - Habilitar Lovable Cloud (banco + auth + storage + server functions).
-   - Tabelas: `profiles`, `user_roles` (admin/user), `fb_pages` (token criptografado por env), `page_groups`, `page_group_members`, `posts` (rascunho/agendado/publicado/falhou), `post_targets` (post × página + fb_post_id), `auto_comments` (com delay), `media_assets`, `activity_logs`.
-   - RLS por `auth.uid()` em todas as tabelas; `has_role()` security definer.
-   - Bucket `media` (privado) para imagens/vídeos.
+Novo: clicar em Importar → abre **modal de prévia** → revisar/corrigir → confirmar → cria no banco.
 
-2. **Auth**
-   - Email/senha + Google (broker Lovable).
-   - Rota `/auth`, `/reset-password`, layout `_authenticated`.
+```text
+[Selecionar linhas] → [Importar] → [Modal: Prévia + Validação] → [Confirmar importação] → posts criados
+```
 
-3. **Integração Graph API** (server functions, nunca no cliente)
-   - `connectPage` — valida token via `GET /me/accounts` ou `/{page-id}?fields=access_token,name`.
-   - `publishToPage` — texto, foto (`/photos`), vídeo (`/videos`), link.
-   - `schedulePost` — `scheduled_publish_time` + `published=false`.
-   - `commentOnPost` — `/{post-id}/comments` com delay via fila.
-   - `bulkPublish` — fan-out para N páginas.
-   - Tratamento de erros Graph (rate limit, token expirado).
+## O que aparece no modal de prévia
 
-4. **Agendador**
-   - Server route `/api/public/cron/run-scheduler` protegida por `CRON_SECRET`, chamada por pg_cron a cada minuto.
-   - Processa `posts` com `scheduled_at <= now()` e `auto_comments` pendentes respeitando delay.
+Para cada linha selecionada, um card mostrando:
+- Miniatura da foto (carregada via `/api/public/drive/...` — se 404, mostra aviso vermelho "foto não encontrada no Drive")
+- Tipo final do post (photo / text)
+- Título (com contador de caracteres)
+- Data/hora agendada formatada em pt-BR, ou badge "Publicar como rascunho"
+- Link do auto-comentário + delay
+- Páginas de destino selecionadas (contador)
 
-5. **UI (tema escuro, moderno)**
-   - Dashboard: contadores em tempo real (agendados, publicados hoje, falhas).
-   - Páginas conectadas: listar, conectar nova (modal cola token), testar token, remover.
-   - Grupos de páginas: criar grupo e selecionar membros (publicação simultânea).
-   - Composer: texto + upload de mídia + seleção de páginas/grupos + agendar + auto-comentário com delay.
-   - Fila/Agenda: calendário + lista filtrável (status, página, tag, data).
-   - Histórico/Logs: tabela com busca global e filtros.
-   - Configurações: perfil, secrets.
+No topo do modal, um resumo:
+- Total a importar / com foto OK / com foto faltando / agendadas / com auto-comentário
+- Lista de avisos por linha (ex.: "linha 5: título vazio", "linha 8: foto 246.jpg não encontrada no Drive")
 
-## Fase 2 (depois)
-Rotação automática de conteúdo (texto/imagem/vídeo separados), upload múltiplo de vídeos, webhooks de saída, API interna com chaves, sistema de tags avançado, painel admin.
+## Validações aplicadas
+
+Bloqueiam a importação (linha fica desmarcada automaticamente e listada em "erros"):
+- Título vazio
+- Nenhuma página de destino selecionada (validação global)
+- Data agendada no passado
+- Tipo `photo` mas foto inválida e nem texto → vira texto automaticamente (aviso amarelo, não bloqueia)
+
+Avisos (não bloqueiam, só destacam):
+- Título > 60.000 caracteres (limite do Facebook)
+- Foto local não resolvida no Drive
+- Mais de uma linha com mesmo `numero`
+
+## Verificação opcional de fotos no Drive
+
+Botão "Verificar fotos no Drive" dentro do modal: faz um HEAD em cada `/api/public/drive/<nome>` em paralelo e marca cada card como ✓ encontrada / ✗ não encontrada. Isso evita importar 200 posts e descobrir depois que metade das fotos não existe.
+
+## Confirmação
+
+- Botão **Confirmar e importar N** (desabilitado se houver erro bloqueante ou 0 páginas)
+- Botão **Cancelar** fecha o modal sem criar nada
+- Durante a importação: barra de progresso (X de N) e lista de resultados como já existe hoje
 
 ## Detalhes técnicos
-- Stack: TanStack Start + React 19 + Tailwind v4 + shadcn + Lovable Cloud (Supabase).
-- Access Tokens armazenados criptografados (pgcrypto) com chave em secret `FB_TOKEN_ENC_KEY`.
-- Todas as chamadas Graph em `createServerFn` com `requireSupabaseAuth`; nunca expor token no browser.
-- Fila implementada como tabela + cron (sem dependência externa).
-- Versão da Graph API fixada (ex.: `v21.0`).
 
-## Perguntas antes de implementar
-1. **Escopo desta entrega**: começo pela Fase 1 completa (auth + conectar páginas + publicar + agendar + auto-comentário + grupos + dashboard)? Ou prefere ainda menor (só conectar página + publicar agora)?
-2. **Autenticação dos usuários**: email/senha + Google, ou só email/senha?
-3. **Como o usuário fornecerá o token da Página?** Colar Page Access Token de longa duração manualmente (mais simples, sem OAuth Facebook), ou quer login OAuth via Facebook (exige App revisado pela Meta — fora do escopo do Lovable Cloud nativo, requer config manual no Supabase)?
-4. **Tema visual**: dark moderno tipo Linear/Vercel (cinzas + um accent), ou tem paleta/branding específico em mente?
+- Novo componente `ImportPreviewDialog` em `src/routes/_authenticated/sheets.tsx` (ou arquivo separado) usando o `Dialog` do shadcn já presente no projeto
+- Nova server function `checkDriveFiles` em `src/lib/sheets.functions.ts` que recebe `string[]` de nomes de arquivo e devolve `Record<string, boolean>` (existe no Drive ou não) — usa a mesma busca por `name = '...'` já implementada em `drive.$.ts`
+- Schema de validação por linha com `zod` reaproveitando `PostInput` de `posts.functions.ts` para garantir mesma regra do servidor
+- A função `createPost` no servidor **não muda** — toda a checagem extra é UX
 
-Responda essas e eu ajusto e parto para a implementação.
+## Fora de escopo
+- Edição inline dos campos da planilha (você corrige no Google Sheets e recarrega)
+- Publicação imediata no Facebook a partir da importação (segue indo para fila como hoje)
