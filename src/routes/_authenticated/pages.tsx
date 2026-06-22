@@ -9,7 +9,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
-import { Plus, Trash2, CheckCircle2, AlertTriangle, RefreshCw, Clock, Copy, Eye, EyeOff, KeyRound } from "lucide-react";
+import { Plus, Trash2, CheckCircle2, AlertTriangle, RefreshCw, Clock, Copy, Eye, EyeOff, KeyRound, ExternalLink } from "lucide-react";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/_authenticated/pages")({
@@ -218,6 +218,11 @@ function PagesPage() {
                   </div>
                   <div className="text-xs text-muted-foreground">{p.category ?? "—"} · ID {p.fb_page_id}</div>
                 </div>
+                <Button variant="ghost" size="icon" asChild title="Abrir no Facebook">
+                  <a href={`https://facebook.com/${p.fb_page_id}`} target="_blank" rel="noopener noreferrer">
+                    <ExternalLink className="size-4" />
+                  </a>
+                </Button>
                 <Button variant="ghost" size="icon" onClick={() => { setUpdateFor({ id: p.id, name: p.name }); setNewToken(""); }} title="Atualizar token"><KeyRound className="size-4" /></Button>
                 <Button variant="ghost" size="icon" onClick={() => test.mutate(p.id)} title="Testar token"><RefreshCw className="size-4" /></Button>
                 <Button variant="ghost" size="icon" onClick={() => { if (confirm("Remover esta página?")) remove.mutate(p.id); }}><Trash2 className="size-4 text-destructive" /></Button>
