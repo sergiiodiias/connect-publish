@@ -240,32 +240,44 @@ function QueuePage() {
                 {details.data.targets.length === 0 && (
                   <div className="p-3 text-xs text-muted-foreground">Nenhuma página-alvo encontrada.</div>
                 )}
-                {details.data.targets.map((t: any) => (
-                  <div key={t.id} className="p-3 space-y-1">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <span className="text-sm font-medium">{t.fb_pages?.name ?? "(página removida)"}</span>
-                      <Badge variant={t.status === "failed" ? "destructive" : t.status === "published" ? "default" : "outline"} className="text-[10px]">
-                        {t.status}
-                      </Badge>
-                      {t.fb_post_id && (
-                        <a
-                          href={`https://www.facebook.com/${t.fb_post_id}`}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="text-xs text-primary hover:underline inline-flex items-center gap-1"
-                        >
-                          <ExternalLink className="size-3" /> ver no Facebook
-                        </a>
+                {details.data.targets.map((t: any) => {
+                  const vr = detailId ? verifyResults[detailId]?.results.find((x) => x.targetId === t.id) : undefined;
+                  return (
+                    <div key={t.id} className="p-3 space-y-1">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="text-sm font-medium">{t.fb_pages?.name ?? "(página removida)"}</span>
+                        <Badge variant={t.status === "failed" || t.status === "missing" ? "destructive" : t.status === "published" ? "default" : "outline"} className="text-[10px]">
+                          {t.status}
+                        </Badge>
+                        {vr && (
+                          <Badge
+                            variant={vr.status === "verified" ? "default" : vr.status === "missing" ? "destructive" : "outline"}
+                            className="text-[10px] gap-1"
+                          >
+                            {vr.status === "verified" ? <CheckCircle2 className="size-3" /> : vr.status === "missing" ? <XCircle className="size-3" /> : <AlertCircle className="size-3" />}
+                            {vr.status}
+                          </Badge>
+                        )}
+                        {(vr?.permalink || t.fb_post_id) && (
+                          <a
+                            href={vr?.permalink ?? `https://www.facebook.com/${t.fb_post_id}`}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="text-xs text-primary hover:underline inline-flex items-center gap-1"
+                          >
+                            <ExternalLink className="size-3" /> ver no Facebook
+                          </a>
+                        )}
+                      </div>
+                      {(t.error || vr?.message) && (
+                        <div className="text-xs text-destructive break-words flex items-start gap-1">
+                          <AlertCircle className="size-3 mt-0.5 shrink-0" />
+                          {vr?.message ?? t.error}
+                        </div>
                       )}
                     </div>
-                    {t.error && (
-                      <div className="text-xs text-destructive break-words flex items-start gap-1">
-                        <AlertCircle className="size-3 mt-0.5 shrink-0" />
-                        {t.error}
-                      </div>
-                    )}
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             </div>
           )}
