@@ -118,3 +118,49 @@ export const listPages = createServerFn({ method: "GET" })
     if (error) throw new Error(error.message);
     return data;
   });
+
+export const inspectTokens = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .handler(async ({ context }) => {
+    const { supabase, userId } = context;
+    const { data: rows, error } = await supabase
+      .from("fb_pages")
+      .select("id, access_token")
+      .eq("user_id", userId);
+    if (error) throw new Error(error.message);
+
+    const out: Record<string, {
+      isValid: boolean;
+      expiresAt: number | null; // unix seconds; 0/null = never expires
+      dataAccessExpiresAt: number | null;
+      scopes: string[];
+      error?: string;
+    }> = {};
+
+    await Promise.all((rows ?? []).map(async (row) => {
+      try {
+        const r = await fbGet<any>("/debug_token", {
+          input_token: row.access_token,
+          access_token: row.access_token,
+        });
+        const d = r?.data ?? {};
+        out[row.id] = {
+          isValid: !!d.is_valid,
+          expiresAt: typeof d.expires_at === "number" ? d.expires_at : null,
+          dataAccessExpiresAt: typeof d.data_access_expires_at === "number" ? d.data_access_expires_at : null,
+          scopes: Array.isArray(d.scopes) ? d.scopes : [],
+          error: d.error?.message,
+        };
+      } catch (e: any) {
+        out[row.id] = {
+          isValid: false,
+          expiresAt: null,
+          dataAccessExpiresAt: null,
+          scopes: [],
+          error: e?.message ?? "erro",
+        };
+      }
+    }));
+
+    return out;
+  });
