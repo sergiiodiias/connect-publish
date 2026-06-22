@@ -106,6 +106,18 @@ function QueuePage() {
             <SelectItem value="failed">Falhou</SelectItem>
           </SelectContent>
         </Select>
+        <Button
+          variant="destructive"
+          className="ml-auto"
+          disabled={removeAll.isPending || posts.length === 0}
+          onClick={() => {
+            const label = status === "all" ? "TODOS os posts" : `todos os posts com status "${status}"`;
+            if (confirm(`Excluir ${label}? Esta ação não pode ser desfeita.`)) removeAll.mutate(status);
+          }}
+        >
+          <Trash2 className="size-4 mr-1" />
+          {status === "all" ? "Excluir todos" : `Excluir filtrados (${posts.length})`}
+        </Button>
       </div>
 
       <div className="rounded-xl border border-border bg-card divide-y divide-border">
