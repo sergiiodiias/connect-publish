@@ -16,7 +16,7 @@ import { ptBR } from "date-fns/locale";
 import {
   Send, Trash2, X, AlertCircle, Info, RefreshCw, ExternalLink,
   ShieldCheck, CheckCircle2, XCircle, MoreHorizontal, ImageIcon,
-  Video, Link as LinkIcon, FileText, Plus, Calendar,
+  Video, Link as LinkIcon, FileText, Plus, Calendar, Download,
 } from "lucide-react";
 import { toast } from "sonner";
 import { useMemo, useState } from "react";
