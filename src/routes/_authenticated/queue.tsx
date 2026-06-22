@@ -8,10 +8,38 @@ import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { format } from "date-fns";
-import { Send, Trash2, X, AlertCircle, Info, RefreshCw, ExternalLink } from "lucide-react";
+import { Send, Trash2, X, AlertCircle, Info, RefreshCw, ExternalLink, HelpCircle } from "lucide-react";
 import { toast } from "sonner";
 import { useState } from "react";
+
+function explainStatus(p: { status: string; scheduled_at: string | null; published_at: string | null; error: string | null }): string {
+  switch (p.status) {
+    case "draft":
+      return "Rascunho: ainda não foi agendado nem enviado ao Facebook. Clique em Publicar para enviar agora ou defina um horário.";
+    case "scheduled":
+      return p.scheduled_at
+        ? `Agendado para ${format(new Date(p.scheduled_at), "dd/MM/yyyy HH:mm")}. O cron interno vai chamar a Graph API (/{page-id}/feed, /photos ou /videos) no horário marcado.`
+        : "Agendado, mas sem horário definido — será publicado na próxima execução do cron.";
+    case "publishing":
+      return "Em publicação: a Graph API foi chamada e estamos aguardando a resposta de cada página-alvo. Se travar aqui, provavelmente uma das chamadas /feed ou /photos não respondeu.";
+    case "published":
+      return p.published_at
+        ? `Publicado em ${format(new Date(p.published_at), "dd/MM/yyyy HH:mm")}. A Graph API retornou um id de post para todas as páginas-alvo (post_targets.status = published, com fb_post_id salvo).`
+        : "Publicado: a Graph API confirmou o envio em todas as páginas-alvo.";
+    case "partial":
+      return "Parcial: a Graph API publicou em algumas páginas e falhou em outras. Veja em Detalhes qual página retornou erro (token, permissão ou mídia inacessível).";
+    case "failed":
+      return p.error
+        ? `Falhou: a Graph API retornou erro em todas as páginas. Motivo: ${p.error}`
+        : "Falhou: a Graph API rejeitou a publicação. Abra Detalhes para ver o código/subcódigo retornado por página.";
+    case "canceled":
+      return "Cancelado manualmente antes do horário agendado. Nenhuma chamada foi feita à Graph API.";
+    default:
+      return `Status: ${p.status}`;
+  }
+}
 
 export const Route = createFileRoute("/_authenticated/queue")({
   head: () => ({ meta: [{ title: "Agenda — PagePilot" }] }),
