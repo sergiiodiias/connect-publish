@@ -305,6 +305,31 @@ function QueuePage() {
             ))}
           </SelectContent>
         </Select>
+        <Select value={typeFilter} onValueChange={setTypeFilter}>
+          <SelectTrigger className="w-36"><SelectValue /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">Todos tipos</SelectItem>
+            <SelectItem value="photo">Foto</SelectItem>
+            <SelectItem value="video">Vídeo</SelectItem>
+            <SelectItem value="link">Link</SelectItem>
+            <SelectItem value="text">Texto</SelectItem>
+          </SelectContent>
+        </Select>
+        <Select value={mediaFilter} onValueChange={setMediaFilter}>
+          <SelectTrigger className="w-36"><SelectValue /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">Com/sem mídia</SelectItem>
+            <SelectItem value="with">Com mídia</SelectItem>
+            <SelectItem value="without">Sem mídia</SelectItem>
+          </SelectContent>
+        </Select>
+        <Select value={sortOrder} onValueChange={setSortOrder}>
+          <SelectTrigger className="w-40"><SelectValue /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="asc">Mais antigo primeiro</SelectItem>
+            <SelectItem value="desc">Mais recente primeiro</SelectItem>
+          </SelectContent>
+        </Select>
         <Button
           variant="ghost"
           size="sm"
@@ -316,7 +341,7 @@ function QueuePage() {
           }}
         >
           <Trash2 className="size-4 mr-1" />
-          Excluir {status === "all" ? "todos" : `(${new Set(rows.map((r) => r.post_id)).size})`}
+          Excluir {status === "all" ? "todos" : `(${new Set(filteredRows.map((r) => r.post_id)).size})`}
         </Button>
       </div>
 
