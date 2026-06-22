@@ -109,8 +109,8 @@ function ComposerPage() {
     <div className="p-8 grid lg:grid-cols-[1fr_360px] gap-6">
       <div className="space-y-6">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight">Nova publicação</h1>
-          <p className="text-sm text-muted-foreground">Componha uma vez, publique em várias páginas.</p>
+          <h1 className="text-2xl font-semibold tracking-tight">Agendar postagens</h1>
+          <p className="text-sm text-muted-foreground">Componha uma vez, publique ou agende em várias páginas.</p>
         </div>
 
         <div className="rounded-xl border border-border bg-card p-6 space-y-4">
