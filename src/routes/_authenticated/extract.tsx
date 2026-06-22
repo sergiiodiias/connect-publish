@@ -207,7 +207,7 @@ function ExtractPage() {
                   </div>
                 </div>
                 {r && (
-                  <Badge variant={r.ok ? "default" : "destructive"}>
+                  <Badge variant={r.ok ? "default" : "destructive"} title={r.error}>
                     {r.ok ? "Conectada" : r.error?.slice(0, 40) ?? "Falhou"}
                   </Badge>
                 )}
