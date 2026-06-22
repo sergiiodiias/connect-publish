@@ -172,9 +172,14 @@ export const cancelScheduled = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((d) => z.object({ postId: z.string().uuid() }).parse(d))
   .handler(async ({ data, context }) => {
-    const { error } = await context.supabase.from("posts").update({ status: "draft", scheduled_at: null })
+    await deleteFbScheduledForPost(context.supabase, context.userId, data.postId);
+    const { error } = await context.supabase.from("posts")
+      .update({ status: "draft", scheduled_at: null })
       .eq("id", data.postId).eq("user_id", context.userId);
     if (error) throw new Error(error.message);
+    await context.supabase.from("post_targets")
+      .update({ fb_post_id: null, status: "pending", error: null } as any)
+      .eq("post_id", data.postId);
     return { ok: true };
   });
 
@@ -182,10 +187,28 @@ export const deletePost = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((d) => z.object({ postId: z.string().uuid() }).parse(d))
   .handler(async ({ data, context }) => {
+    await deleteFbScheduledForPost(context.supabase, context.userId, data.postId);
     const { error } = await context.supabase.from("posts").delete().eq("id", data.postId).eq("user_id", context.userId);
     if (error) throw new Error(error.message);
     return { ok: true };
   });
+
+// Helper: deletes any FB scheduled posts (targets with fb_post_id but not yet published) for a given post.
+async function deleteFbScheduledForPost(supabase: any, userId: string, postId: string) {
+  const { fbDelete } = await import("@/lib/fb-graph");
+  const { data: targets } = await supabase.from("post_targets")
+    .select("id, fb_post_id, page_id, status")
+    .eq("post_id", postId)
+    .eq("user_id", userId)
+    .not("fb_post_id", "is", null)
+    .neq("status", "published");
+  for (const t of targets ?? []) {
+    const { data: pg } = await supabase.from("fb_pages").select("access_token").eq("id", t.page_id).single();
+    if (!pg?.access_token || !t.fb_post_id) continue;
+    try { await fbDelete(`/${t.fb_post_id}`, { access_token: pg.access_token }); } catch { /* ignore */ }
+  }
+}
+
 
 export const deleteAllPosts = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
