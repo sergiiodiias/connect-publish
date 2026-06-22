@@ -2,7 +2,7 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { supabase } from "@/integrations/supabase/client";
-import { publishPostNow, cancelScheduled, deletePost, deleteAllPosts, getPostDetails } from "@/lib/posts.functions";
+import { publishPostNow, cancelScheduled, deletePost, deleteAllPosts, getPostDetails, migrateScheduledToFacebook } from "@/lib/posts.functions";
 import { verifyPostPublished } from "@/lib/verify-posts.functions";
 import { importFbScheduled } from "@/lib/import-fb-scheduled.functions";
 import { Button } from "@/components/ui/button";
@@ -105,6 +105,7 @@ function QueuePage() {
   const detailsFn = useServerFn(getPostDetails);
   const verifyFn = useServerFn(verifyPostPublished);
   const importFn = useServerFn(importFbScheduled);
+  const migrateFn = useServerFn(migrateScheduledToFacebook);
 
   const [status, setStatus] = useState<string>("scheduled");
   const [search, setSearch] = useState("");
@@ -245,6 +246,19 @@ function QueuePage() {
     onError: (e: any) => toast.error(e.message),
   });
 
+  const migrateToFb = useMutation({
+    mutationFn: () => migrateFn(),
+    onSuccess: (r: any) => {
+      if (r.scheduled === 0 && r.failed === 0) toast.info("Nada para enviar (precisa ser >10 min no futuro e ainda não estar no FB)");
+      else if (r.failed === 0) toast.success(`${r.scheduled} agendado(s) no Facebook`);
+      else toast.warning(`${r.scheduled} ok · ${r.failed} falha(s)`);
+      if (r.errors?.length) console.warn("Migrate errors:", r.errors);
+      qc.invalidateQueries({ queryKey: ["queue"] });
+      qc.invalidateQueries({ queryKey: ["queue-stuck"] });
+    },
+    onError: (e: any) => toast.error(e.message),
+  });
+
   const details = useQuery({
     queryKey: ["post-details", detailId],
     queryFn: () => detailsFn({ data: { postId: detailId! } }),
@@ -333,6 +347,15 @@ function QueuePage() {
           >
             <Download className="size-4 mr-1" />
             {importScheduled.isPending ? "Importando…" : "Importar do Facebook"}
+          </Button>
+          <Button
+            variant="outline"
+            onClick={() => migrateToFb.mutate()}
+            disabled={migrateToFb.isPending}
+            title="Envia os posts agendados (>10 min no futuro) direto para o agendador do Facebook"
+          >
+            <Send className="size-4 mr-1" />
+            {migrateToFb.isPending ? "Enviando…" : "Enviar agendados ao FB"}
           </Button>
           <Button asChild>
             <Link to="/composer">
