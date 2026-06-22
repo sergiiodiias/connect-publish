@@ -1,7 +1,7 @@
 import { createFileRoute, Outlet, redirect, Link, useRouter } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
-import { BarChart3, CalendarClock, FileEdit, KeyRound, Layers, LayoutDashboard, LogOut, MessageSquare, Settings as SettingsIcon, Users } from "lucide-react";
+import { BarChart3, CalendarClock, FileEdit, FileSpreadsheet, KeyRound, Layers, LayoutDashboard, LogOut, MessageSquare, Settings as SettingsIcon, Users } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useQueryClient } from "@tanstack/react-query";
 
@@ -18,6 +18,7 @@ export const Route = createFileRoute("/_authenticated")({
 const NAV = [
   { to: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { to: "/composer", label: "Agendar postagens", icon: FileEdit },
+  { to: "/import", label: "Importar Planilha", icon: FileSpreadsheet },
   { to: "/queue", label: "Agenda", icon: CalendarClock },
   { to: "/pages", label: "Páginas", icon: Layers },
   { to: "/extract", label: "Extrair tokens", icon: KeyRound },

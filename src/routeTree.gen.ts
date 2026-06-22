@@ -17,6 +17,7 @@ import { Route as AuthenticatedSettingsRouteImport } from './routes/_authenticat
 import { Route as AuthenticatedQueueRouteImport } from './routes/_authenticated/queue'
 import { Route as AuthenticatedPagesRouteImport } from './routes/_authenticated/pages'
 import { Route as AuthenticatedLogsRouteImport } from './routes/_authenticated/logs'
+import { Route as AuthenticatedImportRouteImport } from './routes/_authenticated/import'
 import { Route as AuthenticatedGroupsRouteImport } from './routes/_authenticated/groups'
 import { Route as AuthenticatedExtractRouteImport } from './routes/_authenticated/extract'
 import { Route as AuthenticatedDashboardRouteImport } from './routes/_authenticated/dashboard'
@@ -62,6 +63,11 @@ const AuthenticatedLogsRoute = AuthenticatedLogsRouteImport.update({
   path: '/logs',
   getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
+const AuthenticatedImportRoute = AuthenticatedImportRouteImport.update({
+  id: '/import',
+  path: '/import',
+  getParentRoute: () => AuthenticatedRouteRoute,
+} as any)
 const AuthenticatedGroupsRoute = AuthenticatedGroupsRouteImport.update({
   id: '/groups',
   path: '/groups',
@@ -96,6 +102,7 @@ export interface FileRoutesByFullPath {
   '/dashboard': typeof AuthenticatedDashboardRoute
   '/extract': typeof AuthenticatedExtractRoute
   '/groups': typeof AuthenticatedGroupsRoute
+  '/import': typeof AuthenticatedImportRoute
   '/logs': typeof AuthenticatedLogsRoute
   '/pages': typeof AuthenticatedPagesRoute
   '/queue': typeof AuthenticatedQueueRoute
@@ -110,6 +117,7 @@ export interface FileRoutesByTo {
   '/dashboard': typeof AuthenticatedDashboardRoute
   '/extract': typeof AuthenticatedExtractRoute
   '/groups': typeof AuthenticatedGroupsRoute
+  '/import': typeof AuthenticatedImportRoute
   '/logs': typeof AuthenticatedLogsRoute
   '/pages': typeof AuthenticatedPagesRoute
   '/queue': typeof AuthenticatedQueueRoute
@@ -126,6 +134,7 @@ export interface FileRoutesById {
   '/_authenticated/dashboard': typeof AuthenticatedDashboardRoute
   '/_authenticated/extract': typeof AuthenticatedExtractRoute
   '/_authenticated/groups': typeof AuthenticatedGroupsRoute
+  '/_authenticated/import': typeof AuthenticatedImportRoute
   '/_authenticated/logs': typeof AuthenticatedLogsRoute
   '/_authenticated/pages': typeof AuthenticatedPagesRoute
   '/_authenticated/queue': typeof AuthenticatedQueueRoute
@@ -142,6 +151,7 @@ export interface FileRouteTypes {
     | '/dashboard'
     | '/extract'
     | '/groups'
+    | '/import'
     | '/logs'
     | '/pages'
     | '/queue'
@@ -156,6 +166,7 @@ export interface FileRouteTypes {
     | '/dashboard'
     | '/extract'
     | '/groups'
+    | '/import'
     | '/logs'
     | '/pages'
     | '/queue'
@@ -171,6 +182,7 @@ export interface FileRouteTypes {
     | '/_authenticated/dashboard'
     | '/_authenticated/extract'
     | '/_authenticated/groups'
+    | '/_authenticated/import'
     | '/_authenticated/logs'
     | '/_authenticated/pages'
     | '/_authenticated/queue'
@@ -244,6 +256,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedLogsRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
+    '/_authenticated/import': {
+      id: '/_authenticated/import'
+      path: '/import'
+      fullPath: '/import'
+      preLoaderRoute: typeof AuthenticatedImportRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
     '/_authenticated/groups': {
       id: '/_authenticated/groups'
       path: '/groups'
@@ -287,6 +306,7 @@ interface AuthenticatedRouteRouteChildren {
   AuthenticatedDashboardRoute: typeof AuthenticatedDashboardRoute
   AuthenticatedExtractRoute: typeof AuthenticatedExtractRoute
   AuthenticatedGroupsRoute: typeof AuthenticatedGroupsRoute
+  AuthenticatedImportRoute: typeof AuthenticatedImportRoute
   AuthenticatedLogsRoute: typeof AuthenticatedLogsRoute
   AuthenticatedPagesRoute: typeof AuthenticatedPagesRoute
   AuthenticatedQueueRoute: typeof AuthenticatedQueueRoute
@@ -298,6 +318,7 @@ const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
   AuthenticatedDashboardRoute: AuthenticatedDashboardRoute,
   AuthenticatedExtractRoute: AuthenticatedExtractRoute,
   AuthenticatedGroupsRoute: AuthenticatedGroupsRoute,
+  AuthenticatedImportRoute: AuthenticatedImportRoute,
   AuthenticatedLogsRoute: AuthenticatedLogsRoute,
   AuthenticatedPagesRoute: AuthenticatedPagesRoute,
   AuthenticatedQueueRoute: AuthenticatedQueueRoute,
