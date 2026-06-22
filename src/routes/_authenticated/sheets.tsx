@@ -59,6 +59,8 @@ function BulkUploadPage() {
   const [groupOrder, setGroupOrder] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
   const [uploadProgress, setUploadProgress] = useState<{ done: number; total: number } | null>(null);
+  const [commentDelaySec, setCommentDelaySec] = useState(60);
+
 
   const { data: pages = [] } = useQuery({ queryKey: ["pages"], queryFn: () => listFn() });
   const { data: groups = [] } = useQuery({
