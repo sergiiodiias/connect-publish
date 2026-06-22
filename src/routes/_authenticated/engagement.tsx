@@ -210,9 +210,12 @@ function EngagementPage() {
 
   const refreshAll = useMutation({
     mutationFn: async () => {
-      // capture for all targets in current filtered view
       const targetIds = filtered.map((r) => r.target_id);
-      if (targetIds.length === 0) throw new Error("Nenhum post para atualizar");
+      // Bootstrap: if no rows yet, ask server to capture for ALL of user's published targets
+      if (targetIds.length === 0) {
+        const r: any = await captureFn({ data: { snapshotType: "manual" } });
+        return { ok: r.ok, total: r.total };
+      }
       // chunk to keep request size reasonable
       const chunks: string[][] = [];
       for (let i = 0; i < targetIds.length; i += 50) chunks.push(targetIds.slice(i, i + 50));
@@ -224,11 +227,13 @@ function EngagementPage() {
       return { ok, total };
     },
     onSuccess: (r) => {
-      toast.success(`${r.ok}/${r.total} métricas atualizadas`);
+      if (r.total === 0) toast.info("Nenhum post publicado encontrado para capturar métricas");
+      else toast.success(`${r.ok}/${r.total} métricas atualizadas`);
       qc.invalidateQueries({ queryKey: ["engagement"] });
     },
     onError: (e: any) => toast.error(e.message),
   });
+
 
   return (
     <div className="p-6 md:p-8 space-y-6">
@@ -242,10 +247,11 @@ function EngagementPage() {
             Análise de curtidas, comentários, compartilhamentos e visualizações das publicações
           </p>
         </div>
-        <Button onClick={() => refreshAll.mutate()} disabled={refreshAll.isPending || filtered.length === 0}>
+        <Button onClick={() => refreshAll.mutate()} disabled={refreshAll.isPending}>
           <RefreshCw className={`size-4 mr-1 ${refreshAll.isPending ? "animate-spin" : ""}`} />
           {refreshAll.isPending ? "Atualizando…" : "Atualizar métricas"}
         </Button>
+
       </div>
 
       {/* Totals strip */}
