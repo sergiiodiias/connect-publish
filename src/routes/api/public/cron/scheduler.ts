@@ -46,17 +46,37 @@ export const Route = createFileRoute("/api/public/cron/scheduler")({
           await new Promise((r) => setTimeout(r, 800));
         }
 
-        // 2) Scheduled posts whose time has come
-        const { data: due } = await supabaseAdmin
-          .from("posts").select("*").eq("status", "scheduled").lte("scheduled_at", nowIso).limit(10);
+        // 2) Scheduled posts whose time has come.
+        // Atomic claim: only pick posts still 'scheduled' and flip them to 'publishing' in one update,
+        // so concurrent cron ticks never grab the same post.
+        const { data: dueIds } = await supabaseAdmin
+          .from("posts").select("id").eq("status", "scheduled").lte("scheduled_at", nowIso).limit(10);
+        const due: any[] = [];
+        for (const row of dueIds ?? []) {
+          const { data: claimed } = await supabaseAdmin
+            .from("posts").update({ status: "publishing" })
+            .eq("id", row.id).eq("status", "scheduled").select("*").maybeSingle();
+          if (claimed) due.push(claimed);
+        }
 
-        for (const post of due ?? []) {
-          if (outOfTime()) break;
-          await supabaseAdmin.from("posts").update({ status: "publishing" }).eq("id", post.id);
-          const { data: targets } = await supabaseAdmin.from("post_targets").select("id,page_id").eq("post_id", post.id).neq("status", "published");
+        for (const post of due) {
+          if (outOfTime()) {
+            // Hand back so another tick can resume.
+            await supabaseAdmin.from("posts").update({ status: "scheduled" }).eq("id", post.id);
+            break;
+          }
+          // Only pending targets — published/publishing/failed are skipped.
+          const { data: targets } = await supabaseAdmin
+            .from("post_targets").select("id,page_id").eq("post_id", post.id).eq("status", "pending");
           let ok = 0, fl = 0;
           for (const t of targets ?? []) {
             if (outOfTime()) break;
+            // Atomic claim of this target — prevents another tick from re-publishing it.
+            const { data: claimedT } = await supabaseAdmin
+              .from("post_targets").update({ status: "publishing" })
+              .eq("id", t.id).eq("status", "pending").select("id").maybeSingle();
+            if (!claimedT) continue; // already taken by another tick
+
             const { data: pg } = await supabaseAdmin.from("fb_pages").select("fb_page_id, access_token").eq("id", t.page_id).single();
             if (!pg) { await supabaseAdmin.from("post_targets").update({ status: "failed", error: "página ausente" }).eq("id", t.id); fl++; continue; }
             try {
@@ -82,14 +102,11 @@ export const Route = createFileRoute("/api/public/cron/scheduler")({
               const msg = e?.message ?? "";
               await supabaseAdmin.from("post_targets").update({ status: "failed", error: msg }).eq("id", t.id);
               fl++;
-              if (/limit|#4|#17|#32|#613/i.test(msg)) {
-                // Rate limited — leave post in publishing, let next tick resume (status filter neq published above).
-                break;
-              }
+              if (/limit|#4|#17|#32|#613/i.test(msg)) break;
             }
             await new Promise((r) => setTimeout(r, 800));
           }
-          // Mark final status only if all targets resolved (no remaining pending)
+          // Finalize: are there still pending/publishing targets?
           const { data: remaining } = await supabaseAdmin.from("post_targets").select("status").eq("post_id", post.id);
           const stillPending = (remaining ?? []).some((r) => r.status === "pending" || r.status === "publishing");
           if (!stillPending) {
@@ -100,11 +117,14 @@ export const Route = createFileRoute("/api/public/cron/scheduler")({
               published_at: new Date().toISOString(), error: failedCount ? `${failedCount} falha(s)` : null,
             }).eq("id", post.id);
           } else {
-            // Roll back to scheduled so the next tick picks it up.
+            // Reset any orphan 'publishing' targets back to 'pending' so next tick retries them,
+            // then hand the post back to 'scheduled'.
+            await supabaseAdmin.from("post_targets").update({ status: "pending" }).eq("post_id", post.id).eq("status", "publishing");
             await supabaseAdmin.from("posts").update({ status: "scheduled" }).eq("id", post.id);
           }
           processed++; failed += fl;
         }
+
 
         return Response.json({ ok: true, processed, failed, comments, pendingComments: (dueComments ?? []).length });
       },
