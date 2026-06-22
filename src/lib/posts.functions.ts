@@ -40,7 +40,7 @@ export const migrateScheduledToFacebook = createServerFn({ method: "POST" })
       .gte("scheduled_at", minIso)
       .lte("scheduled_at", maxIso)
       .order("scheduled_at", { ascending: true })
-      .limit(500);
+      .limit(25);
 
     let scheduled = 0, skipped = 0, failed = 0;
     const errors: string[] = [];
@@ -56,6 +56,7 @@ export const migrateScheduledToFacebook = createServerFn({ method: "POST" })
       const scheduledUnix = Math.floor(ts / 1000);
 
       for (const t of targets ?? []) {
+        if (scheduled + failed >= 25) break;
         const { data: pg } = await supabase.from("fb_pages")
           .select("fb_page_id, access_token, is_active, name")
           .eq("id", t.page_id).single();
