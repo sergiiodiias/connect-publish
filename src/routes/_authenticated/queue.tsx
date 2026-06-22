@@ -4,6 +4,7 @@ import { useServerFn } from "@tanstack/react-start";
 import { supabase } from "@/integrations/supabase/client";
 import { publishPostNow, cancelScheduled, deletePost, deleteAllPosts, getPostDetails } from "@/lib/posts.functions";
 import { verifyPostPublished } from "@/lib/verify-posts.functions";
+import { importFbScheduled } from "@/lib/import-fb-scheduled.functions";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -15,7 +16,7 @@ import { ptBR } from "date-fns/locale";
 import {
   Send, Trash2, X, AlertCircle, Info, RefreshCw, ExternalLink,
   ShieldCheck, CheckCircle2, XCircle, MoreHorizontal, ImageIcon,
-  Video, Link as LinkIcon, FileText, Plus, Calendar,
+  Video, Link as LinkIcon, FileText, Plus, Calendar, Download,
 } from "lucide-react";
 import { toast } from "sonner";
 import { useMemo, useState } from "react";
@@ -100,6 +101,7 @@ function QueuePage() {
   const delAllFn = useServerFn(deleteAllPosts);
   const detailsFn = useServerFn(getPostDetails);
   const verifyFn = useServerFn(verifyPostPublished);
+  const importFn = useServerFn(importFbScheduled);
 
   const [status, setStatus] = useState<string>("scheduled");
   const [search, setSearch] = useState("");
@@ -199,6 +201,17 @@ function QueuePage() {
     },
     onError: (e: any) => toast.error(e.message),
   });
+  const importScheduled = useMutation({
+    mutationFn: (pid?: string) => importFn({ data: pid ? { pageId: pid } : {} }),
+    onSuccess: (r: any) => {
+      const errMsg = r.errors?.length ? ` · ${r.errors.length} erro(s)` : "";
+      if (r.imported === 0 && r.skipped === 0) toast.info("Nenhum post agendado encontrado no Facebook");
+      else toast.success(`${r.imported} importado(s) · ${r.skipped} já existiam${errMsg}`);
+      if (r.errors?.length) console.warn("Import errors:", r.errors);
+      qc.invalidateQueries({ queryKey: ["queue"] });
+    },
+    onError: (e: any) => toast.error(e.message),
+  });
 
   const details = useQuery({
     queryKey: ["post-details", detailId],
@@ -216,11 +229,21 @@ function QueuePage() {
             {isLoading ? "Carregando…" : `${totalPosts} ${totalPosts === 1 ? "publicação" : "publicações"} em ${groups.length} ${groups.length === 1 ? "página" : "páginas"}`}
           </p>
         </div>
-        <Button asChild className="shrink-0">
-          <Link to="/composer">
-            <Plus className="size-4 mr-1" /> Criar post
-          </Link>
-        </Button>
+        <div className="flex items-center gap-2 shrink-0">
+          <Button
+            variant="outline"
+            onClick={() => importScheduled.mutate(pageFilter === "all" ? undefined : pageFilter)}
+            disabled={importScheduled.isPending}
+          >
+            <Download className="size-4 mr-1" />
+            {importScheduled.isPending ? "Importando…" : "Importar do Facebook"}
+          </Button>
+          <Button asChild>
+            <Link to="/composer">
+              <Plus className="size-4 mr-1" /> Criar post
+            </Link>
+          </Button>
+        </div>
       </div>
 
       {/* Filters */}

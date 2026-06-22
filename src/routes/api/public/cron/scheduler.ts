@@ -76,8 +76,10 @@ export const Route = createFileRoute("/api/public/cron/scheduler")({
             break;
           }
           // Only pending targets — published/publishing/failed are skipped.
+          // Also skip targets that already have an fb_post_id (e.g. imported FB-scheduled posts) —
+          // Facebook itself will publish those at the scheduled time.
           const { data: targets } = await supabaseAdmin
-            .from("post_targets").select("id,page_id").eq("post_id", post.id).eq("status", "pending");
+            .from("post_targets").select("id,page_id").eq("post_id", post.id).eq("status", "pending").is("fb_post_id", null);
 
           async function publishTarget(t: { id: string; page_id: string }) {
             // Atomic claim — prevents another tick from re-publishing it.
