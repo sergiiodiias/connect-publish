@@ -17,6 +17,10 @@ const PostInput = z.object({
   }).nullable().optional(),
 });
 
+// Facebook requires scheduled_publish_time to be between 10 min and 6 months from now.
+const FB_MIN_SCHEDULE_MS = 10 * 60 * 1000 + 30_000; // small buffer
+const FB_MAX_SCHEDULE_MS = 75 * 24 * 60 * 60 * 1000; // 75 days (FB hard cap is 6mo; stay safer)
+
 export const createPost = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((d) => PostInput.parse(d))
@@ -39,7 +43,7 @@ export const createPost = createServerFn({ method: "POST" })
     const targets = data.pageIds.map((pid) => ({
       post_id: post.id, page_id: pid, user_id: userId, status: "pending" as const,
     }));
-    const { error: terr } = await supabase.from("post_targets").insert(targets);
+    const { data: insertedTargets, error: terr } = await supabase.from("post_targets").insert(targets).select("id, page_id");
     if (terr) throw new Error(terr.message);
 
     if (data.autoComment) {
@@ -49,8 +53,49 @@ export const createPost = createServerFn({ method: "POST" })
       });
     }
 
-    return { ok: true, postId: post.id, status };
+    // Try to schedule natively on Facebook for each target.
+    // If the scheduledAt is within FB's allowed window, push as draft+scheduled_publish_time.
+    // Successful targets get fb_post_id set, so the cron skips them and FB publishes natively.
+    // Failures leave the target as plain pending — the cron will retry at scheduled_at as fallback.
+    let fbScheduled = 0;
+    const fbErrors: string[] = [];
+    if (data.scheduledAt) {
+      const ts = new Date(data.scheduledAt).getTime();
+      const delta = ts - Date.now();
+      if (delta >= FB_MIN_SCHEDULE_MS && delta <= FB_MAX_SCHEDULE_MS) {
+        const scheduledUnix = Math.floor(ts / 1000);
+        for (const t of insertedTargets ?? []) {
+          const { data: pg } = await supabase.from("fb_pages")
+            .select("fb_page_id, access_token, is_active, name")
+            .eq("id", t.page_id).single();
+          if (!pg || pg.is_active === false) continue;
+          try {
+            const fbId = await publishFacebookPost({
+              type: data.type as any,
+              message: data.message ?? "",
+              linkUrl: data.linkUrl,
+              mediaUrls: data.mediaUrls,
+              fbPageId: pg.fb_page_id,
+              pageToken: pg.access_token,
+              scheduledUnix,
+            });
+            await supabase.from("post_targets")
+              .update({ fb_post_id: fbId, error: null })
+              .eq("id", t.id);
+            fbScheduled++;
+          } catch (e: any) {
+            fbErrors.push(`${pg.name}: ${e?.message ?? String(e)}`);
+            await supabase.from("post_targets")
+              .update({ error: `agendamento FB falhou — fallback no cron: ${e?.message ?? ""}` })
+              .eq("id", t.id);
+          }
+        }
+      }
+    }
+
+    return { ok: true, postId: post.id, status, fbScheduled, fbErrors };
   });
+
 
 // Publish now: looks up the post + targets, posts to each, updates statuses, schedules auto-comments.
 export const publishPostNow = createServerFn({ method: "POST" })
@@ -127,9 +172,14 @@ export const cancelScheduled = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((d) => z.object({ postId: z.string().uuid() }).parse(d))
   .handler(async ({ data, context }) => {
-    const { error } = await context.supabase.from("posts").update({ status: "draft", scheduled_at: null })
+    await deleteFbScheduledForPost(context.supabase, context.userId, data.postId);
+    const { error } = await context.supabase.from("posts")
+      .update({ status: "draft", scheduled_at: null })
       .eq("id", data.postId).eq("user_id", context.userId);
     if (error) throw new Error(error.message);
+    await context.supabase.from("post_targets")
+      .update({ fb_post_id: null, status: "pending", error: null } as any)
+      .eq("post_id", data.postId);
     return { ok: true };
   });
 
@@ -137,10 +187,28 @@ export const deletePost = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((d) => z.object({ postId: z.string().uuid() }).parse(d))
   .handler(async ({ data, context }) => {
+    await deleteFbScheduledForPost(context.supabase, context.userId, data.postId);
     const { error } = await context.supabase.from("posts").delete().eq("id", data.postId).eq("user_id", context.userId);
     if (error) throw new Error(error.message);
     return { ok: true };
   });
+
+// Helper: deletes any FB scheduled posts (targets with fb_post_id but not yet published) for a given post.
+async function deleteFbScheduledForPost(supabase: any, userId: string, postId: string) {
+  const { fbDelete } = await import("@/lib/fb-graph");
+  const { data: targets } = await supabase.from("post_targets")
+    .select("id, fb_post_id, page_id, status")
+    .eq("post_id", postId)
+    .eq("user_id", userId)
+    .not("fb_post_id", "is", null)
+    .neq("status", "published");
+  for (const t of targets ?? []) {
+    const { data: pg } = await supabase.from("fb_pages").select("access_token").eq("id", t.page_id).single();
+    if (!pg?.access_token || !t.fb_post_id) continue;
+    try { await fbDelete(`/${t.fb_post_id}`, { access_token: pg.access_token }); } catch { /* ignore */ }
+  }
+}
+
 
 export const deleteAllPosts = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])

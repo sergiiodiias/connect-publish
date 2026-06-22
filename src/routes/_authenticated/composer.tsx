@@ -123,8 +123,14 @@ function ComposerPage() {
       if (mode === "now") await publishFn({ data: { postId: r.postId } });
       return r;
     },
-    onSuccess: (_d, mode) => {
-      toast.success(mode === "now" ? "Publicando…" : "Agendado");
+    onSuccess: (d: any, mode) => {
+      if (mode === "now") {
+        toast.success("Publicando…");
+      } else if (d?.fbScheduled > 0) {
+        toast.success(`Agendado direto no Facebook (${d.fbScheduled} página${d.fbScheduled === 1 ? "" : "s"})${d.fbErrors?.length ? ` · ${d.fbErrors.length} via fallback` : ""}`);
+      } else {
+        toast.success("Agendado (publicação via cron)");
+      }
       setMessage(""); setLinkUrl(""); setMediaUrl(""); setCommentMsg("");
       qc.invalidateQueries();
     },

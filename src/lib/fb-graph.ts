@@ -33,3 +33,11 @@ export async function fbPostMultipart<T = any>(path: string, form: FormData): Pr
   if (!res.ok || json.error) throw new Error(fmtErr(json, `Graph multipart POST ${path} ${res.status}`));
   return json;
 }
+
+export async function fbDelete<T = any>(path: string, params: Record<string, string>): Promise<T> {
+  const url = FB_GRAPH + path + "?" + new URLSearchParams(params).toString();
+  const res = await fetch(url, { method: "DELETE" });
+  const json: any = await res.json();
+  if (!res.ok || json.error) throw new Error(fmtErr(json, `Graph DELETE ${path} ${res.status}`));
+  return json;
+}
