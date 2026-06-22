@@ -106,6 +106,7 @@ function PagesPage() {
             </DialogFooter>
           </DialogContent>
         </Dialog>
+        </div>
       </div>
 
       <div className="rounded-xl border border-border bg-card divide-y divide-border">
