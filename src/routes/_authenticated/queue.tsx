@@ -390,7 +390,7 @@ function QueuePage() {
             </div>
 
             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3">
-              {group.rows.map((r) => (
+              {(expandedPages.has(group.pageId) ? group.rows : group.rows.slice(0, 5)).map((r) => (
                 <PostCard
                   key={r.target_id}
                   row={r}
@@ -404,34 +404,23 @@ function QueuePage() {
                 />
               ))}
             </div>
+            {group.rows.length > 5 && (
+              <div className="flex justify-center">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => toggleExpand(group.pageId)}
+                  className="text-xs text-muted-foreground hover:text-foreground"
+                >
+                  {expandedPages.has(group.pageId)
+                    ? "Mostrar só os 5 próximos"
+                    : `Ver mais ${group.rows.length - 5} publicaç${group.rows.length - 5 === 1 ? "ão" : "ões"}`}
+                </Button>
+              </div>
+            )}
           </section>
         );
       })}
-
-      {/* Pagination */}
-      {!isLoading && totalFiltered > 0 && totalPages > 1 && (
-        <div className="flex items-center justify-center gap-2 pt-2">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
-            disabled={safePage <= 1}
-          >
-            <ChevronLeft className="size-4" /> Anterior
-          </Button>
-          <span className="text-sm text-muted-foreground px-2">
-            Página {safePage} de {totalPages}
-          </span>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
-            disabled={safePage >= totalPages}
-          >
-            Próxima <ChevronRight className="size-4" />
-          </Button>
-        </div>
-      )}
 
       {/* Details dialog */}
       <Dialog open={!!detailId} onOpenChange={(o) => !o && setDetailId(null)}>
