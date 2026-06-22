@@ -151,10 +151,15 @@ export const migrateScheduledToFacebook = createServerFn({ method: "POST" })
               run_at: new Date(baseMs + (c.delay_seconds ?? 0) * 1000).toISOString(),
             }));
             // Avoid duplicates if migrate runs twice for the same target
-            const { data: existing } = await supabase.from("auto_comments")
-              .select("id").eq("target_id", j.target.id).limit(1);
-            if (!existing || existing.length === 0) {
-              await supabase.from("auto_comments").insert(rows);
+            const { data: existing } = await supabase
+              .from("auto_comments")
+              .select("id, post_id, target_id, message")
+              .eq("target_id", j.target.id)
+              .eq("post_id", j.post.id);
+            const existingKeys = new Set((existing ?? []).map((r: any) => `${r.post_id}::${r.target_id}::${r.message}`));
+            const missingRows = rows.filter((r) => !existingKeys.has(`${r.post_id}::${r.target_id}::${r.message}`));
+            if (missingRows.length) {
+              await supabase.from("auto_comments").insert(missingRows);
             }
           }
           scheduled++;
@@ -238,14 +243,23 @@ export const createPost = createServerFn({ method: "POST" })
               .update({ fb_post_id: fbId, error: null })
               .eq("id", t.id);
             if (data.autoComment) {
-              await supabase.from("auto_comments").insert({
-                user_id: userId,
-                post_id: post.id,
-                target_id: t.id,
-                message: data.autoComment.message,
-                delay_seconds: data.autoComment.delaySeconds,
-                run_at: new Date(ts + data.autoComment.delaySeconds * 1000).toISOString(),
-              });
+              const { data: existingComment } = await supabase
+                .from("auto_comments")
+                .select("id")
+                .eq("post_id", post.id)
+                .eq("target_id", t.id)
+                .eq("message", data.autoComment.message)
+                .limit(1);
+              if (!existingComment?.length) {
+                await supabase.from("auto_comments").insert({
+                  user_id: userId,
+                  post_id: post.id,
+                  target_id: t.id,
+                  message: data.autoComment.message,
+                  delay_seconds: data.autoComment.delaySeconds,
+                  run_at: new Date(ts + data.autoComment.delaySeconds * 1000).toISOString(),
+                });
+              }
             }
             fbScheduled++;
 
@@ -312,12 +326,29 @@ export const publishPostNow = createServerFn({ method: "POST" })
           .select("id, delay_seconds").eq("post_id", post.id).is("target_id", null).eq("status", "pending");
         if (comments?.length) {
           for (const c of comments) {
-            await supabase.from("auto_comments").insert({
-              user_id: userId, post_id: post.id, target_id: t.id,
-              message: (await supabase.from("auto_comments").select("message").eq("id", c.id).single()).data?.message ?? "",
-              delay_seconds: c.delay_seconds,
-              run_at: new Date(Date.now() + c.delay_seconds * 1000).toISOString(),
-            });
+            const { data: template } = await supabase
+              .from("auto_comments")
+              .select("message")
+              .eq("id", c.id)
+              .single();
+            const message = template?.message ?? "";
+            const { data: existingComment } = await supabase
+              .from("auto_comments")
+              .select("id")
+              .eq("post_id", post.id)
+              .eq("target_id", t.id)
+              .eq("message", message)
+              .limit(1);
+            if (!existingComment?.length) {
+              await supabase.from("auto_comments").insert({
+                user_id: userId,
+                post_id: post.id,
+                target_id: t.id,
+                message,
+                delay_seconds: c.delay_seconds,
+                run_at: new Date(Date.now() + c.delay_seconds * 1000).toISOString(),
+              });
+            }
           }
         }
         okCount++;

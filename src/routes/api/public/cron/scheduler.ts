@@ -11,7 +11,7 @@ export const Route = createFileRoute("/api/public/cron/scheduler")({
         }
 
         const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-        const { fbPost } = await import("@/lib/fb-graph");
+        const { fbGet, fbPost } = await import("@/lib/fb-graph");
         const { publishFacebookPost } = await import("@/lib/fb-publish");
 
         const nowIso = new Date().toISOString();
@@ -28,6 +28,7 @@ export const Route = createFileRoute("/api/public/cron/scheduler")({
           for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size));
           return out;
         };
+        const normalizeComment = (value: string) => value.trim().replace(/\s+/g, " ").toLowerCase();
         let rateLimitHit = false;
 
         // -2) Reconcilia targets que já foram agendados nativamente no Facebook.
@@ -75,6 +76,7 @@ export const Route = createFileRoute("/api/public/cron/scheduler")({
           .select("id, attempts, error")
           .eq("status", "failed")
           .not("target_id", "is", null)
+          .is("fb_comment_id", null)
           .limit(100);
         const transientRe = /limit|rate|timeout|temporar|network|fetch failed|#4\b|#17\b|#32\b|#613/i;
         for (const r of (retryable ?? []) as any[]) {
@@ -127,24 +129,82 @@ export const Route = createFileRoute("/api/public/cron/scheduler")({
 
         // 1) Auto-comments due — process FIRST so they don't starve behind the publish loop.
         const { data: dueComments } = await supabaseAdmin
-          .from("auto_comments").select("*").eq("status", "pending").not("target_id", "is", null).lte("run_at", nowIso).limit(60);
-
+          .from("auto_comments")
+          .select("*")
+          .eq("status", "pending")
+          .not("target_id", "is", null)
+          .is("fb_comment_id", null)
+          .lte("run_at", nowIso)
+          .limit(60);
 
         async function postComment(c: any) {
+          if (c.fb_comment_id) {
+            await supabaseAdmin
+              .from("auto_comments")
+              .update({ status: "posted", error: null })
+              .eq("id", c.id);
+            return;
+          }
           // Atomic claim: only one cron tick can flip pending -> publishing.
           const { data: claimed } = await supabaseAdmin
             .from("auto_comments")
             .update({ status: "publishing" } as any)
-            .eq("id", c.id).eq("status", "pending")
-            .select("id").maybeSingle();
+            .eq("id", c.id)
+            .eq("status", "pending")
+            .is("fb_comment_id", null)
+            .select("id")
+            .maybeSingle();
           if (!claimed) return;
-          const { data: target } = await supabaseAdmin.from("post_targets").select("fb_post_id, page_id").eq("id", c.target_id!).single();
-          if (!target?.fb_post_id) { await supabaseAdmin.from("auto_comments").update({ status: "failed", error: "post não publicado" }).eq("id", c.id); return; }
-          const { data: pg } = await supabaseAdmin.from("fb_pages").select("access_token").eq("id", target.page_id).single();
-          if (!pg) { await supabaseAdmin.from("auto_comments").update({ status: "failed", error: "página ausente" }).eq("id", c.id); return; }
+          const { data: target } = await supabaseAdmin
+            .from("post_targets")
+            .select("fb_post_id, page_id")
+            .eq("id", c.target_id!)
+            .single();
+          if (!target?.fb_post_id) {
+            await supabaseAdmin.from("auto_comments").update({ status: "failed", error: "post não publicado" }).eq("id", c.id);
+            return;
+          }
+          const { data: pg } = await supabaseAdmin
+            .from("fb_pages")
+            .select("access_token, fb_page_id")
+            .eq("id", target.page_id)
+            .single();
+          if (!pg) {
+            await supabaseAdmin.from("auto_comments").update({ status: "failed", error: "página ausente" }).eq("id", c.id);
+            return;
+          }
           try {
-            const r: any = await fbPost(`/${target.fb_post_id}/comments`, { access_token: pg.access_token, message: c.message });
-            await supabaseAdmin.from("auto_comments").update({ status: "posted", fb_comment_id: r.id, posted_at: new Date().toISOString() }).eq("id", c.id);
+            const existing: any = await fbGet(`/${target.fb_post_id}/comments`, {
+              access_token: pg.access_token,
+              fields: "id,message,from{name,id}",
+              limit: "25",
+              order: "reverse_chronological",
+            });
+            const wanted = normalizeComment(c.message ?? "");
+            const alreadyThere = (existing?.data ?? []).find((item: any) =>
+              normalizeComment(item?.message ?? "") === wanted && (!item?.from?.id || item.from.id === pg.fb_page_id),
+            );
+            if (alreadyThere?.id) {
+              await supabaseAdmin
+                .from("auto_comments")
+                .update({
+                  status: "posted",
+                  fb_comment_id: alreadyThere.id,
+                  posted_at: new Date().toISOString(),
+                  error: "comentário já existia no Facebook; não repostado",
+                })
+                .eq("id", c.id);
+              comments++;
+              return;
+            }
+            const r: any = await fbPost(`/${target.fb_post_id}/comments`, {
+              access_token: pg.access_token,
+              message: c.message,
+            });
+            await supabaseAdmin
+              .from("auto_comments")
+              .update({ status: "posted", fb_comment_id: r.id, posted_at: new Date().toISOString() })
+              .eq("id", c.id);
             comments++;
           } catch (e: any) {
             const msg = e?.message ?? "";
