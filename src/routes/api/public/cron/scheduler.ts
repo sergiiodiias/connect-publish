@@ -59,8 +59,8 @@ export const Route = createFileRoute("/api/public/cron/scheduler")({
             }
           }
           await supabaseAdmin.from("posts").update({
-            status: fl === 0 ? "published" : (ok === 0 ? "failed" : "published"),
-            published_at: new Date().toISOString(), error: fl ? `${fl} falha(s)` : null,
+            status: fl === 0 ? "published" : (ok === 0 ? "failed" : "partial"),
+            published_at: new Date().toISOString(), error: fl ? `${fl} falha(s) de ${(targets ?? []).length}` : null,
           }).eq("id", post.id);
           processed++; failed += fl;
         }
