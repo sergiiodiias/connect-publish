@@ -23,6 +23,7 @@ import { Route as AuthenticatedExtractRouteImport } from './routes/_authenticate
 import { Route as AuthenticatedEngagementRouteImport } from './routes/_authenticated/engagement'
 import { Route as AuthenticatedDashboardRouteImport } from './routes/_authenticated/dashboard'
 import { Route as AuthenticatedComposerRouteImport } from './routes/_authenticated/composer'
+import { Route as AuthenticatedCommentsRouteImport } from './routes/_authenticated/comments'
 import { Route as ApiPublicDriveSplatRouteImport } from './routes/api/public/drive.$'
 import { Route as ApiPublicCronSchedulerRouteImport } from './routes/api/public/cron/scheduler'
 import { Route as ApiPublicCronRefreshTokensRouteImport } from './routes/api/public/cron/refresh-tokens'
@@ -97,6 +98,11 @@ const AuthenticatedComposerRoute = AuthenticatedComposerRouteImport.update({
   path: '/composer',
   getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
+const AuthenticatedCommentsRoute = AuthenticatedCommentsRouteImport.update({
+  id: '/comments',
+  path: '/comments',
+  getParentRoute: () => AuthenticatedRouteRoute,
+} as any)
 const ApiPublicDriveSplatRoute = ApiPublicDriveSplatRouteImport.update({
   id: '/api/public/drive/$',
   path: '/api/public/drive/$',
@@ -124,6 +130,7 @@ export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/auth': typeof AuthRoute
   '/reset-password': typeof ResetPasswordRoute
+  '/comments': typeof AuthenticatedCommentsRoute
   '/composer': typeof AuthenticatedComposerRoute
   '/dashboard': typeof AuthenticatedDashboardRoute
   '/engagement': typeof AuthenticatedEngagementRoute
@@ -143,6 +150,7 @@ export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/auth': typeof AuthRoute
   '/reset-password': typeof ResetPasswordRoute
+  '/comments': typeof AuthenticatedCommentsRoute
   '/composer': typeof AuthenticatedComposerRoute
   '/dashboard': typeof AuthenticatedDashboardRoute
   '/engagement': typeof AuthenticatedEngagementRoute
@@ -164,6 +172,7 @@ export interface FileRoutesById {
   '/_authenticated': typeof AuthenticatedRouteRouteWithChildren
   '/auth': typeof AuthRoute
   '/reset-password': typeof ResetPasswordRoute
+  '/_authenticated/comments': typeof AuthenticatedCommentsRoute
   '/_authenticated/composer': typeof AuthenticatedComposerRoute
   '/_authenticated/dashboard': typeof AuthenticatedDashboardRoute
   '/_authenticated/engagement': typeof AuthenticatedEngagementRoute
@@ -185,6 +194,7 @@ export interface FileRouteTypes {
     | '/'
     | '/auth'
     | '/reset-password'
+    | '/comments'
     | '/composer'
     | '/dashboard'
     | '/engagement'
@@ -204,6 +214,7 @@ export interface FileRouteTypes {
     | '/'
     | '/auth'
     | '/reset-password'
+    | '/comments'
     | '/composer'
     | '/dashboard'
     | '/engagement'
@@ -224,6 +235,7 @@ export interface FileRouteTypes {
     | '/_authenticated'
     | '/auth'
     | '/reset-password'
+    | '/_authenticated/comments'
     | '/_authenticated/composer'
     | '/_authenticated/dashboard'
     | '/_authenticated/engagement'
@@ -351,6 +363,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedComposerRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
+    '/_authenticated/comments': {
+      id: '/_authenticated/comments'
+      path: '/comments'
+      fullPath: '/comments'
+      preLoaderRoute: typeof AuthenticatedCommentsRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
     '/api/public/drive/$': {
       id: '/api/public/drive/$'
       path: '/api/public/drive/$'
@@ -383,6 +402,7 @@ declare module '@tanstack/react-router' {
 }
 
 interface AuthenticatedRouteRouteChildren {
+  AuthenticatedCommentsRoute: typeof AuthenticatedCommentsRoute
   AuthenticatedComposerRoute: typeof AuthenticatedComposerRoute
   AuthenticatedDashboardRoute: typeof AuthenticatedDashboardRoute
   AuthenticatedEngagementRoute: typeof AuthenticatedEngagementRoute
@@ -396,6 +416,7 @@ interface AuthenticatedRouteRouteChildren {
 }
 
 const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
+  AuthenticatedCommentsRoute: AuthenticatedCommentsRoute,
   AuthenticatedComposerRoute: AuthenticatedComposerRoute,
   AuthenticatedDashboardRoute: AuthenticatedDashboardRoute,
   AuthenticatedEngagementRoute: AuthenticatedEngagementRoute,
