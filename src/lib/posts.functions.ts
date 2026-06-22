@@ -88,8 +88,10 @@ export const publishPostNow = createServerFn({ method: "POST" })
     const { supabase, userId } = context;
     const { data: post } = await supabase.from("posts").select("*").eq("id", data.postId).eq("user_id", userId).single();
     if (!post) throw new Error("Post não encontrado");
-    const { data: targets } = await supabase.from("post_targets").select("id,page_id").eq("post_id", post.id);
-    if (!targets?.length) throw new Error("Sem páginas-alvo");
+    const { data: allTargets } = await supabase.from("post_targets").select("id,page_id,status").eq("post_id", post.id);
+    if (!allTargets?.length) throw new Error("Sem páginas-alvo");
+    const targets = allTargets.filter((t) => t.status !== "published");
+    if (!targets.length) throw new Error("Nada a publicar — todos os targets já foram publicados");
 
     await supabase.from("posts").update({ status: "publishing" }).eq("id", post.id);
 
