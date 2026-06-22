@@ -27,8 +27,8 @@ export async function runRefreshTokens(): Promise<RefreshResult> {
   let invalidated = 0;
   const errors: { pageId: string; error: string }[] = [];
 
-  await Promise.all(
-    (rows ?? []).map(async (row) => {
+  // Serial loop with small delay — avoids Graph API "Application request limit reached" (#4)
+  for (const row of rows ?? []) {
       const update: Record<string, any> = {
         token_last_debugged_at: new Date().toISOString(),
       };
