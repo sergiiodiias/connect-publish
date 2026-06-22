@@ -193,6 +193,33 @@ function PagesPage() {
           );
         })}
       </div>
+
+      <Dialog open={!!updateFor} onOpenChange={(o) => !o && setUpdateFor(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Atualizar token{updateFor ? ` — ${updateFor.name}` : ""}</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-2">
+            <Label>Novo Access Token (estendido)</Label>
+            <Textarea
+              rows={5}
+              value={newToken}
+              onChange={(e) => setNewToken(e.target.value)}
+              placeholder="Cole aqui o token estendido (longa duração) da página"
+              className="font-mono text-xs"
+            />
+            <p className="text-xs text-muted-foreground">
+              O token precisa pertencer à mesma página — validamos antes de salvar.
+            </p>
+          </div>
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setUpdateFor(null)}>Cancelar</Button>
+            <Button disabled={!newToken.trim() || updateMut.isPending} onClick={() => updateMut.mutate()}>
+              {updateMut.isPending ? "Salvando…" : "Salvar token"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
