@@ -53,6 +53,7 @@ function PagesPage() {
   const [open, setOpen] = useState(false);
   const [token, setToken] = useState("");
   const [pageId, setPageId] = useState("");
+  const [revealed, setRevealed] = useState<Record<string, boolean>>({});
 
   const connect = useMutation({
     mutationFn: async () => {
