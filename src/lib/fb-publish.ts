@@ -31,6 +31,7 @@ export async function publishFacebookPost(opts: {
         const r = await fbPostMultipart<any>(`/${fbPageId}/photos`, form);
         return r.post_id ?? r.id;
       }
+      if (message.trim()) return publishFeed({ message, linkUrl, fbPageId, pageToken });
       throw new Error("A imagem não está em um formato/tamanho aceito pelo Facebook");
     } catch (error) {
       if (!message.trim() || !isFacebookPhotoUploadFileError(error)) throw error;
