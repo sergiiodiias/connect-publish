@@ -299,9 +299,46 @@ function BulkUploadPage() {
                   <Input type="datetime-local" value={startAt} onChange={(e) => setStartAt(e.target.value)} />
                 </div>
                 <div>
-                  <Label className="text-xs">Intervalo entre posts (minutos)</Label>
-                  <Input type="number" min={5} value={intervalMin}
-                    onChange={(e) => setIntervalMin(Math.max(5, Number(e.target.value) || 60))} />
+                  <Label className="text-xs">Intervalo entre posts</Label>
+                  <div className="flex items-center gap-2">
+                    <Input
+                      type="number"
+                      min={0}
+                      max={72}
+                      value={Math.floor(intervalMin / 60)}
+                      onChange={(e) => {
+                        const h = Math.max(0, Math.min(72, Number(e.target.value) || 0));
+                        const m = intervalMin % 60;
+                        setIntervalMin(Math.max(10, h * 60 + m));
+                      }}
+                      className="w-20"
+                    />
+                    <span className="text-sm text-muted-foreground">h</span>
+                    <Input
+                      type="number"
+                      min={0}
+                      max={59}
+                      step={5}
+                      value={intervalMin % 60}
+                      onChange={(e) => {
+                        const m = Math.max(0, Math.min(59, Number(e.target.value) || 0));
+                        const h = Math.floor(intervalMin / 60);
+                        setIntervalMin(Math.max(10, h * 60 + m));
+                      }}
+                      className="w-20"
+                    />
+                    <span className="text-sm text-muted-foreground">min</span>
+                    <span className="text-xs text-muted-foreground ml-2">= {intervalMin} min</span>
+                  </div>
+                  <div className="flex flex-wrap gap-1 mt-2">
+                    {[10, 15, 30, 60, 120, 240, 360, 720, 1440].map((v) => (
+                      <Button key={v} type="button" size="sm" variant={intervalMin === v ? "default" : "outline"}
+                        className="h-7 px-2 text-xs" onClick={() => setIntervalMin(v)}>
+                        {v < 60 ? `${v}min` : `${v / 60}h`}
+                      </Button>
+                    ))}
+                  </div>
+                  <p className="text-[11px] text-muted-foreground mt-1">Mínimo 10 minutos. Máximo 72 horas.</p>
                 </div>
               </div>
             )}
