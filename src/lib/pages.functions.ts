@@ -164,24 +164,11 @@ export const listPages = createServerFn({ method: "GET" })
   });
 
 // Triggers the same monthly debug+refresh routine on demand.
-// Calls the public cron endpoint server-to-server.
 export const refreshTokensNow = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .handler(async () => {
-    const base = process.env.PUBLIC_APP_URL ?? "http://localhost:8080";
-    const url = `${base.replace(/\/$/, "")}/api/public/cron/refresh-tokens`;
-    const res = await fetch(url, { method: "POST" });
-    const json: any = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(json?.error ?? `HTTP ${res.status}`);
-    return json as {
-      ok: boolean;
-      total: number;
-      debugged: number;
-      refreshed: number;
-      invalidated: number;
-      canExtend: boolean;
-      errors: { pageId: string; error: string }[];
-    };
+    const { runRefreshTokens } = await import("@/lib/refresh-tokens.server");
+    return runRefreshTokens();
   });
 
 export const inspectTokens = createServerFn({ method: "POST" })
