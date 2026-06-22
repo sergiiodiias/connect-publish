@@ -159,7 +159,7 @@ function QueuePage() {
             <Tooltip>
               <TooltipTrigger asChild>
                 <button type="button" className="inline-flex items-center gap-1 cursor-help">
-                  <Badge variant={p.status === "failed" ? "destructive" : p.status === "published" ? "default" : "outline"}>{p.status}</Badge>
+                  <Badge variant={p.status === "failed" ? "destructive" : p.status === "published" ? "default" : p.status === "partial" ? "secondary" : "outline"}>{p.status}</Badge>
                   <HelpCircle className="size-3 text-muted-foreground" />
                 </button>
               </TooltipTrigger>
@@ -167,12 +167,24 @@ function QueuePage() {
                 {explainStatus(p)}
               </TooltipContent>
             </Tooltip>
-            {(p.status === "failed" || p.error) && (
+            {verifyResults[p.id] && (
+              <Badge variant="outline" className="text-[10px] gap-1">
+                <ShieldCheck className="size-3" /> {verifyResults[p.id]!.verified}/{verifyResults[p.id]!.total}
+              </Badge>
+            )}
+            {(p.status === "published" || p.status === "partial" || p.status === "failed") && (
+              <Button size="sm" variant="outline" disabled={verify.isPending && verify.variables === p.id}
+                onClick={() => verify.mutate(p.id)} title="Confirma no Facebook se o post existe em cada página">
+                <ShieldCheck className="size-3 mr-1" />
+                {verify.isPending && verify.variables === p.id ? "Verificando…" : "Verificar"}
+              </Button>
+            )}
+            {(p.status === "failed" || p.status === "partial" || p.error) && (
               <Button size="sm" variant="outline" onClick={() => setDetailId(p.id)}>
                 <Info className="size-3 mr-1" /> detalhes
               </Button>
             )}
-            {p.status === "failed" && (
+            {(p.status === "failed" || p.status === "partial") && (
               <Button size="sm" variant="outline" onClick={() => publish.mutate(p.id)}>
                 <RefreshCw className="size-3 mr-1" /> tentar novamente
               </Button>
