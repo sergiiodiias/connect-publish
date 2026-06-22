@@ -247,17 +247,29 @@ function QueuePage() {
   });
 
   const migrateToFb = useMutation({
-    mutationFn: () => migrateFn({ data: {} }),
-    onSuccess: (r: any) => {
-      if (!r || typeof r !== "object") {
-        toast.error("Resposta inválida do servidor — recarregue a página e tente de novo.");
-        return;
+    mutationFn: async () => {
+      // Loops the 25-per-batch server fn until nothing more is scheduled
+      // (avoids the 60s gateway timeout while still draining the full backlog).
+      let totalScheduled = 0;
+      let totalFailed = 0;
+      const allErrors: any[] = [];
+      for (let i = 0; i < 60; i++) {
+        const r: any = await migrateFn({ data: {} });
+        if (!r || typeof r !== "object") throw new Error("Resposta inválida do servidor");
+        totalScheduled += r.scheduled ?? 0;
+        totalFailed += r.failed ?? 0;
+        if (r.errors?.length) allErrors.push(...r.errors);
+        // Stop when this batch did nothing new
+        if ((r.scheduled ?? 0) === 0 && (r.failed ?? 0) === 0) break;
+        // Refresh UI between batches
+        qc.invalidateQueries({ queryKey: ["queue"] });
       }
-      const scheduled = r.scheduled ?? 0;
-      const failed = r.failed ?? 0;
-      if (scheduled === 0 && failed === 0) toast.info("Nada para enviar (precisa ser >10 min no futuro e ainda não estar no FB)");
-      else if (failed === 0) toast.success(`${scheduled} agendado(s) no Facebook`);
-      else toast.warning(`${scheduled} ok · ${failed} falha(s)`);
+      return { scheduled: totalScheduled, failed: totalFailed, errors: allErrors };
+    },
+    onSuccess: (r) => {
+      if (r.scheduled === 0 && r.failed === 0) toast.info("Nada para enviar (precisa ser >10 min no futuro e ainda não estar no FB)");
+      else if (r.failed === 0) toast.success(`${r.scheduled} agendado(s) no Facebook`);
+      else toast.warning(`${r.scheduled} ok · ${r.failed} falha(s)`);
       if (r.errors?.length) console.warn("Migrate errors:", r.errors);
       qc.invalidateQueries({ queryKey: ["queue"] });
       qc.invalidateQueries({ queryKey: ["queue-stuck"] });
