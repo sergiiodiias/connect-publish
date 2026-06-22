@@ -363,6 +363,7 @@ function ImportPage() {
             <div className="divide-y divide-border max-h-[60vh] overflow-y-auto">
               {data.rows.map((r) => {
                 const res = results.find((x) => x.row === r.rowIndex);
+                const resolved = resolveMedia(r);
                 return (
                   <div key={r.rowIndex} className="p-3 flex items-start gap-3 hover:bg-muted/20">
                     <Checkbox
@@ -378,10 +379,14 @@ function ImportPage() {
                             {new Date(r.scheduledAt).toLocaleString("pt-BR", { timeZone: "America/Sao_Paulo" })}
                           </Badge>
                         )}
-                        {r.fotoOk ? (
-                          <Badge variant="outline" className="text-[10px] text-success">foto OK</Badge>
+                        {resolved.url ? (
+                          <Badge variant="outline" className="text-[10px] text-success">
+                            mídia: {resolved.sourceLabel}
+                          </Badge>
                         ) : r.foto ? (
-                          <Badge variant="destructive" className="text-[10px]">caminho local — sem foto</Badge>
+                          <Badge variant="destructive" className="text-[10px]">
+                            {mediaSource === "upload" ? "faltando upload" : "sem foto"}
+                          </Badge>
                         ) : null}
                         {res && (
                           <Badge variant={res.ok ? "default" : "destructive"} title={res.error}>
@@ -401,9 +406,9 @@ function ImportPage() {
                           {r.comentario}
                         </a>
                       )}
-                      {r.foto && !r.fotoOk && (
+                      {r.foto && (
                         <div className="text-[10px] text-muted-foreground font-mono truncate">
-                          {r.foto}
+                          {basename(r.raw.foto ?? r.foto)}
                         </div>
                       )}
                     </div>
