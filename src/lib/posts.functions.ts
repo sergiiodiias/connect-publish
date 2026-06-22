@@ -1,7 +1,7 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
-import { fbPost } from "@/lib/fb-graph";
+import { fbPost, fbPostMultipart } from "@/lib/fb-graph";
 
 const PostInput = z.object({
   type: z.enum(["text", "photo", "video", "link"]),
@@ -17,6 +17,44 @@ const PostInput = z.object({
   }).nullable().optional(),
 });
 
+const GATEWAY = "https://connector-gateway.lovable.dev/google_drive/drive/v3";
+
+function driveHeaders() {
+  const lovKey = process.env.LOVABLE_API_KEY;
+  const gKey = process.env.GOOGLE_DRIVE_API_KEY;
+  if (!lovKey || !gKey) throw new Error("Conexão com Google Drive não configurada");
+  return {
+    Authorization: `Bearer ${lovKey}`,
+    "X-Connection-Api-Key": gKey,
+  };
+}
+
+async function findDriveFile(filename: string) {
+  const q = encodeURIComponent(`name = '${filename.replace(/'/g, "\\'")}' and trashed = false`);
+  const url = `${GATEWAY}/files?q=${q}&fields=files(id,name,mimeType)&pageSize=5&includeItemsFromAllDrives=true&supportsAllDrives=true`;
+  const r = await fetch(url, { headers: driveHeaders() });
+  if (!r.ok) throw new Error(`Drive search ${r.status}: ${await r.text()}`);
+  const j: any = await r.json();
+  return (j.files ?? [])[0] as { id: string; name: string; mimeType?: string } | undefined;
+}
+
+async function fetchMediaAsBlob(mediaUrl: string): Promise<{ blob: Blob; filename: string }> {
+  const parsed = new URL(mediaUrl);
+  const filename = decodeURIComponent(parsed.pathname.split("/").pop() || `media-${Date.now()}.jpg`);
+
+  if (parsed.pathname.includes("/api/public/drive/")) {
+    const file = await findDriveFile(filename);
+    if (!file) throw new Error(`Arquivo não encontrado no Drive: ${filename}`);
+    const dl = await fetch(`${GATEWAY}/files/${file.id}?alt=media&supportsAllDrives=true`, { headers: driveHeaders() });
+    if (!dl.ok) throw new Error(`Drive download ${dl.status}: ${await dl.text()}`);
+    return { blob: await dl.blob(), filename: file.name || filename };
+  }
+
+  const r = await fetch(mediaUrl);
+  if (!r.ok) throw new Error(`Imagem inacessível (${r.status})`);
+  return { blob: await r.blob(), filename };
+}
+
 async function publishOneTarget(opts: {
   type: "text" | "photo" | "video" | "link";
   message: string;
@@ -27,9 +65,12 @@ async function publishOneTarget(opts: {
 }): Promise<string> {
   const { type, message, linkUrl, mediaUrls, fbPageId, pageToken } = opts;
   if (type === "photo" && mediaUrls[0]) {
-    const r = await fbPost<any>(`/${fbPageId}/photos`, {
-      access_token: pageToken, url: mediaUrls[0], caption: message,
-    });
+    const media = await fetchMediaAsBlob(mediaUrls[0]);
+    const form = new FormData();
+    form.set("access_token", pageToken);
+    form.set("caption", message);
+    form.set("source", media.blob, media.filename);
+    const r = await fbPostMultipart<any>(`/${fbPageId}/photos`, form);
     return r.post_id ?? r.id;
   }
   if (type === "video" && mediaUrls[0]) {
