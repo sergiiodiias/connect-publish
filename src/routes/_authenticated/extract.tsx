@@ -90,6 +90,24 @@ function extractTokens(input: string): Extracted[] {
     }
   }
 
+  // 3) Fallback: detect bare Facebook tokens (EAA...) anywhere in the text.
+  //    Page id/name will be resolved server-side via /me at connect time.
+  if (results.length === 0) {
+    const re = /EAA[A-Za-z0-9]{80,}/g;
+    const seen = new Set<string>();
+    for (const m of input.matchAll(re)) {
+      const tok = m[0];
+      if (seen.has(tok)) continue;
+      seen.add(tok);
+      results.push({
+        id: `bare:${tok.slice(-12)}`,
+        name: "(resolver ao conectar)",
+        token: tok,
+        bare: true,
+      });
+    }
+  }
+
   return dedupe(results);
 }
 
