@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { supabase } from "@/integrations/supabase/client";
@@ -16,11 +16,15 @@ import { Send, CalendarClock } from "lucide-react";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/_authenticated/composer")({
+  validateSearch: (s: Record<string, unknown>) => ({
+    reusePostId: typeof s.reusePostId === "string" ? s.reusePostId : undefined,
+  }),
   head: () => ({ meta: [{ title: "Agendar postagens — PagePilot" }] }),
   component: ComposerPage,
 });
 
 function ComposerPage() {
+  const { reusePostId } = Route.useSearch();
   const qc = useQueryClient();
   const listFn = useServerFn(listPages);
   const createFn = useServerFn(createPost);
@@ -50,6 +54,28 @@ function ComposerPage() {
   const [commentMsg, setCommentMsg] = useState("");
   const [commentDelay, setCommentDelay] = useState(60);
   const [tagsInput, setTagsInput] = useState("");
+
+  // Pre-fill from "reusePostId" search param (coming from Engajamento → Reutilizar)
+  useEffect(() => {
+    if (!reusePostId) return;
+    let cancelled = false;
+    (async () => {
+      const { data, error } = await supabase
+        .from("posts")
+        .select("type, message, link_url, media_urls, tags")
+        .eq("id", reusePostId)
+        .maybeSingle();
+      if (error || !data || cancelled) return;
+      setType((data.type as any) ?? "text");
+      setMessage(data.message ?? "");
+      setLinkUrl(data.link_url ?? "");
+      setMediaUrl((data.media_urls?.[0] as string) ?? "");
+      setTagsInput((data.tags ?? []).join(", "));
+      toast.success("Post carregado — ajuste e agende novamente");
+    })();
+    return () => { cancelled = true; };
+  }, [reusePostId]);
+
 
   const applyGroup = (groupId: string) => {
     setGroupFilter(groupId);

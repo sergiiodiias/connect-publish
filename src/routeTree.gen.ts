@@ -20,11 +20,13 @@ import { Route as AuthenticatedPagesRouteImport } from './routes/_authenticated/
 import { Route as AuthenticatedLogsRouteImport } from './routes/_authenticated/logs'
 import { Route as AuthenticatedGroupsRouteImport } from './routes/_authenticated/groups'
 import { Route as AuthenticatedExtractRouteImport } from './routes/_authenticated/extract'
+import { Route as AuthenticatedEngagementRouteImport } from './routes/_authenticated/engagement'
 import { Route as AuthenticatedDashboardRouteImport } from './routes/_authenticated/dashboard'
 import { Route as AuthenticatedComposerRouteImport } from './routes/_authenticated/composer'
 import { Route as ApiPublicDriveSplatRouteImport } from './routes/api/public/drive.$'
 import { Route as ApiPublicCronSchedulerRouteImport } from './routes/api/public/cron/scheduler'
 import { Route as ApiPublicCronRefreshTokensRouteImport } from './routes/api/public/cron/refresh-tokens'
+import { Route as ApiPublicCronCaptureInsightsRouteImport } from './routes/api/public/cron/capture-insights'
 
 const ResetPasswordRoute = ResetPasswordRouteImport.update({
   id: '/reset-password',
@@ -80,6 +82,11 @@ const AuthenticatedExtractRoute = AuthenticatedExtractRouteImport.update({
   path: '/extract',
   getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
+const AuthenticatedEngagementRoute = AuthenticatedEngagementRouteImport.update({
+  id: '/engagement',
+  path: '/engagement',
+  getParentRoute: () => AuthenticatedRouteRoute,
+} as any)
 const AuthenticatedDashboardRoute = AuthenticatedDashboardRouteImport.update({
   id: '/dashboard',
   path: '/dashboard',
@@ -106,6 +113,12 @@ const ApiPublicCronRefreshTokensRoute =
     path: '/api/public/cron/refresh-tokens',
     getParentRoute: () => rootRouteImport,
   } as any)
+const ApiPublicCronCaptureInsightsRoute =
+  ApiPublicCronCaptureInsightsRouteImport.update({
+    id: '/api/public/cron/capture-insights',
+    path: '/api/public/cron/capture-insights',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -113,6 +126,7 @@ export interface FileRoutesByFullPath {
   '/reset-password': typeof ResetPasswordRoute
   '/composer': typeof AuthenticatedComposerRoute
   '/dashboard': typeof AuthenticatedDashboardRoute
+  '/engagement': typeof AuthenticatedEngagementRoute
   '/extract': typeof AuthenticatedExtractRoute
   '/groups': typeof AuthenticatedGroupsRoute
   '/logs': typeof AuthenticatedLogsRoute
@@ -120,6 +134,7 @@ export interface FileRoutesByFullPath {
   '/queue': typeof AuthenticatedQueueRoute
   '/settings': typeof AuthenticatedSettingsRoute
   '/sheets': typeof AuthenticatedSheetsRoute
+  '/api/public/cron/capture-insights': typeof ApiPublicCronCaptureInsightsRoute
   '/api/public/cron/refresh-tokens': typeof ApiPublicCronRefreshTokensRoute
   '/api/public/cron/scheduler': typeof ApiPublicCronSchedulerRoute
   '/api/public/drive/$': typeof ApiPublicDriveSplatRoute
@@ -130,6 +145,7 @@ export interface FileRoutesByTo {
   '/reset-password': typeof ResetPasswordRoute
   '/composer': typeof AuthenticatedComposerRoute
   '/dashboard': typeof AuthenticatedDashboardRoute
+  '/engagement': typeof AuthenticatedEngagementRoute
   '/extract': typeof AuthenticatedExtractRoute
   '/groups': typeof AuthenticatedGroupsRoute
   '/logs': typeof AuthenticatedLogsRoute
@@ -137,6 +153,7 @@ export interface FileRoutesByTo {
   '/queue': typeof AuthenticatedQueueRoute
   '/settings': typeof AuthenticatedSettingsRoute
   '/sheets': typeof AuthenticatedSheetsRoute
+  '/api/public/cron/capture-insights': typeof ApiPublicCronCaptureInsightsRoute
   '/api/public/cron/refresh-tokens': typeof ApiPublicCronRefreshTokensRoute
   '/api/public/cron/scheduler': typeof ApiPublicCronSchedulerRoute
   '/api/public/drive/$': typeof ApiPublicDriveSplatRoute
@@ -149,6 +166,7 @@ export interface FileRoutesById {
   '/reset-password': typeof ResetPasswordRoute
   '/_authenticated/composer': typeof AuthenticatedComposerRoute
   '/_authenticated/dashboard': typeof AuthenticatedDashboardRoute
+  '/_authenticated/engagement': typeof AuthenticatedEngagementRoute
   '/_authenticated/extract': typeof AuthenticatedExtractRoute
   '/_authenticated/groups': typeof AuthenticatedGroupsRoute
   '/_authenticated/logs': typeof AuthenticatedLogsRoute
@@ -156,6 +174,7 @@ export interface FileRoutesById {
   '/_authenticated/queue': typeof AuthenticatedQueueRoute
   '/_authenticated/settings': typeof AuthenticatedSettingsRoute
   '/_authenticated/sheets': typeof AuthenticatedSheetsRoute
+  '/api/public/cron/capture-insights': typeof ApiPublicCronCaptureInsightsRoute
   '/api/public/cron/refresh-tokens': typeof ApiPublicCronRefreshTokensRoute
   '/api/public/cron/scheduler': typeof ApiPublicCronSchedulerRoute
   '/api/public/drive/$': typeof ApiPublicDriveSplatRoute
@@ -168,6 +187,7 @@ export interface FileRouteTypes {
     | '/reset-password'
     | '/composer'
     | '/dashboard'
+    | '/engagement'
     | '/extract'
     | '/groups'
     | '/logs'
@@ -175,6 +195,7 @@ export interface FileRouteTypes {
     | '/queue'
     | '/settings'
     | '/sheets'
+    | '/api/public/cron/capture-insights'
     | '/api/public/cron/refresh-tokens'
     | '/api/public/cron/scheduler'
     | '/api/public/drive/$'
@@ -185,6 +206,7 @@ export interface FileRouteTypes {
     | '/reset-password'
     | '/composer'
     | '/dashboard'
+    | '/engagement'
     | '/extract'
     | '/groups'
     | '/logs'
@@ -192,6 +214,7 @@ export interface FileRouteTypes {
     | '/queue'
     | '/settings'
     | '/sheets'
+    | '/api/public/cron/capture-insights'
     | '/api/public/cron/refresh-tokens'
     | '/api/public/cron/scheduler'
     | '/api/public/drive/$'
@@ -203,6 +226,7 @@ export interface FileRouteTypes {
     | '/reset-password'
     | '/_authenticated/composer'
     | '/_authenticated/dashboard'
+    | '/_authenticated/engagement'
     | '/_authenticated/extract'
     | '/_authenticated/groups'
     | '/_authenticated/logs'
@@ -210,6 +234,7 @@ export interface FileRouteTypes {
     | '/_authenticated/queue'
     | '/_authenticated/settings'
     | '/_authenticated/sheets'
+    | '/api/public/cron/capture-insights'
     | '/api/public/cron/refresh-tokens'
     | '/api/public/cron/scheduler'
     | '/api/public/drive/$'
@@ -220,6 +245,7 @@ export interface RootRouteChildren {
   AuthenticatedRouteRoute: typeof AuthenticatedRouteRouteWithChildren
   AuthRoute: typeof AuthRoute
   ResetPasswordRoute: typeof ResetPasswordRoute
+  ApiPublicCronCaptureInsightsRoute: typeof ApiPublicCronCaptureInsightsRoute
   ApiPublicCronRefreshTokensRoute: typeof ApiPublicCronRefreshTokensRoute
   ApiPublicCronSchedulerRoute: typeof ApiPublicCronSchedulerRoute
   ApiPublicDriveSplatRoute: typeof ApiPublicDriveSplatRoute
@@ -304,6 +330,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedExtractRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
+    '/_authenticated/engagement': {
+      id: '/_authenticated/engagement'
+      path: '/engagement'
+      fullPath: '/engagement'
+      preLoaderRoute: typeof AuthenticatedEngagementRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
     '/_authenticated/dashboard': {
       id: '/_authenticated/dashboard'
       path: '/dashboard'
@@ -339,12 +372,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiPublicCronRefreshTokensRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/public/cron/capture-insights': {
+      id: '/api/public/cron/capture-insights'
+      path: '/api/public/cron/capture-insights'
+      fullPath: '/api/public/cron/capture-insights'
+      preLoaderRoute: typeof ApiPublicCronCaptureInsightsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
 interface AuthenticatedRouteRouteChildren {
   AuthenticatedComposerRoute: typeof AuthenticatedComposerRoute
   AuthenticatedDashboardRoute: typeof AuthenticatedDashboardRoute
+  AuthenticatedEngagementRoute: typeof AuthenticatedEngagementRoute
   AuthenticatedExtractRoute: typeof AuthenticatedExtractRoute
   AuthenticatedGroupsRoute: typeof AuthenticatedGroupsRoute
   AuthenticatedLogsRoute: typeof AuthenticatedLogsRoute
@@ -357,6 +398,7 @@ interface AuthenticatedRouteRouteChildren {
 const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
   AuthenticatedComposerRoute: AuthenticatedComposerRoute,
   AuthenticatedDashboardRoute: AuthenticatedDashboardRoute,
+  AuthenticatedEngagementRoute: AuthenticatedEngagementRoute,
   AuthenticatedExtractRoute: AuthenticatedExtractRoute,
   AuthenticatedGroupsRoute: AuthenticatedGroupsRoute,
   AuthenticatedLogsRoute: AuthenticatedLogsRoute,
@@ -374,6 +416,7 @@ const rootRouteChildren: RootRouteChildren = {
   AuthenticatedRouteRoute: AuthenticatedRouteRouteWithChildren,
   AuthRoute: AuthRoute,
   ResetPasswordRoute: ResetPasswordRoute,
+  ApiPublicCronCaptureInsightsRoute: ApiPublicCronCaptureInsightsRoute,
   ApiPublicCronRefreshTokensRoute: ApiPublicCronRefreshTokensRoute,
   ApiPublicCronSchedulerRoute: ApiPublicCronSchedulerRoute,
   ApiPublicDriveSplatRoute: ApiPublicDriveSplatRoute,

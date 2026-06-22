@@ -1,7 +1,7 @@
 import { createFileRoute, Outlet, redirect, Link, useRouter } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
-import { BarChart3, CalendarClock, FileEdit, FileSpreadsheet, KeyRound, Layers, LayoutDashboard, LogOut, MessageSquare, Settings as SettingsIcon, Users } from "lucide-react";
+import { BarChart3, CalendarClock, FileEdit, FileSpreadsheet, KeyRound, Layers, LayoutDashboard, LogOut, MessageSquare, Settings as SettingsIcon, TrendingUp, Users } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useQueryClient } from "@tanstack/react-query";
 
@@ -20,6 +20,7 @@ const NAV = [
   { to: "/composer", label: "Agendar postagens", icon: FileEdit },
   { to: "/sheets", label: "Importar Planilha", icon: FileSpreadsheet },
   { to: "/queue", label: "Agenda", icon: CalendarClock },
+  { to: "/engagement", label: "Engajamento", icon: TrendingUp },
   { to: "/pages", label: "Páginas", icon: Layers },
   { to: "/extract", label: "Extrair tokens", icon: KeyRound },
   { to: "/groups", label: "Grupos", icon: Users },
