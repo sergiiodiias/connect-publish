@@ -238,11 +238,13 @@ function ImportPage() {
               <Button
                 size="sm"
                 className="ml-auto gap-2"
-                onClick={() => setPreviewOpen(true)}
+                onClick={() => importAll()}
                 disabled={busy || selected.size === 0 || pageSel.length === 0}
               >
                 <Wand2 className="size-4" />
-                {busy ? "Importando…" : `Importar ${selected.size || ""}`}
+                {busy
+                  ? `Importando ${progress?.done ?? 0}/${progress?.total ?? selected.size}…`
+                  : `Importar ${selected.size || ""}`}
               </Button>
             </div>
             <div className="divide-y divide-border max-h-[60vh] overflow-y-auto">
