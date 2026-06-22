@@ -38,21 +38,37 @@ async function findDriveFile(filename: string) {
   return (j.files ?? [])[0] as { id: string; name: string; mimeType?: string } | undefined;
 }
 
+function extractDriveFileId(parsed: URL): string | null {
+  if (!parsed.hostname.includes("drive.google.com")) return null;
+  const byPath = parsed.pathname.match(/\/file\/d\/([^/]+)/)?.[1];
+  return byPath ?? parsed.searchParams.get("id");
+}
+
+async function downloadDriveFile(fileId: string, filename: string) {
+  const dl = await fetch(`${GATEWAY}/files/${fileId}?alt=media&supportsAllDrives=true`, { headers: driveHeaders() });
+  if (!dl.ok) throw new Error(`Drive download ${dl.status}: ${await dl.text()}`);
+  const blob = await dl.blob();
+  return { blob, filename };
+}
+
 async function fetchMediaAsBlob(mediaUrl: string): Promise<{ blob: Blob; filename: string }> {
   const parsed = new URL(mediaUrl);
   const filename = decodeURIComponent(parsed.pathname.split("/").pop() || `media-${Date.now()}.jpg`);
 
+  const driveFileId = extractDriveFileId(parsed);
+  if (driveFileId) return downloadDriveFile(driveFileId, filename);
+
   if (parsed.pathname.includes("/api/public/drive/")) {
     const file = await findDriveFile(filename);
     if (!file) throw new Error(`Arquivo não encontrado no Drive: ${filename}`);
-    const dl = await fetch(`${GATEWAY}/files/${file.id}?alt=media&supportsAllDrives=true`, { headers: driveHeaders() });
-    if (!dl.ok) throw new Error(`Drive download ${dl.status}: ${await dl.text()}`);
-    return { blob: await dl.blob(), filename: file.name || filename };
+    return downloadDriveFile(file.id, file.name || filename);
   }
 
   const r = await fetch(mediaUrl);
   if (!r.ok) throw new Error(`Imagem inacessível (${r.status})`);
-  return { blob: await r.blob(), filename };
+  const blob = await r.blob();
+  if (blob.type.includes("text/html")) throw new Error(`URL retornou HTML em vez de imagem: ${mediaUrl}`);
+  return { blob, filename };
 }
 
 async function publishOneTarget(opts: {
