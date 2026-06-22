@@ -129,7 +129,7 @@ export const Route = createFileRoute("/api/public/cron/scheduler")({
 
         // 1) Auto-comments due — process FIRST so they don't starve behind the publish loop.
         const { data: dueComments } = await supabaseAdmin
-          .from("auto_comments").select("*").eq("status", "pending").not("target_id", "is", null).lte("run_at", nowIso).limit(60);
+          .from("auto_comments").select("*").eq("status", "pending").not("target_id", "is", null).is("fb_comment_id", null).lte("run_at", nowIso).limit(60);
 
 
         async function postComment(c: any) {
