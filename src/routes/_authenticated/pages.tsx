@@ -176,3 +176,38 @@ function PagesPage() {
     </div>
   );
 }
+
+function TokenRow({
+  label, token, placeholder, revealed, onToggle,
+}: {
+  label: string;
+  token: string | null;
+  placeholder?: string;
+  revealed: boolean;
+  onToggle: () => void;
+}) {
+  const display = !token
+    ? (placeholder ?? "—")
+    : revealed
+      ? token
+      : `${token.slice(0, 14)}${"•".repeat(20)}${token.slice(-6)}`;
+  const copy = async () => {
+    if (!token) return;
+    await navigator.clipboard.writeText(token);
+    toast.success(`${label} copiado`);
+  };
+  return (
+    <div className="flex items-center gap-2">
+      <div className="text-xs text-muted-foreground w-44 shrink-0">{label}</div>
+      <code className="flex-1 text-[11px] font-mono bg-muted/40 rounded px-2 py-1 truncate" title={revealed && token ? token : undefined}>
+        {display}
+      </code>
+      <Button variant="ghost" size="icon" className="size-7" onClick={onToggle} disabled={!token} title={revealed ? "Ocultar" : "Mostrar"}>
+        {revealed ? <EyeOff className="size-3.5" /> : <Eye className="size-3.5" />}
+      </Button>
+      <Button variant="ghost" size="icon" className="size-7" onClick={copy} disabled={!token} title="Copiar">
+        <Copy className="size-3.5" />
+      </Button>
+    </div>
+  );
+}
