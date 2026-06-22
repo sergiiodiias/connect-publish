@@ -172,6 +172,36 @@ function CommentsPage() {
     onError: (e: any) => toast.error(e.message),
   });
 
+  const retryStuck = useMutation({
+    mutationFn: async (minutes: number) => {
+      const cutoff = new Date(Date.now() - minutes * 60_000).toISOString();
+      // failed OR publishing OR pending com run_at vencido há mais de N min
+      const ids = rows
+        .filter((r) =>
+          r.target_id &&
+          (
+            r.status === "failed" ||
+            r.status === "publishing" ||
+            (r.status === "pending" && r.run_at && r.run_at < cutoff)
+          )
+        )
+        .map((r) => r.id);
+      if (!ids.length) return 0;
+      const { error } = await supabase
+        .from("auto_comments")
+        .update({ status: "pending", error: null, run_at: new Date().toISOString() } as any)
+        .in("id", ids);
+      if (error) throw error;
+      return ids.length;
+    },
+    onSuccess: (n) => {
+      if (!n) toast.info("Nada para reprocessar");
+      else toast.success(`${n} comentário(s) reenfileirado(s)`);
+      qc.invalidateQueries({ queryKey: ["auto-comments"] });
+    },
+    onError: (e: any) => toast.error(e.message),
+  });
+
   return (
     <div className="p-6 md:p-8 space-y-6">
       <div className="flex items-center justify-between gap-4 flex-wrap">
@@ -185,6 +215,21 @@ function CommentsPage() {
           <Button variant="outline" size="sm" onClick={() => refetch()} disabled={isFetching}>
             <RefreshCw className={`size-4 mr-1 ${isFetching ? "animate-spin" : ""}`} />
             Atualizar
+          </Button>
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={() => {
+              const v = prompt("Reprocessar comentários travados/falhados há mais de quantos minutos?", "10");
+              if (!v) return;
+              const m = parseInt(v, 10);
+              if (!Number.isFinite(m) || m < 0) return toast.error("Valor inválido");
+              retryStuck.mutate(m);
+            }}
+            disabled={retryStuck.isPending}
+          >
+            <RefreshCw className={`size-4 mr-1 ${retryStuck.isPending ? "animate-spin" : ""}`} />
+            Reprocessar travados
           </Button>
           <Button
             variant="destructive"

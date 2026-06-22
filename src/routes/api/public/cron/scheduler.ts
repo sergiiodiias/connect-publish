@@ -30,6 +30,33 @@ export const Route = createFileRoute("/api/public/cron/scheduler")({
         };
         let rateLimitHit = false;
 
+        // -1) Auto-recuperação de comentários travados
+        // Resetar 'publishing' parado há mais de 5min (worker crashou no meio)
+        const stuckPublishingCutoff = new Date(Date.now() - 5 * 60_000).toISOString();
+        await supabaseAdmin
+          .from("auto_comments")
+          .update({ status: "pending", error: "auto-recuperado de publishing travado" } as any)
+          .eq("status", "publishing" as any)
+          .lt("updated_at", stuckPublishingCutoff);
+        // Re-tentar failed com mensagens transitórias (limite/rate/timeout) até 3x
+        const { data: retryable } = await supabaseAdmin
+          .from("auto_comments")
+          .select("id, attempts, error")
+          .eq("status", "failed")
+          .not("target_id", "is", null)
+          .limit(100);
+        const transientRe = /limit|rate|timeout|temporar|network|fetch failed|#4\b|#17\b|#32\b|#613/i;
+        for (const r of (retryable ?? []) as any[]) {
+          const att = r.attempts ?? 0;
+          if (att >= 3) continue;
+          if (!transientRe.test(r.error ?? "")) continue;
+          await supabaseAdmin.from("auto_comments")
+            .update({ status: "pending", run_at: new Date(Date.now() + 30_000).toISOString(), attempts: att + 1 } as any)
+            .eq("id", r.id);
+        }
+
+
+
         // 0) Heal orphan comment templates: for any pending template (target_id IS NULL)
         // whose post was scheduled natively on FB (targets have fb_post_id), instantiate
         // per-target rows with run_at = post.scheduled_at + delay_seconds.
