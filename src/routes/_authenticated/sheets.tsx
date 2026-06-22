@@ -233,6 +233,59 @@ function ImportPage() {
       </div>
 
       <div className="rounded-xl border border-border bg-card p-5 space-y-3">
+        <div className="flex items-center justify-between gap-3 flex-wrap">
+          <div>
+            <Label className="text-sm">Origem das mídias</Label>
+            <p className="text-xs text-muted-foreground">
+              Faça upload do PC (recomendado) ou puxe pelo nome do arquivo no seu Google Drive.
+            </p>
+          </div>
+          <div className="flex gap-1 rounded-md border border-border p-1">
+            <Button
+              size="sm"
+              variant={mediaSource === "upload" ? "default" : "ghost"}
+              onClick={() => setMediaSource("upload")}
+            >
+              Upload do PC
+            </Button>
+            <Button
+              size="sm"
+              variant={mediaSource === "drive" ? "default" : "ghost"}
+              onClick={() => setMediaSource("drive")}
+            >
+              Google Drive
+            </Button>
+          </div>
+        </div>
+
+        {mediaSource === "upload" && (
+          <div className="space-y-2">
+            <div className="flex items-center gap-2 flex-wrap">
+              <Input
+                type="file"
+                multiple
+                accept="image/*,video/*"
+                disabled={uploading}
+                onChange={(e) => { handleUpload(e.target.files); e.target.value = ""; }}
+                className="max-w-md"
+              />
+              {uploadedMedia.size > 0 && (
+                <Button size="sm" variant="outline" onClick={clearUploads} disabled={uploading}>
+                  Limpar ({uploadedMedia.size})
+                </Button>
+              )}
+            </div>
+            <p className="text-xs text-muted-foreground">
+              {uploading
+                ? `Enviando ${uploadProgress?.done ?? 0}/${uploadProgress?.total ?? 0}…`
+                : `${uploadedMedia.size} arquivo(s) prontos. O nome do arquivo deve bater com a coluna "CAMINHO DA FOTO" da planilha.`}
+            </p>
+          </div>
+        )}
+      </div>
+
+
+      <div className="rounded-xl border border-border bg-card p-5 space-y-3">
         <Label>Link ou ID da planilha</Label>
         <div className="flex gap-2">
           <Input
