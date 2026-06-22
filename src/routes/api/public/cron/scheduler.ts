@@ -11,43 +11,8 @@ export const Route = createFileRoute("/api/public/cron/scheduler")({
         }
 
         const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-        const { fbPost, fbPostMultipart } = await import("@/lib/fb-graph");
-
-        const GATEWAY = "https://connector-gateway.lovable.dev/google_drive/drive/v3";
-        const driveHeaders = () => {
-          const lovKey = process.env.LOVABLE_API_KEY;
-          const gKey = process.env.GOOGLE_DRIVE_API_KEY;
-          if (!lovKey || !gKey) throw new Error("Conexão com Google Drive não configurada");
-          return { Authorization: `Bearer ${lovKey}`, "X-Connection-Api-Key": gKey };
-        };
-        const fetchMediaAsBlob = async (mediaUrl: string) => {
-          const parsed = new URL(mediaUrl);
-          const filename = decodeURIComponent(parsed.pathname.split("/").pop() || `media-${Date.now()}.jpg`);
-          const driveFileId = parsed.hostname.includes("drive.google.com")
-            ? (parsed.pathname.match(/\/file\/d\/([^/]+)/)?.[1] ?? parsed.searchParams.get("id"))
-            : null;
-          if (driveFileId) {
-            const dl = await fetch(`${GATEWAY}/files/${driveFileId}?alt=media&supportsAllDrives=true`, { headers: driveHeaders() });
-            if (!dl.ok) throw new Error(`Drive download ${dl.status}: ${await dl.text()}`);
-            return { blob: await dl.blob(), filename };
-          }
-          if (parsed.pathname.includes("/api/public/drive/")) {
-            const q = encodeURIComponent(`name = '${filename.replace(/'/g, "\\'")}' and trashed = false`);
-            const sr = await fetch(`${GATEWAY}/files?q=${q}&fields=files(id,name,mimeType)&pageSize=5&includeItemsFromAllDrives=true&supportsAllDrives=true`, { headers: driveHeaders() });
-            if (!sr.ok) throw new Error(`Drive search ${sr.status}: ${await sr.text()}`);
-            const sj: any = await sr.json();
-            const file = sj.files?.[0];
-            if (!file) throw new Error(`Arquivo não encontrado no Drive: ${filename}`);
-            const dl = await fetch(`${GATEWAY}/files/${file.id}?alt=media&supportsAllDrives=true`, { headers: driveHeaders() });
-            if (!dl.ok) throw new Error(`Drive download ${dl.status}: ${await dl.text()}`);
-            return { blob: await dl.blob(), filename: file.name || filename };
-          }
-          const r = await fetch(mediaUrl);
-          if (!r.ok) throw new Error(`Imagem inacessível (${r.status})`);
-          const blob = await r.blob();
-          if (blob.type.includes("text/html")) throw new Error(`URL retornou HTML em vez de imagem: ${mediaUrl}`);
-          return { blob, filename };
-        };
+        const { fbPost } = await import("@/lib/fb-graph");
+        const { publishFacebookPost } = await import("@/lib/fb-publish");
 
         const nowIso = new Date().toISOString();
         let processed = 0, failed = 0, comments = 0;
@@ -69,22 +34,14 @@ export const Route = createFileRoute("/api/public/cron/scheduler")({
             const { data: pg } = await supabaseAdmin.from("fb_pages").select("fb_page_id, access_token").eq("id", t.page_id).single();
             if (!pg) { await supabaseAdmin.from("post_targets").update({ status: "failed", error: "página ausente" }).eq("id", t.id); fl++; continue; }
             try {
-              let r: any;
-              if (post.type === "photo" && post.media_urls?.[0]) {
-                const media = await fetchMediaAsBlob(post.media_urls[0]);
-                const form = new FormData();
-                form.set("access_token", pg.access_token);
-                form.set("caption", post.message ?? "");
-                form.set("source", media.blob, media.filename);
-                r = await fbPostMultipart(`/${pg.fb_page_id}/photos`, form);
-              } else {
-                const params: Record<string, string> = { access_token: pg.access_token };
-                let path = `/${pg.fb_page_id}/feed`;
-                if (post.type === "video" && post.media_urls?.[0]) { path = `/${pg.fb_page_id}/videos`; params.file_url = post.media_urls[0]; params.description = post.message ?? ""; }
-                else { params.message = post.message ?? ""; if (post.link_url) params.link = post.link_url; }
-                r = await fbPost(path, params);
-              }
-              const fbId = r.post_id ?? r.id;
+              const fbId = await publishFacebookPost({
+                type: post.type as any,
+                message: post.message ?? "",
+                linkUrl: post.link_url ?? undefined,
+                mediaUrls: post.media_urls ?? [],
+                fbPageId: pg.fb_page_id,
+                pageToken: pg.access_token,
+              });
               await supabaseAdmin.from("post_targets").update({ status: "published", fb_post_id: fbId, published_at: new Date().toISOString() }).eq("id", t.id);
               // schedule auto-comments
               const { data: tmpl } = await supabaseAdmin.from("auto_comments").select("*").eq("post_id", post.id).is("target_id", null).eq("status", "pending");

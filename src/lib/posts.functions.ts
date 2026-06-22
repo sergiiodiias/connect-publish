@@ -1,7 +1,7 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
-import { fbPost, fbPostMultipart } from "@/lib/fb-graph";
+import { publishFacebookPost } from "@/lib/fb-publish";
 
 const PostInput = z.object({
   type: z.enum(["text", "photo", "video", "link"]),
@@ -16,91 +16,6 @@ const PostInput = z.object({
     delaySeconds: z.number().int().min(0).max(86400),
   }).nullable().optional(),
 });
-
-const GATEWAY = "https://connector-gateway.lovable.dev/google_drive/drive/v3";
-
-function driveHeaders() {
-  const lovKey = process.env.LOVABLE_API_KEY;
-  const gKey = process.env.GOOGLE_DRIVE_API_KEY;
-  if (!lovKey || !gKey) throw new Error("Conexão com Google Drive não configurada");
-  return {
-    Authorization: `Bearer ${lovKey}`,
-    "X-Connection-Api-Key": gKey,
-  };
-}
-
-async function findDriveFile(filename: string) {
-  const q = encodeURIComponent(`name = '${filename.replace(/'/g, "\\'")}' and trashed = false`);
-  const url = `${GATEWAY}/files?q=${q}&fields=files(id,name,mimeType)&pageSize=5&includeItemsFromAllDrives=true&supportsAllDrives=true`;
-  const r = await fetch(url, { headers: driveHeaders() });
-  if (!r.ok) throw new Error(`Drive search ${r.status}: ${await r.text()}`);
-  const j: any = await r.json();
-  return (j.files ?? [])[0] as { id: string; name: string; mimeType?: string } | undefined;
-}
-
-function extractDriveFileId(parsed: URL): string | null {
-  if (!parsed.hostname.includes("drive.google.com")) return null;
-  const byPath = parsed.pathname.match(/\/file\/d\/([^/]+)/)?.[1];
-  return byPath ?? parsed.searchParams.get("id");
-}
-
-async function downloadDriveFile(fileId: string, filename: string) {
-  const dl = await fetch(`${GATEWAY}/files/${fileId}?alt=media&supportsAllDrives=true`, { headers: driveHeaders() });
-  if (!dl.ok) throw new Error(`Drive download ${dl.status}: ${await dl.text()}`);
-  const blob = await dl.blob();
-  return { blob, filename };
-}
-
-async function fetchMediaAsBlob(mediaUrl: string): Promise<{ blob: Blob; filename: string }> {
-  const parsed = new URL(mediaUrl);
-  const filename = decodeURIComponent(parsed.pathname.split("/").pop() || `media-${Date.now()}.jpg`);
-
-  const driveFileId = extractDriveFileId(parsed);
-  if (driveFileId) return downloadDriveFile(driveFileId, filename);
-
-  if (parsed.pathname.includes("/api/public/drive/")) {
-    const file = await findDriveFile(filename);
-    if (!file) throw new Error(`Arquivo não encontrado no Drive: ${filename}`);
-    return downloadDriveFile(file.id, file.name || filename);
-  }
-
-  const r = await fetch(mediaUrl);
-  if (!r.ok) throw new Error(`Imagem inacessível (${r.status})`);
-  const blob = await r.blob();
-  if (blob.type.includes("text/html")) throw new Error(`URL retornou HTML em vez de imagem: ${mediaUrl}`);
-  return { blob, filename };
-}
-
-async function publishOneTarget(opts: {
-  type: "text" | "photo" | "video" | "link";
-  message: string;
-  linkUrl?: string;
-  mediaUrls: string[];
-  fbPageId: string;
-  pageToken: string;
-}): Promise<string> {
-  const { type, message, linkUrl, mediaUrls, fbPageId, pageToken } = opts;
-  if (type === "photo" && mediaUrls[0]) {
-    const media = await fetchMediaAsBlob(mediaUrls[0]);
-    const form = new FormData();
-    form.set("access_token", pageToken);
-    form.set("caption", message);
-    form.set("source", media.blob, media.filename);
-    const r = await fbPostMultipart<any>(`/${fbPageId}/photos`, form);
-    return r.post_id ?? r.id;
-  }
-  if (type === "video" && mediaUrls[0]) {
-    const r = await fbPost<any>(`/${fbPageId}/videos`, {
-      access_token: pageToken, file_url: mediaUrls[0], description: message,
-    });
-    return r.post_id ?? r.id;
-  }
-  // text or link
-  const params: Record<string, string> = { access_token: pageToken, message };
-  if (linkUrl) params.link = linkUrl;
-  const r = await fbPost<any>(`/${fbPageId}/feed`, params);
-  return r.id;
-}
 
 export const createPost = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
@@ -166,7 +81,7 @@ export const publishPostNow = createServerFn({ method: "POST" })
       }
       try {
         await supabase.from("post_targets").update({ status: "publishing" }).eq("id", t.id);
-        const fbId = await publishOneTarget({
+        const fbId = await publishFacebookPost({
           type: post.type as any, message: post.message ?? "", linkUrl: post.link_url ?? undefined,
           mediaUrls: post.media_urls ?? [], fbPageId: pg.fb_page_id, pageToken: pg.access_token,
         });
