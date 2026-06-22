@@ -22,6 +22,7 @@ import { Route as AuthenticatedGroupsRouteImport } from './routes/_authenticated
 import { Route as AuthenticatedExtractRouteImport } from './routes/_authenticated/extract'
 import { Route as AuthenticatedDashboardRouteImport } from './routes/_authenticated/dashboard'
 import { Route as AuthenticatedComposerRouteImport } from './routes/_authenticated/composer'
+import { Route as ApiPublicDriveSplatRouteImport } from './routes/api/public/drive.$'
 import { Route as ApiPublicCronSchedulerRouteImport } from './routes/api/public/cron/scheduler'
 
 const ResetPasswordRoute = ResetPasswordRouteImport.update({
@@ -88,6 +89,11 @@ const AuthenticatedComposerRoute = AuthenticatedComposerRouteImport.update({
   path: '/composer',
   getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
+const ApiPublicDriveSplatRoute = ApiPublicDriveSplatRouteImport.update({
+  id: '/api/public/drive/$',
+  path: '/api/public/drive/$',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiPublicCronSchedulerRoute = ApiPublicCronSchedulerRouteImport.update({
   id: '/api/public/cron/scheduler',
   path: '/api/public/cron/scheduler',
@@ -108,6 +114,7 @@ export interface FileRoutesByFullPath {
   '/settings': typeof AuthenticatedSettingsRoute
   '/sheets': typeof AuthenticatedSheetsRoute
   '/api/public/cron/scheduler': typeof ApiPublicCronSchedulerRoute
+  '/api/public/drive/$': typeof ApiPublicDriveSplatRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -123,6 +130,7 @@ export interface FileRoutesByTo {
   '/settings': typeof AuthenticatedSettingsRoute
   '/sheets': typeof AuthenticatedSheetsRoute
   '/api/public/cron/scheduler': typeof ApiPublicCronSchedulerRoute
+  '/api/public/drive/$': typeof ApiPublicDriveSplatRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -140,6 +148,7 @@ export interface FileRoutesById {
   '/_authenticated/settings': typeof AuthenticatedSettingsRoute
   '/_authenticated/sheets': typeof AuthenticatedSheetsRoute
   '/api/public/cron/scheduler': typeof ApiPublicCronSchedulerRoute
+  '/api/public/drive/$': typeof ApiPublicDriveSplatRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -157,6 +166,7 @@ export interface FileRouteTypes {
     | '/settings'
     | '/sheets'
     | '/api/public/cron/scheduler'
+    | '/api/public/drive/$'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -172,6 +182,7 @@ export interface FileRouteTypes {
     | '/settings'
     | '/sheets'
     | '/api/public/cron/scheduler'
+    | '/api/public/drive/$'
   id:
     | '__root__'
     | '/'
@@ -188,6 +199,7 @@ export interface FileRouteTypes {
     | '/_authenticated/settings'
     | '/_authenticated/sheets'
     | '/api/public/cron/scheduler'
+    | '/api/public/drive/$'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -196,6 +208,7 @@ export interface RootRouteChildren {
   AuthRoute: typeof AuthRoute
   ResetPasswordRoute: typeof ResetPasswordRoute
   ApiPublicCronSchedulerRoute: typeof ApiPublicCronSchedulerRoute
+  ApiPublicDriveSplatRoute: typeof ApiPublicDriveSplatRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -291,6 +304,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedComposerRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
+    '/api/public/drive/$': {
+      id: '/api/public/drive/$'
+      path: '/api/public/drive/$'
+      fullPath: '/api/public/drive/$'
+      preLoaderRoute: typeof ApiPublicDriveSplatRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/public/cron/scheduler': {
       id: '/api/public/cron/scheduler'
       path: '/api/public/cron/scheduler'
@@ -334,17 +354,8 @@ const rootRouteChildren: RootRouteChildren = {
   AuthRoute: AuthRoute,
   ResetPasswordRoute: ResetPasswordRoute,
   ApiPublicCronSchedulerRoute: ApiPublicCronSchedulerRoute,
+  ApiPublicDriveSplatRoute: ApiPublicDriveSplatRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
   ._addFileTypes<FileRouteTypes>()
-
-import type { getRouter } from './router.tsx'
-import type { startInstance } from './start.ts'
-declare module '@tanstack/react-start' {
-  interface Register {
-    ssr: true
-    router: Awaited<ReturnType<typeof getRouter>>
-    config: Awaited<ReturnType<typeof startInstance.getOptions>>
-  }
-}
