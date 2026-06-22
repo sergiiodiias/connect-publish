@@ -16,7 +16,7 @@ import { Send, CalendarClock } from "lucide-react";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/_authenticated/composer")({
-  head: () => ({ meta: [{ title: "Compor — PagePilot" }] }),
+  head: () => ({ meta: [{ title: "Agendar postagens — PagePilot" }] }),
   component: ComposerPage,
 });
 
