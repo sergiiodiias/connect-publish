@@ -25,10 +25,13 @@ export const createBulkJob = createServerFn({ method: "POST" })
   .inputValidator((d) =>
     z.object({
       slots: z.array(SlotSchema).min(1).max(10000),
+      commentDelaySeconds: z.number().int().min(0).max(86400).default(60),
     }).parse(d),
   )
   .handler(async ({ data, context }) => {
     const { supabase, userId } = context;
+    const commentDelaySeconds = data.commentDelaySeconds ?? 60;
+
 
     const { data: job, error: jerr } = await supabase
       .from("upload_jobs")
