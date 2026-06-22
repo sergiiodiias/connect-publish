@@ -214,8 +214,29 @@ function QueuePage() {
                   <div className="text-xs break-words">{details.data.post.error}</div>
                 </div>
               )}
-              <div className="text-sm font-medium">Páginas-alvo</div>
-              <div className="border border-border rounded-md divide-y divide-border">
+              <div className="flex items-center justify-between gap-2 flex-wrap">
+                <div className="text-sm font-medium">Páginas-alvo</div>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={verify.isPending && verify.variables === detailId}
+                  onClick={() => detailId && verify.mutate(detailId)}
+                >
+                  <ShieldCheck className="size-3 mr-1" />
+                  {verify.isPending && verify.variables === detailId ? "Verificando…" : "Verificar no Facebook"}
+                </Button>
+              </div>
+              {detailId && verifyResults[detailId] && (
+                <div className="rounded-md border border-border bg-muted/40 p-3 text-xs space-y-1">
+                  <div className="flex flex-wrap gap-3">
+                    <span className="inline-flex items-center gap-1 text-success"><CheckCircle2 className="size-3" /> {verifyResults[detailId]!.verified} confirmadas</span>
+                    {verifyResults[detailId]!.missing > 0 && <span className="inline-flex items-center gap-1 text-destructive"><XCircle className="size-3" /> {verifyResults[detailId]!.missing} sumiram</span>}
+                    {verifyResults[detailId]!.errored > 0 && <span className="inline-flex items-center gap-1 text-amber-600"><AlertCircle className="size-3" /> {verifyResults[detailId]!.errored} erro</span>}
+                    {verifyResults[detailId]!.skipped > 0 && <span className="text-muted-foreground">{verifyResults[detailId]!.skipped} ainda pendentes</span>}
+                  </div>
+                </div>
+              )}
+              <div className="border border-border rounded-md divide-y divide-border max-h-96 overflow-y-auto">
                 {details.data.targets.length === 0 && (
                   <div className="p-3 text-xs text-muted-foreground">Nenhuma página-alvo encontrada.</div>
                 )}
