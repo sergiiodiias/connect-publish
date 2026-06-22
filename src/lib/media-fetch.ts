@@ -64,13 +64,16 @@ async function downloadDriveFile(file: DriveFile, fallbackName: string) {
   const dl = await fetch(`${GATEWAY}/files/${file.id}?alt=media&supportsAllDrives=true`, { headers: driveHeaders() });
   if (!dl.ok) throw new Error(`Drive download ${dl.status}: ${await dl.text()}`);
   const raw = await dl.blob();
-  const blob = normalizeImageBlob(raw, filename, dl.headers.get("content-type") || file.mimeType);
-  if (isFacebookSafePhoto(blob, filename) || !file.thumbnailLink) return { blob, filename };
+  const contentType = dl.headers.get("content-type") || file.mimeType || "";
+  const isImage = contentType.startsWith("image/") || !!imageTypeFromName(filename);
+  const blob = isImage ? normalizeImageBlob(raw, filename, contentType) : raw;
+  if (!isImage || isFacebookSafePhoto(blob, filename) || !file.thumbnailLink) return { blob, filename };
 
   const thumb = await fetch(thumbnailUrl(file.thumbnailLink));
   if (!thumb.ok) return { blob, filename };
-  const thumbBlob = normalizeImageBlob(await thumb.blob(), `${filename.replace(/\.[^.]+$/, "")}.jpg`, "image/jpeg");
-  return isFacebookSafePhoto(thumbBlob, filename) ? { blob: thumbBlob, filename: `${filename.replace(/\.[^.]+$/, "")}.jpg` } : { blob, filename };
+  const thumbName = `${filename.replace(/\.[^.]+$/, "")}.jpg`;
+  const thumbBlob = normalizeImageBlob(await thumb.blob(), thumbName, "image/jpeg");
+  return isFacebookSafePhoto(thumbBlob, thumbName) ? { blob: thumbBlob, filename: thumbName } : { blob, filename };
 }
 
 export function isFacebookSafePhoto(blob: Blob, filename: string) {
