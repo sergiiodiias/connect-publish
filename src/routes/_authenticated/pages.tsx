@@ -81,6 +81,10 @@ function PagesPage() {
           <h1 className="text-2xl font-semibold tracking-tight">Páginas conectadas</h1>
           <p className="text-sm text-muted-foreground">Gerencie os Access Tokens das suas Páginas do Facebook.</p>
         </div>
+        <div className="flex gap-2">
+          <Button variant="outline" onClick={() => refetchTokens()} disabled={tokenLoading || pages.length === 0}>
+            <Clock className="size-4 mr-2" />{tokenLoading ? "Verificando…" : "Verificar validade"}
+          </Button>
         <Dialog open={open} onOpenChange={setOpen}>
           <DialogTrigger asChild><Button><Plus className="size-4 mr-2" />Conectar página</Button></DialogTrigger>
           <DialogContent>
