@@ -25,6 +25,7 @@ import { Route as AuthenticatedComposerRouteImport } from './routes/_authenticat
 import { Route as ApiPublicDriveSplatRouteImport } from './routes/api/public/drive.$'
 import { Route as ApiPublicCronSchedulerRouteImport } from './routes/api/public/cron/scheduler'
 import { Route as ApiPublicCronRefreshTokensRouteImport } from './routes/api/public/cron/refresh-tokens'
+import { Route as ApiPublicCronCaptureInsightsRouteImport } from './routes/api/public/cron/capture-insights'
 
 const ResetPasswordRoute = ResetPasswordRouteImport.update({
   id: '/reset-password',
@@ -106,6 +107,12 @@ const ApiPublicCronRefreshTokensRoute =
     path: '/api/public/cron/refresh-tokens',
     getParentRoute: () => rootRouteImport,
   } as any)
+const ApiPublicCronCaptureInsightsRoute =
+  ApiPublicCronCaptureInsightsRouteImport.update({
+    id: '/api/public/cron/capture-insights',
+    path: '/api/public/cron/capture-insights',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -120,6 +127,7 @@ export interface FileRoutesByFullPath {
   '/queue': typeof AuthenticatedQueueRoute
   '/settings': typeof AuthenticatedSettingsRoute
   '/sheets': typeof AuthenticatedSheetsRoute
+  '/api/public/cron/capture-insights': typeof ApiPublicCronCaptureInsightsRoute
   '/api/public/cron/refresh-tokens': typeof ApiPublicCronRefreshTokensRoute
   '/api/public/cron/scheduler': typeof ApiPublicCronSchedulerRoute
   '/api/public/drive/$': typeof ApiPublicDriveSplatRoute
@@ -137,6 +145,7 @@ export interface FileRoutesByTo {
   '/queue': typeof AuthenticatedQueueRoute
   '/settings': typeof AuthenticatedSettingsRoute
   '/sheets': typeof AuthenticatedSheetsRoute
+  '/api/public/cron/capture-insights': typeof ApiPublicCronCaptureInsightsRoute
   '/api/public/cron/refresh-tokens': typeof ApiPublicCronRefreshTokensRoute
   '/api/public/cron/scheduler': typeof ApiPublicCronSchedulerRoute
   '/api/public/drive/$': typeof ApiPublicDriveSplatRoute
@@ -156,6 +165,7 @@ export interface FileRoutesById {
   '/_authenticated/queue': typeof AuthenticatedQueueRoute
   '/_authenticated/settings': typeof AuthenticatedSettingsRoute
   '/_authenticated/sheets': typeof AuthenticatedSheetsRoute
+  '/api/public/cron/capture-insights': typeof ApiPublicCronCaptureInsightsRoute
   '/api/public/cron/refresh-tokens': typeof ApiPublicCronRefreshTokensRoute
   '/api/public/cron/scheduler': typeof ApiPublicCronSchedulerRoute
   '/api/public/drive/$': typeof ApiPublicDriveSplatRoute
@@ -175,6 +185,7 @@ export interface FileRouteTypes {
     | '/queue'
     | '/settings'
     | '/sheets'
+    | '/api/public/cron/capture-insights'
     | '/api/public/cron/refresh-tokens'
     | '/api/public/cron/scheduler'
     | '/api/public/drive/$'
@@ -192,6 +203,7 @@ export interface FileRouteTypes {
     | '/queue'
     | '/settings'
     | '/sheets'
+    | '/api/public/cron/capture-insights'
     | '/api/public/cron/refresh-tokens'
     | '/api/public/cron/scheduler'
     | '/api/public/drive/$'
@@ -210,6 +222,7 @@ export interface FileRouteTypes {
     | '/_authenticated/queue'
     | '/_authenticated/settings'
     | '/_authenticated/sheets'
+    | '/api/public/cron/capture-insights'
     | '/api/public/cron/refresh-tokens'
     | '/api/public/cron/scheduler'
     | '/api/public/drive/$'
@@ -220,6 +233,7 @@ export interface RootRouteChildren {
   AuthenticatedRouteRoute: typeof AuthenticatedRouteRouteWithChildren
   AuthRoute: typeof AuthRoute
   ResetPasswordRoute: typeof ResetPasswordRoute
+  ApiPublicCronCaptureInsightsRoute: typeof ApiPublicCronCaptureInsightsRoute
   ApiPublicCronRefreshTokensRoute: typeof ApiPublicCronRefreshTokensRoute
   ApiPublicCronSchedulerRoute: typeof ApiPublicCronSchedulerRoute
   ApiPublicDriveSplatRoute: typeof ApiPublicDriveSplatRoute
@@ -339,6 +353,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiPublicCronRefreshTokensRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/public/cron/capture-insights': {
+      id: '/api/public/cron/capture-insights'
+      path: '/api/public/cron/capture-insights'
+      fullPath: '/api/public/cron/capture-insights'
+      preLoaderRoute: typeof ApiPublicCronCaptureInsightsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
@@ -374,6 +395,7 @@ const rootRouteChildren: RootRouteChildren = {
   AuthenticatedRouteRoute: AuthenticatedRouteRouteWithChildren,
   AuthRoute: AuthRoute,
   ResetPasswordRoute: ResetPasswordRoute,
+  ApiPublicCronCaptureInsightsRoute: ApiPublicCronCaptureInsightsRoute,
   ApiPublicCronRefreshTokensRoute: ApiPublicCronRefreshTokensRoute,
   ApiPublicCronSchedulerRoute: ApiPublicCronSchedulerRoute,
   ApiPublicDriveSplatRoute: ApiPublicDriveSplatRoute,
