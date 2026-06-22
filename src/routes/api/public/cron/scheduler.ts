@@ -23,6 +23,14 @@ export const Route = createFileRoute("/api/public/cron/scheduler")({
         const fetchMediaAsBlob = async (mediaUrl: string) => {
           const parsed = new URL(mediaUrl);
           const filename = decodeURIComponent(parsed.pathname.split("/").pop() || `media-${Date.now()}.jpg`);
+          const driveFileId = parsed.hostname.includes("drive.google.com")
+            ? (parsed.pathname.match(/\/file\/d\/([^/]+)/)?.[1] ?? parsed.searchParams.get("id"))
+            : null;
+          if (driveFileId) {
+            const dl = await fetch(`${GATEWAY}/files/${driveFileId}?alt=media&supportsAllDrives=true`, { headers: driveHeaders() });
+            if (!dl.ok) throw new Error(`Drive download ${dl.status}: ${await dl.text()}`);
+            return { blob: await dl.blob(), filename };
+          }
           if (parsed.pathname.includes("/api/public/drive/")) {
             const q = encodeURIComponent(`name = '${filename.replace(/'/g, "\\'")}' and trashed = false`);
             const sr = await fetch(`${GATEWAY}/files?q=${q}&fields=files(id,name,mimeType)&pageSize=5&includeItemsFromAllDrives=true&supportsAllDrives=true`, { headers: driveHeaders() });
@@ -36,7 +44,9 @@ export const Route = createFileRoute("/api/public/cron/scheduler")({
           }
           const r = await fetch(mediaUrl);
           if (!r.ok) throw new Error(`Imagem inacessível (${r.status})`);
-          return { blob: await r.blob(), filename };
+          const blob = await r.blob();
+          if (blob.type.includes("text/html")) throw new Error(`URL retornou HTML em vez de imagem: ${mediaUrl}`);
+          return { blob, filename };
         };
 
         const nowIso = new Date().toISOString();
