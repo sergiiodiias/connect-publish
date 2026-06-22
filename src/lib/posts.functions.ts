@@ -152,6 +152,19 @@ export const migrateScheduledToFacebook = createServerFn({ method: "POST" })
           .maybeSingle();
         if (!claimed) { skipped++; continue; }
         try {
+          const existingFbId = await findExistingScheduledFacebookPost({
+            fbPageId: pg.fb_page_id,
+            pageToken: pg.access_token,
+            message: j.post.message ?? "",
+            scheduledUnix: j.scheduledUnix,
+          });
+          if (existingFbId) {
+            await supabase.from("post_targets")
+              .update({ fb_post_id: existingFbId, status: "pending", error: "agendamento já existia no Facebook; não duplicado", next_retry_at: null } as any)
+              .eq("id", j.target.id);
+            skipped++;
+            continue;
+          }
           const fbId = await publishFacebookPost({
             type: j.post.type as any,
             message: j.post.message ?? "",
@@ -257,6 +270,19 @@ export const createPost = createServerFn({ method: "POST" })
             .eq("id", t.page_id).single();
           if (!pg || pg.is_active === false) continue;
           try {
+            const existingFbId = await findExistingScheduledFacebookPost({
+              fbPageId: pg.fb_page_id,
+              pageToken: pg.access_token,
+              message: data.message ?? "",
+              scheduledUnix,
+            });
+            if (existingFbId) {
+              await supabase.from("post_targets")
+                .update({ fb_post_id: existingFbId, error: "agendamento já existia no Facebook; não duplicado" })
+                .eq("id", t.id);
+              fbScheduled++;
+              continue;
+            }
             const fbId = await publishFacebookPost({
               type: data.type as any,
               message: data.message ?? "",
