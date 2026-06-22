@@ -27,6 +27,7 @@ export const Route = createFileRoute("/api/public/cron/scheduler")({
           let ok = 0, fl = 0;
           let batchCount = 0;
           for (const t of targets ?? []) {
+            // Throttle: pause every 10 targets to respect Facebook rate limits
             if (batchCount > 0 && batchCount % 10 === 0) {
               await new Promise((r) => setTimeout(r, 30000));
             }
@@ -54,9 +55,16 @@ export const Route = createFileRoute("/api/public/cron/scheduler")({
               }
               ok++;
             } catch (e: any) {
-              await supabaseAdmin.from("post_targets").update({ status: "failed", error: e.message }).eq("id", t.id);
+              const msg = e?.message ?? "";
+              await supabaseAdmin.from("post_targets").update({ status: "failed", error: msg }).eq("id", t.id);
               fl++;
+              // Heavy backoff if Facebook signals rate limit
+              if (/limit|#4|#17|#32|#613/i.test(msg)) {
+                await new Promise((r) => setTimeout(r, 60000));
+              }
             }
+            // Small spacing between every publish to avoid bursts
+            await new Promise((r) => setTimeout(r, 1500));
           }
           await supabaseAdmin.from("posts").update({
             status: fl === 0 ? "published" : (ok === 0 ? "failed" : "partial"),
@@ -68,7 +76,12 @@ export const Route = createFileRoute("/api/public/cron/scheduler")({
         // 2) Auto-comments due
         const { data: dueComments } = await supabaseAdmin
           .from("auto_comments").select("*").eq("status", "pending").not("target_id", "is", null).lte("run_at", nowIso).limit(50);
+        let commentBatch = 0;
         for (const c of dueComments ?? []) {
+          if (commentBatch > 0 && commentBatch % 10 === 0) {
+            await new Promise((r) => setTimeout(r, 30000));
+          }
+          commentBatch++;
           const { data: target } = await supabaseAdmin.from("post_targets").select("fb_post_id, page_id").eq("id", c.target_id!).single();
           if (!target?.fb_post_id) { await supabaseAdmin.from("auto_comments").update({ status: "failed", error: "post não publicado" }).eq("id", c.id); continue; }
           const { data: pg } = await supabaseAdmin.from("fb_pages").select("access_token").eq("id", target.page_id).single();
@@ -78,8 +91,13 @@ export const Route = createFileRoute("/api/public/cron/scheduler")({
             await supabaseAdmin.from("auto_comments").update({ status: "posted", fb_comment_id: r.id, posted_at: new Date().toISOString() }).eq("id", c.id);
             comments++;
           } catch (e: any) {
-            await supabaseAdmin.from("auto_comments").update({ status: "failed", error: e.message }).eq("id", c.id);
+            const msg = e?.message ?? "";
+            await supabaseAdmin.from("auto_comments").update({ status: "failed", error: msg }).eq("id", c.id);
+            if (/limit|#4|#17|#32|#613/i.test(msg)) {
+              await new Promise((r) => setTimeout(r, 60000));
+            }
           }
+          await new Promise((r) => setTimeout(r, 1500));
         }
 
         return Response.json({ ok: true, processed, failed, comments });
