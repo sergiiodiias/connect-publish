@@ -113,6 +113,17 @@ export const migrateScheduledToFacebook = createServerFn({ method: "POST" })
             .eq("id", j.target.id);
           continue;
         }
+        // Atomic claim: only proceed if this row is still pending AND has no fb_post_id.
+        // Prevents duplicate publishing when migrate runs concurrently (multiple tabs / batches).
+        const { data: claimed } = await supabase
+          .from("post_targets")
+          .update({ status: "publishing" } as any)
+          .eq("id", j.target.id)
+          .eq("status", "pending")
+          .is("fb_post_id", null)
+          .select("id")
+          .maybeSingle();
+        if (!claimed) { skipped++; continue; }
         try {
           const fbId = await publishFacebookPost({
             type: j.post.type as any,
@@ -152,8 +163,9 @@ export const migrateScheduledToFacebook = createServerFn({ method: "POST" })
           failed++;
           const msg = e?.message ?? String(e);
           errors.push(`${pg.name}: ${msg}`);
+          // Revert claim so the next run can retry this target.
           await supabase.from("post_targets")
-            .update({ error: `FB schedule: ${msg}` })
+            .update({ status: "pending", error: `FB schedule: ${msg}` } as any)
             .eq("id", j.target.id);
         }
       }
