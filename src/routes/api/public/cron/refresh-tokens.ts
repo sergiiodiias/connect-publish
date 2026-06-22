@@ -90,7 +90,7 @@ async function runRefresh() {
 
       const { error: updErr } = await supabaseAdmin
         .from("fb_pages")
-        .update(update)
+        .update(update as any)
         .eq("id", row.id);
       if (updErr) {
         console.error(`[refresh-tokens] update error for ${row.id}:`, updErr);
