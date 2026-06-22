@@ -75,22 +75,32 @@ export const Route = createFileRoute("/api/public/cron/scheduler")({
             await supabaseAdmin.from("posts").update({ status: "scheduled" }).eq("id", post.id);
             break;
           }
-          // Only pending targets — published/publishing/failed are skipped.
-          // Also skip targets that already have an fb_post_id (e.g. imported FB-scheduled posts) —
-          // Facebook itself will publish those at the scheduled time.
+          // Only pending targets ready for (re)try. Skip targets whose next_retry_at is still in the future.
+          // Also skip targets with an fb_post_id (imported FB-scheduled posts — FB publishes them itself).
           const { data: targets } = await supabaseAdmin
-            .from("post_targets").select("id,page_id").eq("post_id", post.id).eq("status", "pending").is("fb_post_id", null);
+            .from("post_targets")
+            .select("id,page_id,attempts")
+            .eq("post_id", post.id)
+            .eq("status", "pending")
+            .is("fb_post_id", null)
+            .or(`next_retry_at.is.null,next_retry_at.lte.${nowIso}`);
 
-          async function publishTarget(t: { id: string; page_id: string }) {
+          const MAX_ATTEMPTS = 3;
+          // Backoff between attempts (minutes): after attempt 1 -> 1m, after 2 -> 5m, after 3 -> 15m (unused, marked failed)
+          const BACKOFF_MIN = [1, 5, 15];
+
+          async function publishTarget(t: { id: string; page_id: string; attempts: number }) {
             // Atomic claim — prevents another tick from re-publishing it.
             const { data: claimedT } = await supabaseAdmin
               .from("post_targets").update({ status: "publishing" })
-              .eq("id", t.id).eq("status", "pending").select("id").maybeSingle();
+              .eq("id", t.id).eq("status", "pending").select("id,attempts").maybeSingle();
             if (!claimedT) return;
 
+            const nextAttempt = (claimedT.attempts ?? 0) + 1;
+            const nowStamp = new Date().toISOString();
             const { data: pg } = await supabaseAdmin.from("fb_pages").select("fb_page_id, access_token, is_active").eq("id", t.page_id).single();
-            if (!pg) { await supabaseAdmin.from("post_targets").update({ status: "failed", error: "página ausente" }).eq("id", t.id); return; }
-            if (pg.is_active === false) { await supabaseAdmin.from("post_targets").update({ status: "failed", error: "página inativa (token inválido)" }).eq("id", t.id); return; }
+            if (!pg) { await supabaseAdmin.from("post_targets").update({ status: "failed", error: "página ausente", attempts: nextAttempt, last_attempt_at: nowStamp, next_retry_at: null }).eq("id", t.id); return; }
+            if (pg.is_active === false) { await supabaseAdmin.from("post_targets").update({ status: "failed", error: "página inativa (token inválido)", attempts: nextAttempt, last_attempt_at: nowStamp, next_retry_at: null }).eq("id", t.id); return; }
             try {
               const fbId = await publishFacebookPost({
                 type: post.type as any,
@@ -100,7 +110,11 @@ export const Route = createFileRoute("/api/public/cron/scheduler")({
                 fbPageId: pg.fb_page_id,
                 pageToken: pg.access_token,
               });
-              await supabaseAdmin.from("post_targets").update({ status: "published", fb_post_id: fbId, published_at: new Date().toISOString() }).eq("id", t.id);
+              await supabaseAdmin.from("post_targets").update({
+                status: "published", fb_post_id: fbId, published_at: nowStamp,
+                attempts: nextAttempt, last_attempt_at: nowStamp,
+                error: null, next_retry_at: null,
+              }).eq("id", t.id);
               const { data: tmpl } = await supabaseAdmin.from("auto_comments").select("*").eq("post_id", post.id).is("target_id", null).eq("status", "pending");
               for (const c of tmpl ?? []) {
                 await supabaseAdmin.from("auto_comments").insert({
@@ -111,8 +125,23 @@ export const Route = createFileRoute("/api/public/cron/scheduler")({
               }
             } catch (e: any) {
               const msg = e?.message ?? "";
-              await supabaseAdmin.from("post_targets").update({ status: "failed", error: msg }).eq("id", t.id);
-              if (/limit|#4|#17|#32|#613/i.test(msg)) rateLimitHit = true;
+              const isRate = /limit|#4|#17|#32|#613/i.test(msg);
+              if (isRate) rateLimitHit = true;
+              // Permanent errors — don't waste retries
+              const isPermanent = /invalid|expired|permission|#10|#190|#200|#368|OAuth/i.test(msg);
+              if (nextAttempt >= MAX_ATTEMPTS || isPermanent) {
+                await supabaseAdmin.from("post_targets").update({
+                  status: "failed", error: msg,
+                  attempts: nextAttempt, last_attempt_at: nowStamp, next_retry_at: null,
+                }).eq("id", t.id);
+              } else {
+                const waitMin = BACKOFF_MIN[Math.min(nextAttempt - 1, BACKOFF_MIN.length - 1)];
+                const nextRetry = new Date(Date.now() + waitMin * 60_000).toISOString();
+                await supabaseAdmin.from("post_targets").update({
+                  status: "pending", error: msg,
+                  attempts: nextAttempt, last_attempt_at: nowStamp, next_retry_at: nextRetry,
+                }).eq("id", t.id);
+              }
             }
           }
 
