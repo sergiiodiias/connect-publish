@@ -128,7 +128,7 @@ function ImportPage() {
           data: {
             type: type as any,
             message: r.titulo,
-            mediaUrls: useMedia ? [r.foto.startsWith("/") ? `${window.location.origin}${r.foto}` : r.foto] : [],
+            mediaUrls: useMedia ? [publicAssetUrl(r.foto)] : [],
             linkUrl: undefined,
             pageIds: pageSel,
             scheduledAt,
