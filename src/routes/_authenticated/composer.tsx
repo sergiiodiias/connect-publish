@@ -24,7 +24,7 @@ export const Route = createFileRoute("/_authenticated/composer")({
 });
 
 function ComposerPage() {
-  const qc = useQueryClient();
+  const { reusePostId } = Route.useSearch();
   const listFn = useServerFn(listPages);
   const createFn = useServerFn(createPost);
   const publishFn = useServerFn(publishPostNow);
