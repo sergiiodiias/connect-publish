@@ -105,7 +105,7 @@ function ImportPage() {
     };
   }, [data, selected]);
 
-  const importAll = async (rowIndexes?: number[]) => {
+  const importAll = async (rowIndexes?: number[], scheduleOverride?: Map<number, string | null>) => {
     if (!data) return;
     const allowed = rowIndexes ? new Set(rowIndexes) : selected;
     const list = data.rows.filter((r) => allowed.has(r.rowIndex));
@@ -121,6 +121,7 @@ function ImportPage() {
       try {
         const useMedia = r.fotoOk;
         const type = useMedia ? r.tipo : (r.tipo === "photo" ? "text" : r.tipo);
+        const scheduledAt = scheduleOverride ? (scheduleOverride.get(r.rowIndex) ?? null) : r.scheduledAt;
 
         await createFn({
           data: {
@@ -129,7 +130,7 @@ function ImportPage() {
             mediaUrls: useMedia ? [r.foto.startsWith("/") ? `${window.location.origin}${r.foto}` : r.foto] : [],
             linkUrl: undefined,
             pageIds: pageSel,
-            scheduledAt: r.scheduledAt,
+            scheduledAt,
             tags: r.tags,
             autoComment: r.comentario ? { message: r.comentario, delaySeconds: r.delayComentario } : null,
           },
