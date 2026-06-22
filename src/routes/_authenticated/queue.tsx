@@ -17,9 +17,12 @@ import {
   Send, Trash2, X, AlertCircle, Info, RefreshCw, ExternalLink,
   ShieldCheck, CheckCircle2, XCircle, MoreHorizontal, ImageIcon,
   Video, Link as LinkIcon, FileText, Plus, Calendar, Download,
+  ChevronLeft, ChevronRight,
 } from "lucide-react";
 import { toast } from "sonner";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+
+const PAGE_SIZE = 20;
 
 export const Route = createFileRoute("/_authenticated/queue")({
   head: () => ({ meta: [{ title: "Agenda — PagePilot" }] }),
@@ -106,11 +109,18 @@ function QueuePage() {
   const [status, setStatus] = useState<string>("scheduled");
   const [search, setSearch] = useState("");
   const [pageFilter, setPageFilter] = useState<string>("all");
+  const [typeFilter, setTypeFilter] = useState<string>("all");
+  const [mediaFilter, setMediaFilter] = useState<string>("all"); // all | with | without
+  const [sortOrder, setSortOrder] = useState<string>("asc"); // asc | desc
+  const [currentPage, setCurrentPage] = useState(1);
   const [detailId, setDetailId] = useState<string | null>(null);
   const [verifyResults, setVerifyResults] = useState<Record<string, Awaited<ReturnType<typeof verifyPostPublished>> | undefined>>({});
 
+  // Reset to page 1 when filters change
+  useEffect(() => { setCurrentPage(1); }, [status, search, pageFilter, typeFilter, mediaFilter, sortOrder]);
+
   const { data: rows = [], isLoading } = useQuery({
-    queryKey: ["queue", status, search, pageFilter],
+    queryKey: ["queue", status, search, pageFilter, sortOrder],
     queryFn: async () => {
       let q = supabase
         .from("post_targets")
@@ -119,7 +129,7 @@ function QueuePage() {
           fb_pages!inner(name, fb_page_id),
           posts!inner(id, type, message, media_urls, link_url, status, scheduled_at, published_at, created_at)
         `)
-        .order("scheduled_at", { foreignTable: "posts", ascending: true });
+        .order("scheduled_at", { foreignTable: "posts", ascending: sortOrder === "asc" });
       if (status !== "all") q = q.eq("posts.status", status as any);
       if (pageFilter !== "all") q = q.eq("page_id", pageFilter);
       if (search) q = q.ilike("posts.message", `%${search}%`);
@@ -155,18 +165,36 @@ function QueuePage() {
     },
   });
 
-  // Group by page
+  // Apply client-side filters (type, media)
+  const filteredRows = useMemo(() => {
+    return rows.filter((r) => {
+      if (typeFilter !== "all" && r.type !== typeFilter) return false;
+      if (mediaFilter === "with" && (!r.media_urls || r.media_urls.length === 0)) return false;
+      if (mediaFilter === "without" && r.media_urls && r.media_urls.length > 0) return false;
+      return true;
+    });
+  }, [rows, typeFilter, mediaFilter]);
+
+  const totalFiltered = filteredRows.length;
+  const totalPages = Math.max(1, Math.ceil(totalFiltered / PAGE_SIZE));
+  const safePage = Math.min(currentPage, totalPages);
+  const pagedRows = useMemo(
+    () => filteredRows.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE),
+    [filteredRows, safePage],
+  );
+
+  // Group paginated rows by page
   const groups = useMemo(() => {
     const map = new Map<string, { pageId: string; pageName: string; rows: Row[] }>();
-    for (const r of rows) {
+    for (const r of pagedRows) {
       const g = map.get(r.page_id) ?? { pageId: r.page_id, pageName: r.page_name, rows: [] };
       g.rows.push(r);
       map.set(r.page_id, g);
     }
     return [...map.values()].sort((a, b) => a.pageName.localeCompare(b.pageName));
-  }, [rows]);
+  }, [pagedRows]);
 
-  const totalPosts = rows.length;
+  const totalPosts = totalFiltered;
 
   const publish = useMutation({
     mutationFn: (id: string) => publishFn({ data: { postId: id } }),
@@ -226,7 +254,9 @@ function QueuePage() {
         <div className="min-w-0">
           <h1 className="text-2xl font-bold tracking-tight truncate">Fila de Publicações</h1>
           <p className="text-sm text-muted-foreground">
-            {isLoading ? "Carregando…" : `${totalPosts} ${totalPosts === 1 ? "publicação" : "publicações"} em ${groups.length} ${groups.length === 1 ? "página" : "páginas"}`}
+            {isLoading
+              ? "Carregando…"
+              : `${totalPosts} ${totalPosts === 1 ? "publicação" : "publicações"} · página ${safePage} de ${totalPages}`}
           </p>
         </div>
         <div className="flex items-center gap-2 shrink-0">
@@ -275,6 +305,31 @@ function QueuePage() {
             ))}
           </SelectContent>
         </Select>
+        <Select value={typeFilter} onValueChange={setTypeFilter}>
+          <SelectTrigger className="w-36"><SelectValue /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">Todos tipos</SelectItem>
+            <SelectItem value="photo">Foto</SelectItem>
+            <SelectItem value="video">Vídeo</SelectItem>
+            <SelectItem value="link">Link</SelectItem>
+            <SelectItem value="text">Texto</SelectItem>
+          </SelectContent>
+        </Select>
+        <Select value={mediaFilter} onValueChange={setMediaFilter}>
+          <SelectTrigger className="w-36"><SelectValue /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">Com/sem mídia</SelectItem>
+            <SelectItem value="with">Com mídia</SelectItem>
+            <SelectItem value="without">Sem mídia</SelectItem>
+          </SelectContent>
+        </Select>
+        <Select value={sortOrder} onValueChange={setSortOrder}>
+          <SelectTrigger className="w-40"><SelectValue /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="asc">Mais antigo primeiro</SelectItem>
+            <SelectItem value="desc">Mais recente primeiro</SelectItem>
+          </SelectContent>
+        </Select>
         <Button
           variant="ghost"
           size="sm"
@@ -286,7 +341,7 @@ function QueuePage() {
           }}
         >
           <Trash2 className="size-4 mr-1" />
-          Excluir {status === "all" ? "todos" : `(${new Set(rows.map((r) => r.post_id)).size})`}
+          Excluir {status === "all" ? "todos" : `(${new Set(filteredRows.map((r) => r.post_id)).size})`}
         </Button>
       </div>
 
@@ -330,7 +385,7 @@ function QueuePage() {
               </Button>
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3">
               {group.rows.map((r) => (
                 <PostCard
                   key={r.target_id}
@@ -348,6 +403,31 @@ function QueuePage() {
           </section>
         );
       })}
+
+      {/* Pagination */}
+      {!isLoading && totalFiltered > 0 && totalPages > 1 && (
+        <div className="flex items-center justify-center gap-2 pt-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+            disabled={safePage <= 1}
+          >
+            <ChevronLeft className="size-4" /> Anterior
+          </Button>
+          <span className="text-sm text-muted-foreground px-2">
+            Página {safePage} de {totalPages}
+          </span>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+            disabled={safePage >= totalPages}
+          >
+            Próxima <ChevronRight className="size-4" />
+          </Button>
+        </div>
+      )}
 
       {/* Details dialog */}
       <Dialog open={!!detailId} onOpenChange={(o) => !o && setDetailId(null)}>
@@ -460,29 +540,29 @@ function PostCard({
   const isVideo = thumb && /\.(mp4|mov|webm)(\?|$)/i.test(thumb);
 
   return (
-    <article className="group bg-card rounded-xl border border-border overflow-hidden shadow-sm hover:border-primary/30 hover:shadow-md transition-all flex flex-col">
+    <article className="group bg-card rounded-lg border border-border overflow-hidden shadow-sm hover:border-primary/30 hover:shadow-md transition-all flex flex-col">
       {/* Thumbnail */}
-      <div className="aspect-video bg-muted relative overflow-hidden">
+      <div className="aspect-square bg-muted relative overflow-hidden">
         {isImage ? (
           <img src={thumb} alt="" loading="lazy" className="w-full h-full object-cover" />
         ) : isVideo ? (
           <video src={thumb} className="w-full h-full object-cover" muted playsInline />
         ) : (
           <div className="absolute inset-0 grid place-items-center text-muted-foreground">
-            <TypeIcon className="size-8" />
+            <TypeIcon className="size-6" />
           </div>
         )}
-        <span className="absolute top-2 right-2 px-2 py-1 bg-background/90 backdrop-blur rounded text-[10px] font-bold text-foreground shadow-sm uppercase tracking-wider">
+        <span className="absolute top-1.5 right-1.5 px-1.5 py-0.5 bg-background/90 backdrop-blur rounded text-[9px] font-bold text-foreground shadow-sm uppercase tracking-wider">
           {formatWhen(whenSrc)}
         </span>
-        <span className={`absolute top-2 left-2 inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-medium ${type.cls}`}>
-          <TypeIcon className="size-3" /> {type.label}
+        <span className={`absolute top-1.5 left-1.5 inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[9px] font-medium ${type.cls}`}>
+          <TypeIcon className="size-2.5" /> {type.label}
         </span>
       </div>
 
       {/* Body */}
-      <div className="p-4 flex flex-col gap-3 flex-1">
-        <p className="text-sm text-foreground/80 line-clamp-3 min-h-[3.75rem]">
+      <div className="p-2.5 flex flex-col gap-2 flex-1">
+        <p className="text-xs text-foreground/80 line-clamp-2 min-h-[2rem]">
           {row.message?.trim() || <span className="italic text-muted-foreground">Sem texto</span>}
         </p>
 
