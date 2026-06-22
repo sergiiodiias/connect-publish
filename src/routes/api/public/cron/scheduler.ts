@@ -30,9 +30,47 @@ export const Route = createFileRoute("/api/public/cron/scheduler")({
         };
         let rateLimitHit = false;
 
+        // 0) Heal orphan comment templates: for any pending template (target_id IS NULL)
+        // whose post was scheduled natively on FB (targets have fb_post_id), instantiate
+        // per-target rows with run_at = post.scheduled_at + delay_seconds.
+        const { data: orphanTmpls } = await supabaseAdmin
+          .from("auto_comments")
+          .select("id, user_id, post_id, message, delay_seconds")
+          .eq("status", "pending")
+          .is("target_id", null)
+          .limit(100);
+        for (const tmpl of orphanTmpls ?? []) {
+          const { data: tgts } = await supabaseAdmin
+            .from("post_targets")
+            .select("id, fb_post_id")
+            .eq("post_id", tmpl.post_id)
+            .not("fb_post_id", "is", null);
+          if (!tgts?.length) continue;
+          const { data: pst } = await supabaseAdmin
+            .from("posts").select("scheduled_at").eq("id", tmpl.post_id).single();
+          const baseMs = pst?.scheduled_at ? new Date(pst.scheduled_at).getTime() : Date.now();
+          const rows: any[] = [];
+          for (const t of tgts) {
+            const { data: ex } = await supabaseAdmin.from("auto_comments")
+              .select("id").eq("target_id", t.id).eq("post_id", tmpl.post_id).limit(1);
+            if (ex && ex.length) continue;
+            rows.push({
+              user_id: tmpl.user_id, post_id: tmpl.post_id, target_id: t.id,
+              message: tmpl.message, delay_seconds: tmpl.delay_seconds,
+              run_at: new Date(baseMs + (tmpl.delay_seconds ?? 0) * 1000).toISOString(),
+            });
+          }
+          if (rows.length) await supabaseAdmin.from("auto_comments").insert(rows);
+          // Mark template as instantiated so we don't keep healing it
+          await supabaseAdmin.from("auto_comments")
+            .update({ status: "posted", posted_at: new Date().toISOString() })
+            .eq("id", tmpl.id);
+        }
+
         // 1) Auto-comments due — process FIRST so they don't starve behind the publish loop.
         const { data: dueComments } = await supabaseAdmin
           .from("auto_comments").select("*").eq("status", "pending").not("target_id", "is", null).lte("run_at", nowIso).limit(60);
+
 
         async function postComment(c: any) {
           const { data: target } = await supabaseAdmin.from("post_targets").select("fb_post_id, page_id").eq("id", c.target_id!).single();

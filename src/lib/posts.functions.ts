@@ -38,7 +38,7 @@ export const migrateScheduledToFacebook = createServerFn({ method: "POST" })
     const { data: targetsRaw, error: terr } = await supabase
       .from("post_targets")
       .select(`
-        id, page_id, status, fb_post_id,
+        id, page_id, status, fb_post_id, post_id,
         posts!inner(id, type, message, link_url, media_urls, scheduled_at, user_id)
       `)
       .eq("user_id", userId)
@@ -48,12 +48,14 @@ export const migrateScheduledToFacebook = createServerFn({ method: "POST" })
       .lte("posts.scheduled_at", maxIso)
       .order("scheduled_at", { foreignTable: "posts", ascending: true })
       .limit(BATCH);
+
     if (terr) throw new Error(terr.message);
 
     type Job = {
       target: { id: string; page_id: string };
       post: { id: string; type: string; message: string | null; link_url: string | null; media_urls: string[] | null };
       scheduledUnix: number;
+      scheduledAtIso: string;
     };
     const jobs: Job[] = [];
     for (const t of (targetsRaw ?? []) as any[]) {
@@ -65,8 +67,25 @@ export const migrateScheduledToFacebook = createServerFn({ method: "POST" })
         target: { id: t.id, page_id: t.page_id },
         post: t.posts,
         scheduledUnix: Math.floor(ts / 1000),
+        scheduledAtIso: sched,
       });
     }
+
+    // Preload auto_comment templates (target_id IS NULL) for all posts in this batch
+    const postIdSet = [...new Set(jobs.map((j) => j.post.id))];
+    const { data: tmplRows } = postIdSet.length
+      ? await supabase.from("auto_comments")
+          .select("id, post_id, message, delay_seconds")
+          .in("post_id", postIdSet)
+          .is("target_id", null)
+      : { data: [] as any[] };
+    const tmplByPost = new Map<string, any[]>();
+    for (const r of (tmplRows ?? []) as any[]) {
+      const arr = tmplByPost.get(r.post_id) ?? [];
+      arr.push(r);
+      tmplByPost.set(r.post_id, arr);
+    }
+
 
     // Resolve all page tokens in one query (avoid N round-trips to PG).
     const pageIds = [...new Set(jobs.map((j) => j.target.page_id))];
@@ -107,7 +126,28 @@ export const migrateScheduledToFacebook = createServerFn({ method: "POST" })
           await supabase.from("post_targets")
             .update({ fb_post_id: fbId, status: "pending", error: null, next_retry_at: null } as any)
             .eq("id", j.target.id);
+
+          // Instantiate per-target auto_comments rows scheduled for after FB publishes
+          const tmpls = tmplByPost.get(j.post.id) ?? [];
+          if (tmpls.length) {
+            const baseMs = new Date(j.scheduledAtIso).getTime();
+            const rows = tmpls.map((c) => ({
+              user_id: userId,
+              post_id: j.post.id,
+              target_id: j.target.id,
+              message: c.message,
+              delay_seconds: c.delay_seconds,
+              run_at: new Date(baseMs + (c.delay_seconds ?? 0) * 1000).toISOString(),
+            }));
+            // Avoid duplicates if migrate runs twice for the same target
+            const { data: existing } = await supabase.from("auto_comments")
+              .select("id").eq("target_id", j.target.id).limit(1);
+            if (!existing || existing.length === 0) {
+              await supabase.from("auto_comments").insert(rows);
+            }
+          }
           scheduled++;
+
         } catch (e: any) {
           failed++;
           const msg = e?.message ?? String(e);
@@ -184,7 +224,18 @@ export const createPost = createServerFn({ method: "POST" })
             await supabase.from("post_targets")
               .update({ fb_post_id: fbId, error: null })
               .eq("id", t.id);
+            if (data.autoComment) {
+              await supabase.from("auto_comments").insert({
+                user_id: userId,
+                post_id: post.id,
+                target_id: t.id,
+                message: data.autoComment.message,
+                delay_seconds: data.autoComment.delaySeconds,
+                run_at: new Date(ts + data.autoComment.delaySeconds * 1000).toISOString(),
+              });
+            }
             fbScheduled++;
+
           } catch (e: any) {
             fbErrors.push(`${pg.name}: ${e?.message ?? String(e)}`);
             await supabase.from("post_targets")
