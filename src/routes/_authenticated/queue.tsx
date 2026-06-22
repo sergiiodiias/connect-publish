@@ -249,14 +249,20 @@ function QueuePage() {
   const migrateToFb = useMutation({
     mutationFn: () => migrateFn(),
     onSuccess: (r: any) => {
-      if (r.scheduled === 0 && r.failed === 0) toast.info("Nada para enviar (precisa ser >10 min no futuro e ainda não estar no FB)");
-      else if (r.failed === 0) toast.success(`${r.scheduled} agendado(s) no Facebook`);
-      else toast.warning(`${r.scheduled} ok · ${r.failed} falha(s)`);
+      if (!r || typeof r !== "object") {
+        toast.error("Resposta inválida do servidor — recarregue a página e tente de novo.");
+        return;
+      }
+      const scheduled = r.scheduled ?? 0;
+      const failed = r.failed ?? 0;
+      if (scheduled === 0 && failed === 0) toast.info("Nada para enviar (precisa ser >10 min no futuro e ainda não estar no FB)");
+      else if (failed === 0) toast.success(`${scheduled} agendado(s) no Facebook`);
+      else toast.warning(`${scheduled} ok · ${failed} falha(s)`);
       if (r.errors?.length) console.warn("Migrate errors:", r.errors);
       qc.invalidateQueries({ queryKey: ["queue"] });
       qc.invalidateQueries({ queryKey: ["queue-stuck"] });
     },
-    onError: (e: any) => toast.error(e.message),
+    onError: (e: any) => toast.error(e?.message ?? "Falha ao enviar"),
   });
 
   const details = useQuery({
