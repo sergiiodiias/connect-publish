@@ -1,12 +1,17 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "sonner";
 import { useServerFn } from "@tanstack/react-start";
 import { connectPage } from "@/lib/pages.functions";
+import { supabase } from "@/integrations/supabase/client";
 import { Copy, Wand2 } from "lucide-react";
 
 export const Route = createFileRoute("/_authenticated/extract")({
@@ -99,11 +104,26 @@ function dedupe(list: Extracted[]): Extracted[] {
 }
 
 function ExtractPage() {
+  const qc = useQueryClient();
   const [raw, setRaw] = useState("");
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [busy, setBusy] = useState(false);
   const [results, setResults] = useState<{ id: string; ok: boolean; error?: string; name: string }[]>([]);
+  const [groupChoice, setGroupChoice] = useState<string>("none"); // "none" | "new" | <uuid>
+  const [newGroupName, setNewGroupName] = useState("");
   const connectFn = useServerFn(connectPage);
+
+  const { data: groups = [] } = useQuery({
+    queryKey: ["groups"],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("page_groups")
+        .select("id, name")
+        .order("created_at", { ascending: false });
+      if (error) throw error;
+      return data ?? [];
+    },
+  });
 
   const extracted = useMemo(() => extractTokens(raw), [raw]);
 
@@ -132,9 +152,37 @@ function ExtractPage() {
       toast.error("Selecione ao menos uma página");
       return;
     }
+    if (groupChoice === "new" && !newGroupName.trim()) {
+      toast.error("Informe o nome do novo grupo");
+      return;
+    }
     setBusy(true);
     setResults([]);
+
+    // Resolve group id (create new if needed)
+    let groupId: string | null = null;
+    try {
+      if (groupChoice === "new") {
+        const { data: u } = await supabase.auth.getUser();
+        const userId = u.user!.id;
+        const { data: g, error } = await supabase
+          .from("page_groups")
+          .insert({ user_id: userId, name: newGroupName.trim() })
+          .select("id")
+          .single();
+        if (error) throw error;
+        groupId = g.id;
+      } else if (groupChoice !== "none") {
+        groupId = groupChoice;
+      }
+    } catch (e: any) {
+      setBusy(false);
+      toast.error(`Falha ao criar grupo: ${e.message}`);
+      return;
+    }
+
     const out: typeof results = [];
+    const connectedPageUuids: string[] = [];
     for (const p of list) {
       try {
         const response = await connectFn({ data: { accessToken: p.token, pageId: p.id } });
@@ -142,15 +190,30 @@ function ExtractPage() {
           out.push({ id: p.id, name: p.name, ok: false, error: response.error });
         } else {
           out.push({ id: p.id, name: p.name, ok: true });
+          if (response.page?.id) connectedPageUuids.push(response.page.id);
         }
       } catch (e: any) {
         out.push({ id: p.id, name: p.name, ok: false, error: e?.message ?? "erro" });
       }
       setResults([...out]);
     }
+
+    // Attach to group
+    if (groupId && connectedPageUuids.length > 0) {
+      try {
+        const { data: u } = await supabase.auth.getUser();
+        const userId = u.user!.id;
+        const rows = connectedPageUuids.map((pid) => ({ group_id: groupId!, page_id: pid, user_id: userId }));
+        await supabase.from("page_group_members").upsert(rows, { onConflict: "group_id,page_id" });
+        qc.invalidateQueries({ queryKey: ["groups"] });
+      } catch (e: any) {
+        toast.error(`Páginas conectadas, mas falhou ao adicionar ao grupo: ${e.message}`);
+      }
+    }
+
     setBusy(false);
     const okCount = out.filter((r) => r.ok).length;
-    if (okCount === list.length) toast.success(`${okCount}/${list.length} páginas conectadas`);
+    if (okCount === list.length) toast.success(`${okCount}/${list.length} páginas conectadas${groupId ? " e adicionadas ao grupo" : ""}`);
     else toast.error(`${list.length - okCount} token(s) expirado(s) ou inválido(s)`);
   };
 
@@ -185,21 +248,49 @@ function ExtractPage() {
 
       {extracted.length > 0 && (
         <div className="rounded-xl border border-border bg-card divide-y divide-border">
-          <div className="p-4 flex items-center gap-3">
-            <Checkbox
-              checked={selected.size === extracted.length}
-              onCheckedChange={toggleAll}
-            />
-            <span className="text-sm font-medium">Selecionar todas</span>
-            <Button
-              size="sm"
-              className="ml-auto gap-2"
-              onClick={connectSelected}
-              disabled={busy || selected.size === 0}
-            >
-              <Wand2 className="size-4" />
-              {busy ? "Conectando…" : `Conectar ${selected.size || ""}`}
-            </Button>
+          <div className="p-4 space-y-3">
+            <div className="grid sm:grid-cols-2 gap-3">
+              <div>
+                <Label className="text-xs">Adicionar ao grupo</Label>
+                <Select value={groupChoice} onValueChange={setGroupChoice}>
+                  <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">Nenhum grupo</SelectItem>
+                    <SelectItem value="new">+ Criar novo grupo</SelectItem>
+                    {groups.map((g) => (
+                      <SelectItem key={g.id} value={g.id}>{g.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              {groupChoice === "new" && (
+                <div>
+                  <Label className="text-xs">Nome do novo grupo</Label>
+                  <Input
+                    className="mt-1"
+                    value={newGroupName}
+                    onChange={(e) => setNewGroupName(e.target.value)}
+                    placeholder="ex.: Receitas"
+                  />
+                </div>
+              )}
+            </div>
+            <div className="flex items-center gap-3">
+              <Checkbox
+                checked={selected.size === extracted.length}
+                onCheckedChange={toggleAll}
+              />
+              <span className="text-sm font-medium">Selecionar todas ({extracted.length})</span>
+              <Button
+                size="sm"
+                className="ml-auto gap-2"
+                onClick={connectSelected}
+                disabled={busy || selected.size === 0}
+              >
+                <Wand2 className="size-4" />
+                {busy ? "Conectando…" : `Conectar ${selected.size || ""}`}
+              </Button>
+            </div>
           </div>
           {extracted.map((p) => {
             const r = results.find((x) => x.id === p.id);

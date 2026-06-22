@@ -73,7 +73,18 @@ function GroupsPage() {
               <div><Label>Nome</Label><Input value={name} onChange={e => setName(e.target.value)} /></div>
               <div><Label>Descrição</Label><Textarea rows={2} value={desc} onChange={e => setDesc(e.target.value)} /></div>
               <div>
-                <Label>Páginas</Label>
+                <div className="flex items-center justify-between">
+                  <Label>Páginas</Label>
+                  {pages.length > 0 && (
+                    <label className="flex items-center gap-2 text-xs cursor-pointer">
+                      <Checkbox
+                        checked={sel.length === pages.length && pages.length > 0}
+                        onCheckedChange={v => setSel(v ? pages.map(p => p.id) : [])}
+                      />
+                      Marcar todas
+                    </label>
+                  )}
+                </div>
                 <div className="max-h-60 overflow-y-auto mt-2 border border-border rounded-md divide-y divide-border">
                   {pages.map(p => (
                     <label key={p.id} className="flex items-center gap-2 px-3 py-2 hover:bg-muted/40 cursor-pointer">
