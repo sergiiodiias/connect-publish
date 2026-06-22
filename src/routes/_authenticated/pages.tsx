@@ -2,14 +2,14 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
-import { listPages, connectPage, deletePage, testPageToken } from "@/lib/pages.functions";
+import { listPages, connectPage, deletePage, testPageToken, inspectTokens } from "@/lib/pages.functions";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
-import { Plus, Trash2, CheckCircle2, AlertTriangle, RefreshCw } from "lucide-react";
+import { Plus, Trash2, CheckCircle2, AlertTriangle, RefreshCw, Clock } from "lucide-react";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/_authenticated/pages")({
@@ -17,13 +17,38 @@ export const Route = createFileRoute("/_authenticated/pages")({
   component: PagesPage,
 });
 
+function formatExpiry(expiresAt: number | null): { label: string; tone: "ok" | "warn" | "bad" | "never" } {
+  if (expiresAt === null) return { label: "desconhecido", tone: "warn" };
+  if (expiresAt === 0) return { label: "não expira", tone: "never" };
+  const now = Math.floor(Date.now() / 1000);
+  const diff = expiresAt - now;
+  if (diff <= 0) return { label: "expirado", tone: "bad" };
+  const days = Math.floor(diff / 86400);
+  const hours = Math.floor((diff % 86400) / 3600);
+  let label: string;
+  if (days >= 1) label = `${days}d ${hours}h`;
+  else {
+    const mins = Math.floor((diff % 3600) / 60);
+    label = `${hours}h ${mins}m`;
+  }
+  const tone: "ok" | "warn" | "bad" = days >= 7 ? "ok" : days >= 1 ? "warn" : "bad";
+  return { label, tone };
+}
+
 function PagesPage() {
   const qc = useQueryClient();
   const listFn = useServerFn(listPages);
   const connectFn = useServerFn(connectPage);
   const delFn = useServerFn(deletePage);
   const testFn = useServerFn(testPageToken);
+  const inspectFn = useServerFn(inspectTokens);
   const { data: pages = [], isLoading } = useQuery({ queryKey: ["pages"], queryFn: () => listFn() });
+  const { data: tokenInfo = {}, isFetching: tokenLoading, refetch: refetchTokens } = useQuery({
+    queryKey: ["pages-token-info"],
+    queryFn: () => inspectFn(),
+    enabled: pages.length > 0,
+    staleTime: 60_000,
+  });
 
   const [open, setOpen] = useState(false);
   const [token, setToken] = useState("");
