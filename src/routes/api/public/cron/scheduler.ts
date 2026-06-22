@@ -147,7 +147,7 @@ export const Route = createFileRoute("/api/public/cron/scheduler")({
           if (!claimed) return;
           const { data: target } = await supabaseAdmin.from("post_targets").select("fb_post_id, page_id").eq("id", c.target_id!).single();
           if (!target?.fb_post_id) { await supabaseAdmin.from("auto_comments").update({ status: "failed", error: "post não publicado" }).eq("id", c.id); return; }
-          const { data: pg } = await supabaseAdmin.from("fb_pages").select("access_token").eq("id", target.page_id).single();
+          const { data: pg } = await supabaseAdmin.from("fb_pages").select("access_token, fb_page_id").eq("id", target.page_id).single();
           if (!pg) { await supabaseAdmin.from("auto_comments").update({ status: "failed", error: "página ausente" }).eq("id", c.id); return; }
           try {
             const existing: any = await fbGet(`/${target.fb_post_id}/comments`, {
@@ -157,7 +157,9 @@ export const Route = createFileRoute("/api/public/cron/scheduler")({
               order: "reverse_chronological",
             });
             const wanted = normalizeComment(c.message ?? "");
-            const alreadyThere = (existing?.data ?? []).find((item: any) => normalizeComment(item?.message ?? "") === wanted);
+            const alreadyThere = (existing?.data ?? []).find((item: any) =>
+              normalizeComment(item?.message ?? "") === wanted && (!item?.from?.id || item.from.id === pg.fb_page_id),
+            );
             if (alreadyThere?.id) {
               await supabaseAdmin.from("auto_comments").update({
                 status: "posted", fb_comment_id: alreadyThere.id, posted_at: new Date().toISOString(), error: "comentário já existia no Facebook; não repostado",
