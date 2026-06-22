@@ -283,7 +283,7 @@ function QueuePage() {
     const m = new Map<string, { postId: string; message: string | null; scheduledAt: string | null; targets: any[] }>();
     for (const r of stuckRows as any[]) {
       const k = r.posts.id;
-      const g = m.get(k) ?? { postId: k, message: r.posts.message, scheduledAt: r.posts.scheduled_at, targets: [] };
+      const g = m.get(k) ?? { postId: k, message: r.posts.message, scheduledAt: r.posts.scheduled_at, targets: [] as any[] };
       g.targets.push(r);
       m.set(k, g);
     }
