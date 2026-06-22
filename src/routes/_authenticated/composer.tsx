@@ -26,18 +26,41 @@ function ComposerPage() {
   const createFn = useServerFn(createPost);
   const publishFn = useServerFn(publishPostNow);
   const { data: pages = [] } = useQuery({ queryKey: ["pages"], queryFn: () => listFn() });
+  const { data: groups = [] } = useQuery({
+    queryKey: ["groups"],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("page_groups")
+        .select("id, name, page_group_members(page_id)")
+        .order("created_at", { ascending: false });
+      if (error) throw error;
+      return data ?? [];
+    },
+  });
 
   const [type, setType] = useState<"text" | "photo" | "video" | "link">("text");
   const [message, setMessage] = useState("");
   const [linkUrl, setLinkUrl] = useState("");
   const [mediaUrl, setMediaUrl] = useState("");
   const [selected, setSelected] = useState<string[]>([]);
+  const [groupFilter, setGroupFilter] = useState<string>("all");
   const [scheduleOn, setScheduleOn] = useState(false);
   const [scheduledAt, setScheduledAt] = useState("");
   const [autoOn, setAutoOn] = useState(false);
   const [commentMsg, setCommentMsg] = useState("");
   const [commentDelay, setCommentDelay] = useState(60);
   const [tagsInput, setTagsInput] = useState("");
+
+  const applyGroup = (groupId: string) => {
+    setGroupFilter(groupId);
+    if (groupId === "all") {
+      setSelected(pages.map((p) => p.id));
+    } else {
+      const g = groups.find((x: any) => x.id === groupId);
+      const ids = (g?.page_group_members ?? []).map((m: any) => m.page_id);
+      setSelected(ids);
+    }
+  };
 
   const toggleAll = () => setSelected(selected.length === pages.length ? [] : pages.map(p => p.id));
 
