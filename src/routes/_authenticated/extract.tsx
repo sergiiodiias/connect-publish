@@ -19,7 +19,7 @@ export const Route = createFileRoute("/_authenticated/extract")({
   component: ExtractPage,
 });
 
-type Extracted = { id: string; name: string; token: string; category?: string };
+type Extracted = { id: string; name: string; token: string; category?: string; bare?: boolean };
 
 function extractTokens(input: string): Extracted[] {
   if (!input.trim()) return [];
