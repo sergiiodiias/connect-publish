@@ -308,15 +308,6 @@ function ImportPage() {
         </div>
       )}
 
-      <ImportPreviewDialog
-        open={previewOpen}
-        onOpenChange={setPreviewOpen}
-        rows={selectedRows}
-        pageCount={pageSel.length}
-        busy={busy}
-        progress={progress}
-        onConfirm={(idxs, sched) => importAll(idxs, sched)}
-      />
     </div>
   );
 }
