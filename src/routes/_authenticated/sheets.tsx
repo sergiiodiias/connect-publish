@@ -6,6 +6,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { listPages } from "@/lib/pages.functions";
 import { readSheet, type SheetRow } from "@/lib/sheets.functions";
 import { createPost } from "@/lib/posts.functions";
+import { publicAssetUrl } from "@/lib/public-url";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -127,7 +128,7 @@ function ImportPage() {
           data: {
             type: type as any,
             message: r.titulo,
-            mediaUrls: useMedia ? [r.foto.startsWith("/") ? `${window.location.origin}${r.foto}` : r.foto] : [],
+            mediaUrls: useMedia ? [publicAssetUrl(r.foto)] : [],
             linkUrl: undefined,
             pageIds: pageSel,
             scheduledAt,

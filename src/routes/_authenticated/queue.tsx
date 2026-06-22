@@ -2,7 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { supabase } from "@/integrations/supabase/client";
-import { publishPostNow, cancelScheduled, deletePost, getPostDetails } from "@/lib/posts.functions";
+import { publishPostNow, cancelScheduled, deletePost, deleteAllPosts, getPostDetails } from "@/lib/posts.functions";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -51,6 +51,7 @@ function QueuePage() {
   const publishFn = useServerFn(publishPostNow);
   const cancelFn = useServerFn(cancelScheduled);
   const delFn = useServerFn(deletePost);
+  const delAllFn = useServerFn(deleteAllPosts);
   const detailsFn = useServerFn(getPostDetails);
 
   const [status, setStatus] = useState<string>("all");
@@ -72,6 +73,11 @@ function QueuePage() {
   const publish = useMutation({ mutationFn: (id: string) => publishFn({ data: { postId: id } }), onSuccess: () => { toast.success("Publicado"); qc.invalidateQueries({ queryKey: ["posts"] }); }, onError: (e: any) => toast.error(e.message) });
   const cancel = useMutation({ mutationFn: (id: string) => cancelFn({ data: { postId: id } }), onSuccess: () => { toast.success("Cancelado"); qc.invalidateQueries({ queryKey: ["posts"] }); }, onError: (e: any) => toast.error(e.message) });
   const remove = useMutation({ mutationFn: (id: string) => delFn({ data: { postId: id } }), onSuccess: () => { toast.success("Removido"); qc.invalidateQueries({ queryKey: ["posts"] }); }, onError: (e: any) => toast.error(e.message) });
+  const removeAll = useMutation({
+    mutationFn: (s: string) => delAllFn({ data: { status: s as any } }),
+    onSuccess: (r: any) => { toast.success(`${r.count} post(s) removido(s)`); qc.invalidateQueries({ queryKey: ["posts"] }); },
+    onError: (e: any) => toast.error(e.message),
+  });
 
   const details = useQuery({
     queryKey: ["post-details", detailId],
@@ -100,6 +106,18 @@ function QueuePage() {
             <SelectItem value="failed">Falhou</SelectItem>
           </SelectContent>
         </Select>
+        <Button
+          variant="destructive"
+          className="ml-auto"
+          disabled={removeAll.isPending || posts.length === 0}
+          onClick={() => {
+            const label = status === "all" ? "TODOS os posts" : `todos os posts com status "${status}"`;
+            if (confirm(`Excluir ${label}? Esta ação não pode ser desfeita.`)) removeAll.mutate(status);
+          }}
+        >
+          <Trash2 className="size-4 mr-1" />
+          {status === "all" ? "Excluir todos" : `Excluir filtrados (${posts.length})`}
+        </Button>
       </div>
 
       <div className="rounded-xl border border-border bg-card divide-y divide-border">
