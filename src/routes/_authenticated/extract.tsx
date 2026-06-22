@@ -203,11 +203,13 @@ function ExtractPage() {
     const connectedPageUuids: string[] = [];
     for (const p of list) {
       try {
-        const response = await connectFn({ data: { accessToken: p.token, pageId: p.id } });
+        const response = await connectFn({
+          data: { accessToken: p.token, ...(p.bare ? {} : { pageId: p.id }) },
+        });
         if (!response.ok) {
           out.push({ id: p.id, name: p.name, ok: false, error: response.error });
         } else {
-          out.push({ id: p.id, name: p.name, ok: true });
+          out.push({ id: p.id, name: response.page?.name ?? p.name, ok: true });
           if (response.page?.id) connectedPageUuids.push(response.page.id);
         }
       } catch (e: any) {
