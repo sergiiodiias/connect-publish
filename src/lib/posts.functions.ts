@@ -126,7 +126,28 @@ export const migrateScheduledToFacebook = createServerFn({ method: "POST" })
           await supabase.from("post_targets")
             .update({ fb_post_id: fbId, status: "pending", error: null, next_retry_at: null } as any)
             .eq("id", j.target.id);
+
+          // Instantiate per-target auto_comments rows scheduled for after FB publishes
+          const tmpls = tmplByPost.get(j.post.id) ?? [];
+          if (tmpls.length) {
+            const baseMs = new Date(j.scheduledAtIso).getTime();
+            const rows = tmpls.map((c) => ({
+              user_id: userId,
+              post_id: j.post.id,
+              target_id: j.target.id,
+              message: c.message,
+              delay_seconds: c.delay_seconds,
+              run_at: new Date(baseMs + (c.delay_seconds ?? 0) * 1000).toISOString(),
+            }));
+            // Avoid duplicates if migrate runs twice for the same target
+            const { data: existing } = await supabase.from("auto_comments")
+              .select("id").eq("target_id", j.target.id).limit(1);
+            if (!existing || existing.length === 0) {
+              await supabase.from("auto_comments").insert(rows);
+            }
+          }
           scheduled++;
+
         } catch (e: any) {
           failed++;
           const msg = e?.message ?? String(e);
