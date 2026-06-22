@@ -212,6 +212,11 @@ export const Route = createFileRoute("/api/public/cron/scheduler")({
               status: failedCount === 0 ? "published" : (okCount === 0 ? "failed" : "partial"),
               published_at: new Date().toISOString(), error: failedCount ? `${failedCount} falha(s)` : null,
             }).eq("id", post.id);
+            // Agora sim marcar templates de comentário como posted (todos os targets foram processados)
+            await supabaseAdmin.from("auto_comments")
+              .update({ status: "posted", posted_at: new Date().toISOString() })
+              .eq("post_id", post.id).is("target_id", null).eq("status", "pending");
+          }
           } else {
             // Reset any orphan 'publishing' targets back to 'pending' so next tick retries them,
             // then hand the post back to 'scheduled'.
