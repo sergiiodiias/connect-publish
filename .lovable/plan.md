@@ -1,96 +1,63 @@
-# Refator da tela /sheets — Upload em Massa com Rotação
+## Objetivo
 
-Mantém o modelo atual (Facebook Graph + tabela `fb_pages` + `page_groups`). Substitui a importação atual por um fluxo mais robusto, com leitura via CSV público do Google Sheets, drag & drop de mídias locais, upload ao Storage, rotação de páginas e job em background.
+Depurar todos os tokens das páginas usando o endpoint oficial `/debug_token` do Facebook, **uma vez por mês**, e tentar pegar o token estendido (longa duração) automaticamente.
 
-## 1. Importação por CSV público (sem conector)
+## Como funciona
 
-- `src/lib/sheets-csv.functions.ts` (novo) — server fn `importSheetCsv({ url })`:
-  - Extrai `spreadsheetId` (3 regex) e `gid` (`?gid=`/`&gid=`/`#gid=`, default 0).
-  - Baixa `https://docs.google.com/spreadsheets/d/{ID}/export?format=csv&gid={GID}`. Detecta resposta HTML → erro pedindo compartilhamento "qualquer pessoa com o link".
-  - Parser CSV próprio (aspas duplas escapadas, vírgulas em aspas, `\r\n`).
-  - Detecta header (rejeita se 1ª célula é número/path/URL/data).
-  - Match de colunas por sinônimos (mídia / conteúdo / comentário / data / hora).
-  - Parsing BR→UTC (`DD/MM/YYYY [HH:mm]`, `YYYY-MM-DD`, fração decimal do Sheets), default 10:00 com warning, rejeita passado em horário de Brasília.
-  - Valida extensões: `jpg|jpeg|png|gif|webp|mp4|mov|avi|mkv|webm`.
-  - Retorna `{ posts, errors, warnings, hasCustomDates, totalRows }`.
+### 1. Endpoint cron público
+`src/routes/api/public/cron/refresh-tokens.ts` (POST), protegido pelo `apikey` header (anon key — padrão `/api/public/*`).
 
-- Remove dependência da função atual `readSheet`/conector Google Sheets nesta tela (mantém o arquivo para outros usos, mas /sheets passa a usar a nova fn).
+Para cada página em `fb_pages`:
+1. **Depura** via `GET /debug_token?input_token=<token>&access_token=<token>` → lê `is_valid`, `expires_at`, `data_access_expires_at`, `scopes`, `error`.
+2. **Renova** (se possível): `GET /oauth/access_token?grant_type=fb_exchange_token&client_id=FB_APP_ID&client_secret=FB_APP_SECRET&fb_exchange_token=<token>` → recebe o token de longa duração e substitui o `access_token` no banco.
+3. Marca `is_active=false` se o token virar inválido.
+4. Grava em `activity_logs`.
 
-## 2. Drag & drop e casamento local
+### 2. Persistência
+Migração adiciona em `fb_pages`:
+- `token_expires_at` (timestamptz, null = não expira)
+- `token_data_access_expires_at` (timestamptz)
+- `token_scopes` (text[])
+- `token_last_debugged_at` (timestamptz)
+- `token_last_refreshed_at` (timestamptz)
+- `token_debug_error` (text)
 
-- Componente `<MediaDropzone />` em `src/components/bulk/`:
-  - Aceita arquivos e pastas (`webkitGetAsEntry`).
-  - Filtra: descarta arquivos cujo `name.toLowerCase()` não bate com nenhum `mediaFileName` da planilha.
-  - Estado por linha: `matched | missing | duplicated`. Bloqueia avanço com `missing`.
-  - Previews lazy via `URL.createObjectURL` (IntersectionObserver). Vídeos = ícone.
+Assim a UI mostra a validade **direto do banco**, sem precisar consultar a API toda vez.
 
-## 3. Upload ao Storage antes de publicar
-
-- Reusa bucket privado `post-media` já criado (signed URL 1 ano).
-- Concurrency = 20, retry exponencial (3x).
-- Substitui o caminho local pela URL assinada antes de criar o post.
-- Tabela `upload_jobs` (nova migração) acompanha progresso e habilita Realtime.
-
-## 4. Motor de rotação
-
-- `src/lib/rotation.ts` (novo) — `useMediaRotation({ posts, groups, startDate, intervalMinutes, useSpreadsheetDates, rotationMode })`:
-  - Slot por hora `h`: usa `posts[h].scheduledAt` se `useSpreadsheetDates`, senão `startDate + h*interval`.
-  - **group**: `mediaIndex = (h + groupIndex) % totalMedias`.
-  - **page**: `mediaIndex = (h + pageIndex) % totalMedias` (pageIndex achatado).
-  - Stagger Late-like: a cada 10 páginas, +2 min no slot (rate-limit guard).
-- Componentes `<GroupOrderSelector />`, `<RotationMatrixPreview />` (paginação obrigatória), `<RateLimitValidator />`.
-- Validações: 0 grupos → erro; <2 grupos → warning; `totalMedias < count` → warning.
-
-## 5. Execução em background
-
-- Server route `src/routes/api/public/bulk/run.ts`:
-  - Cria `upload_jobs` (status=pending), recebe payload completo, devolve `jobId`.
-  - Dispara processamento auto-invocando-se via `fetch(self_url)` para escapar do timeout.
-  - Worker lê `upload_jobs.payload`, percorre slots em chunks (3×200), 300ms entre posts, 2s entre lotes de 15, chama `publishFacebookPost` (já existente) e atualiza contadores via RPC.
-  - Cabeçalho `apikey` = `SUPABASE_PUBLISHABLE_KEY` (sem secret novo).
-- RPC `increment_job_counts(job_id, success_inc, error_inc, processed, should_complete)`.
-- Front escuta `upload_jobs` via Realtime.
-
-## 6. Migrações
+### 3. Agendamento mensal (pg_cron)
+Via insert tool (SQL fora de migration), agendamos:
 
 ```sql
-create table public.upload_jobs (...);  -- conforme spec, grants + RLS user_id=auth.uid()
-alter publication supabase_realtime add table public.upload_jobs;
-create function public.increment_job_counts(...);
+select cron.schedule(
+  'refresh-fb-tokens-monthly',
+  '0 3 1 * *',  -- dia 1 de cada mês, 03:00 UTC
+  $$ select net.http_post(
+       url := 'https://project--4a56b795-e3ab-42a9-8eee-4ca48e008280.lovable.app/api/public/cron/refresh-tokens',
+       headers := '{"Content-Type":"application/json","apikey":"<ANON_KEY>"}'::jsonb,
+       body := '{}'::jsonb
+     ); $$
+);
 ```
 
-(Já existem: bucket `post-media`, `page_groups`, `fb_pages`. Não criamos `account_groups`.)
+### 4. UI em /pages
+- Badge de validade lê os campos persistidos (já carregado, sem clique).
+- Botão **"Renovar agora"** dispara o mesmo cron sob demanda.
+- Banner no topo se houver tokens expirando em <7 dias ou inválidos.
 
-## 7. Tela /sheets
+## Credenciais do app Facebook
 
-Reescrita do componente `ImportPage`:
-1. URL da planilha + botão importar → resumo `<ParseValidationSummary />` (totais, erros por linha, warnings).
-2. Toggle "Usar datas da planilha" vs "Recalcular pelo intervalo" + `<ScheduleCalculator />`.
-3. `<MediaDropzone />` com status por linha.
-4. `<GroupOrderSelector />` + toggle distribuição (`mass` | `distribution`) + `<RotationMatrixPreview />`.
-5. Botão "Publicar" → upload em massa → cria `upload_jobs` → mostra progresso Realtime.
+Para a renovação automática (passo 2), preciso de:
+- `FB_APP_ID` — ID do seu app em developers.facebook.com → Configurações → Básico
+- `FB_APP_SECRET` — App Secret no mesmo lugar (clique em "Mostrar")
 
-## Princípios mantidos
+Vou pedir via `add_secret` quando você aprovar o plano. Sem eles, o cron ainda roda e mantém o depurador atualizado, mas a troca pelo token estendido fica manual (botão 🔑 que já existe).
 
-- Facebook Graph (sem Late API).
-- Mídias sempre via Storage antes da publicação.
-- TZ Brasília na UI, UTC na borda.
-- Datas no passado rejeitadas; hora omissa → 10:00 + warning.
-- Conteúdo opcional (Facebook recebe caractere invisível se vazio).
+⚠️ Importante: o Facebook só permite **trocar um token por outro de longa duração se o token original ainda for válido**. Por isso a verificação mensal é segura — page tokens derivados de user tokens de longa duração duram ~60 dias, então 1×/mês deixa margem confortável para renovar antes de expirar.
 
-## Detalhes técnicos relevantes
+## Arquivos
 
-- A regra "1 conta = 1 grupo" do prompt não se aplica: `page_groups`/`page_group_members` permitem múltiplos grupos por página. Mantemos como está; o motor só usa a ordem escolhida.
-- "Perfil-mestre" não existe na stack atual — toda página tem seu próprio `access_token` em `fb_pages`. Removido.
-- Stagger de 2 min a cada 10 páginas substitui o limite "15 posts/h por conta" da Late.
-
-## Fora de escopo
-
-- Late API, perfil-mestre, `account_groups`/`account_group_members`, webhook Late, cron Late.
-- EXIF strip e re-encode de vídeo (Facebook aceita direto via `source`).
-
-## Riscos / pontos de atenção
-
-- O motor de rotação pode gerar milhares de slots → o `bulk-run` precisa paginar o insert de `post_targets`.
-- Self-invocation via `fetch(self_url)` em TanStack Start (Workers) tem que respeitar o limite de 50 sub-requests; chunks de 200 estão dentro.
-- Tela ficará grande — separar em `src/components/bulk/*` ajuda na manutenção.
+- `supabase/migrations/<ts>_fb_pages_token_debug_fields.sql` — novas colunas
+- `src/routes/api/public/cron/refresh-tokens.ts` — endpoint do cron
+- `src/lib/pages.functions.ts` — `refreshTokensNow` (botão manual) + `listPages` retornando novos campos
+- `src/routes/_authenticated/pages.tsx` — banner + botão "Renovar agora" + badge lendo dados persistidos
+- SQL via insert tool — agenda `pg_cron` mensal

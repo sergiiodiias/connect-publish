@@ -118,7 +118,12 @@ export type Database = {
           last_checked_at: string | null
           name: string
           picture_url: string | null
+          token_data_access_expires_at: string | null
+          token_debug_error: string | null
           token_expires_at: string | null
+          token_last_debugged_at: string | null
+          token_last_refreshed_at: string | null
+          token_scopes: string[] | null
           updated_at: string
           user_id: string
         }
@@ -132,7 +137,12 @@ export type Database = {
           last_checked_at?: string | null
           name: string
           picture_url?: string | null
+          token_data_access_expires_at?: string | null
+          token_debug_error?: string | null
           token_expires_at?: string | null
+          token_last_debugged_at?: string | null
+          token_last_refreshed_at?: string | null
+          token_scopes?: string[] | null
           updated_at?: string
           user_id: string
         }
@@ -146,7 +156,12 @@ export type Database = {
           last_checked_at?: string | null
           name?: string
           picture_url?: string | null
+          token_data_access_expires_at?: string | null
+          token_debug_error?: string | null
           token_expires_at?: string | null
+          token_last_debugged_at?: string | null
+          token_last_refreshed_at?: string | null
+          token_scopes?: string[] | null
           updated_at?: string
           user_id?: string
         }

@@ -157,10 +157,18 @@ export const listPages = createServerFn({ method: "GET" })
   .handler(async ({ context }) => {
     const { data, error } = await context.supabase
       .from("fb_pages")
-      .select("id, fb_page_id, name, category, picture_url, is_active, last_checked_at, created_at")
+      .select("id, fb_page_id, name, category, picture_url, is_active, last_checked_at, created_at, token_expires_at, token_data_access_expires_at, token_scopes, token_last_debugged_at, token_last_refreshed_at, token_debug_error")
       .order("created_at", { ascending: false });
     if (error) throw new Error(error.message);
     return data;
+  });
+
+// Triggers the same monthly debug+refresh routine on demand.
+export const refreshTokensNow = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .handler(async () => {
+    const { runRefreshTokens } = await import("@/lib/refresh-tokens.server");
+    return runRefreshTokens();
   });
 
 export const inspectTokens = createServerFn({ method: "POST" })

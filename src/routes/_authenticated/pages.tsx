@@ -2,7 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
-import { listPages, connectPage, deletePage, testPageToken, inspectTokens, updatePageToken } from "@/lib/pages.functions";
+import { listPages, connectPage, deletePage, testPageToken, inspectTokens, updatePageToken, refreshTokensNow } from "@/lib/pages.functions";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -93,6 +93,28 @@ function PagesPage() {
     onSuccess: (r) => { r.ok ? toast.success("Token válido") : toast.error(r.error ?? "Token inválido"); qc.invalidateQueries({ queryKey: ["pages"] }); },
     onError: (e: any) => toast.error(e.message),
   });
+  const refreshFn = useServerFn(refreshTokensNow);
+  const refreshAll = useMutation({
+    mutationFn: () => refreshFn(),
+    onSuccess: (r) => {
+      toast.success(`Depurados ${r.debugged}/${r.total} · ${r.refreshed} renovado(s)${r.invalidated ? ` · ${r.invalidated} inválido(s)` : ""}`);
+      qc.invalidateQueries({ queryKey: ["pages"] });
+      qc.invalidateQueries({ queryKey: ["pages-token-info"] });
+    },
+    onError: (e: any) => toast.error(e.message),
+  });
+
+  // Alerts derived from persisted token_expires_at
+  const now = Date.now();
+  const expiringSoon = pages.filter((p: any) => {
+    if (!p.token_expires_at) return false;
+    const ms = new Date(p.token_expires_at).getTime() - now;
+    return ms > 0 && ms < 7 * 24 * 3600 * 1000;
+  });
+  const expired = pages.filter((p: any) => {
+    if (!p.token_expires_at) return false;
+    return new Date(p.token_expires_at).getTime() <= now;
+  });
 
   return (
     <div className="p-8 space-y-6">
@@ -102,6 +124,10 @@ function PagesPage() {
           <p className="text-sm text-muted-foreground">Gerencie os Access Tokens das suas Páginas do Facebook.</p>
         </div>
         <div className="flex gap-2">
+          <Button variant="outline" onClick={() => refreshAll.mutate()} disabled={refreshAll.isPending || pages.length === 0} title="Roda o depurador oficial do Facebook e tenta renovar para token estendido">
+            <RefreshCw className={`size-4 mr-2 ${refreshAll.isPending ? "animate-spin" : ""}`} />
+            {refreshAll.isPending ? "Renovando…" : "Renovar agora"}
+          </Button>
           <Button variant="outline" onClick={() => refetchTokens()} disabled={tokenLoading || pages.length === 0}>
             <Clock className="size-4 mr-2" />{tokenLoading ? "Verificando…" : "Verificar validade"}
           </Button>
@@ -129,6 +155,23 @@ function PagesPage() {
         </div>
       </div>
 
+      {(expiringSoon.length > 0 || expired.length > 0) && (
+        <div className="rounded-lg border border-warning/40 bg-warning/5 p-4 text-sm">
+          <div className="flex items-start gap-2">
+            <AlertTriangle className="size-4 text-warning mt-0.5 shrink-0" />
+            <div className="space-y-1">
+              {expired.length > 0 && (
+                <div><strong>{expired.length}</strong> página(s) com token expirado: {expired.map((p: any) => p.name).join(", ")}</div>
+              )}
+              {expiringSoon.length > 0 && (
+                <div><strong>{expiringSoon.length}</strong> página(s) expirando em menos de 7 dias: {expiringSoon.map((p: any) => p.name).join(", ")}</div>
+              )}
+              <div className="text-xs text-muted-foreground">A depuração automática roda todo dia 1 do mês. Clique em "Renovar agora" para forçar.</div>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className="rounded-xl border border-border bg-card divide-y divide-border">
         {isLoading && <div className="p-8 text-sm text-muted-foreground text-center">Carregando…</div>}
         {!isLoading && pages.length === 0 && (
@@ -136,9 +179,16 @@ function PagesPage() {
             <p className="text-sm text-muted-foreground">Nenhuma página conectada ainda.</p>
           </div>
         )}
-        {pages.map(p => {
+        {pages.map((p: any) => {
           const info = tokenInfo[p.id];
-          const exp = info ? formatExpiry(info.expiresAt) : null;
+          // Prefer fresh on-demand data; fall back to persisted token_expires_at from monthly cron.
+          const persistedSeconds = p.token_expires_at
+            ? Math.floor(new Date(p.token_expires_at).getTime() / 1000)
+            : p.token_last_debugged_at ? 0 : null;
+          const effectiveExpiresAt = info?.expiresAt ?? persistedSeconds;
+          const exp = effectiveExpiresAt !== undefined && effectiveExpiresAt !== null
+            ? formatExpiry(effectiveExpiresAt)
+            : null;
           const toneClass =
             exp?.tone === "ok" ? "border-success/40 text-success" :
             exp?.tone === "never" ? "border-success/40 text-success" :
@@ -157,9 +207,9 @@ function PagesPage() {
                       : <Badge variant="destructive" className="gap-1"><AlertTriangle className="size-3" />inativa</Badge>}
                     {exp && (
                       <Badge variant="outline" className={`gap-1 ${toneClass}`} title={
-                        info?.expiresAt && info.expiresAt > 0
-                          ? `Expira em ${new Date(info.expiresAt * 1000).toLocaleString("pt-BR")}`
-                          : info?.expiresAt === 0 ? "Token de longa duração — não expira" : "Validade desconhecida"
+                        effectiveExpiresAt && effectiveExpiresAt > 0
+                          ? `Expira em ${new Date(effectiveExpiresAt * 1000).toLocaleString("pt-BR")}`
+                          : effectiveExpiresAt === 0 ? "Token de longa duração — não expira" : "Validade desconhecida"
                       }>
                         <Clock className="size-3" />
                         {exp.tone === "never" ? "não expira" : `expira em ${exp.label}`}
