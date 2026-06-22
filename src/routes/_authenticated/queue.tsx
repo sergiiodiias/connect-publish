@@ -17,7 +17,7 @@ import {
   Send, Trash2, X, AlertCircle, Info, RefreshCw, ExternalLink,
   ShieldCheck, CheckCircle2, XCircle, MoreHorizontal, ImageIcon,
   Video, Link as LinkIcon, FileText, Plus, Calendar, Download,
-  ChevronLeft, ChevronRight,
+  ChevronLeft, ChevronRight, Clock, AlertTriangle,
 } from "lucide-react";
 import { toast } from "sonner";
 import { useEffect, useMemo, useState } from "react";
