@@ -22,6 +22,13 @@ export const Route = createFileRoute("/_authenticated/sheets")({
   component: ImportPage,
 });
 
+function basename(p: string) {
+  return (p.split(/[\\/]/).pop() ?? "").trim();
+}
+function normName(s: string) {
+  return s.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim();
+}
+
 function ImportPage() {
   const qc = useQueryClient();
   const readFn = useServerFn(readSheet);
@@ -36,8 +43,14 @@ function ImportPage() {
   const [pageSel, setPageSel] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
   const [results, setResults] = useState<{ row: number; ok: boolean; error?: string }[]>([]);
-  
+
   const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
+
+  // Map<normalizedFilename, signedUrl>
+  const [uploadedMedia, setUploadedMedia] = useState<Map<string, { url: string; name: string }>>(new Map());
+  const [uploading, setUploading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState<{ done: number; total: number } | null>(null);
+  const [mediaSource, setMediaSource] = useState<"upload" | "drive">("upload");
 
   const { data: pages = [] } = useQuery({ queryKey: ["pages"], queryFn: () => listFn() });
   const { data: groups = [] } = useQuery({
@@ -60,6 +73,41 @@ function ImportPage() {
       setPageSel((g?.page_group_members ?? []).map((m: any) => m.page_id));
     }
   };
+
+  const handleUpload = async (files: FileList | null) => {
+    if (!files || files.length === 0) return;
+    const { data: session } = await supabase.auth.getUser();
+    const uid = session.user?.id;
+    if (!uid) { toast.error("Faça login novamente"); return; }
+    setUploading(true);
+    setUploadProgress({ done: 0, total: files.length });
+    const next = new Map(uploadedMedia);
+    let done = 0;
+    for (const file of Array.from(files)) {
+      try {
+        const path = `${uid}/${Date.now()}-${file.name}`;
+        const { error: upErr } = await supabase.storage.from("post-media").upload(path, file, {
+          contentType: file.type || undefined, upsert: false,
+        });
+        if (upErr) throw upErr;
+        const { data: signed, error: sErr } = await supabase.storage.from("post-media")
+          .createSignedUrl(path, 60 * 60 * 24 * 365);
+        if (sErr || !signed) throw sErr ?? new Error("signed url falhou");
+        next.set(normName(file.name), { url: signed.signedUrl, name: file.name });
+      } catch (e: any) {
+        toast.error(`Falha ao enviar ${file.name}: ${e?.message ?? e}`);
+      }
+      done++;
+      setUploadProgress({ done, total: files.length });
+    }
+    setUploadedMedia(next);
+    setUploading(false);
+    setUploadProgress(null);
+    toast.success(`${done} arquivo(s) enviado(s)`);
+  };
+
+  const clearUploads = () => setUploadedMedia(new Map());
+
 
   const load = async () => {
     if (!sheetUrl.trim()) { toast.error("Cole o link da planilha"); return; }
@@ -93,18 +141,34 @@ function ImportPage() {
     else setSelected(new Set(data.rows.map((r) => r.rowIndex)));
   };
 
+  const resolveMedia = (r: SheetRow): { url: string | null; sourceLabel: "upload" | "drive" | "url" | null } => {
+    const fname = basename(r.raw.foto ?? r.foto ?? "");
+    if (mediaSource === "upload") {
+      if (fname) {
+        const hit = uploadedMedia.get(normName(fname));
+        if (hit) return { url: hit.url, sourceLabel: "upload" };
+      }
+      if (/^https?:\/\//i.test(r.raw.foto ?? "")) return { url: r.raw.foto, sourceLabel: "url" };
+      return { url: null, sourceLabel: null };
+    }
+    if (r.fotoOk) return { url: publicAssetUrl(r.foto), sourceLabel: /^https?:/i.test(r.foto) ? "url" : "drive" };
+    return { url: null, sourceLabel: null };
+  };
+
   const stats = useMemo(() => {
     if (!data) return null;
     const sel = data.rows.filter((r) => selected.has(r.rowIndex));
+    const withPhoto = sel.filter((r) => resolveMedia(r).url).length;
     return {
       total: data.rows.length,
       selected: sel.length,
-      withPhoto: sel.filter((r) => r.fotoOk).length,
-      badPhoto: sel.filter((r) => r.foto && !r.fotoOk).length,
+      withPhoto,
+      badPhoto: sel.filter((r) => r.foto && !resolveMedia(r).url).length,
       scheduled: sel.filter((r) => r.scheduledAt).length,
       withComment: sel.filter((r) => r.comentario).length,
     };
-  }, [data, selected]);
+     
+  }, [data, selected, uploadedMedia, mediaSource]);
 
   const importAll = async (rowIndexes?: number[], scheduleOverride?: Map<number, string | null>) => {
     if (!data) return;
@@ -120,15 +184,16 @@ function ImportPage() {
     let i = 0;
     for (const r of list) {
       try {
-        const useMedia = r.fotoOk;
-        const type = useMedia ? r.tipo : (r.tipo === "photo" ? "text" : r.tipo);
+        const { url } = resolveMedia(r);
+        const useMedia = !!url;
+        const type = useMedia ? r.tipo : (r.tipo === "photo" || r.tipo === "video" ? "text" : r.tipo);
         const scheduledAt = scheduleOverride ? (scheduleOverride.get(r.rowIndex) ?? null) : r.scheduledAt;
 
         await createFn({
           data: {
             type: type as any,
             message: r.titulo,
-            mediaUrls: useMedia ? [publicAssetUrl(r.foto)] : [],
+            mediaUrls: useMedia ? [url!] : [],
             linkUrl: undefined,
             pageIds: pageSel,
             scheduledAt,
@@ -166,6 +231,59 @@ function ImportPage() {
           Opcionais: <code>tipo</code>, <code>tags</code>, <code>delay_comentario</code>.
         </p>
       </div>
+
+      <div className="rounded-xl border border-border bg-card p-5 space-y-3">
+        <div className="flex items-center justify-between gap-3 flex-wrap">
+          <div>
+            <Label className="text-sm">Origem das mídias</Label>
+            <p className="text-xs text-muted-foreground">
+              Faça upload do PC (recomendado) ou puxe pelo nome do arquivo no seu Google Drive.
+            </p>
+          </div>
+          <div className="flex gap-1 rounded-md border border-border p-1">
+            <Button
+              size="sm"
+              variant={mediaSource === "upload" ? "default" : "ghost"}
+              onClick={() => setMediaSource("upload")}
+            >
+              Upload do PC
+            </Button>
+            <Button
+              size="sm"
+              variant={mediaSource === "drive" ? "default" : "ghost"}
+              onClick={() => setMediaSource("drive")}
+            >
+              Google Drive
+            </Button>
+          </div>
+        </div>
+
+        {mediaSource === "upload" && (
+          <div className="space-y-2">
+            <div className="flex items-center gap-2 flex-wrap">
+              <Input
+                type="file"
+                multiple
+                accept="image/*,video/*"
+                disabled={uploading}
+                onChange={(e) => { handleUpload(e.target.files); e.target.value = ""; }}
+                className="max-w-md"
+              />
+              {uploadedMedia.size > 0 && (
+                <Button size="sm" variant="outline" onClick={clearUploads} disabled={uploading}>
+                  Limpar ({uploadedMedia.size})
+                </Button>
+              )}
+            </div>
+            <p className="text-xs text-muted-foreground">
+              {uploading
+                ? `Enviando ${uploadProgress?.done ?? 0}/${uploadProgress?.total ?? 0}…`
+                : `${uploadedMedia.size} arquivo(s) prontos. O nome do arquivo deve bater com a coluna "CAMINHO DA FOTO" da planilha.`}
+            </p>
+          </div>
+        )}
+      </div>
+
 
       <div className="rounded-xl border border-border bg-card p-5 space-y-3">
         <Label>Link ou ID da planilha</Label>
@@ -245,6 +363,7 @@ function ImportPage() {
             <div className="divide-y divide-border max-h-[60vh] overflow-y-auto">
               {data.rows.map((r) => {
                 const res = results.find((x) => x.row === r.rowIndex);
+                const resolved = resolveMedia(r);
                 return (
                   <div key={r.rowIndex} className="p-3 flex items-start gap-3 hover:bg-muted/20">
                     <Checkbox
@@ -260,10 +379,14 @@ function ImportPage() {
                             {new Date(r.scheduledAt).toLocaleString("pt-BR", { timeZone: "America/Sao_Paulo" })}
                           </Badge>
                         )}
-                        {r.fotoOk ? (
-                          <Badge variant="outline" className="text-[10px] text-success">foto OK</Badge>
+                        {resolved.url ? (
+                          <Badge variant="outline" className="text-[10px] text-success">
+                            mídia: {resolved.sourceLabel}
+                          </Badge>
                         ) : r.foto ? (
-                          <Badge variant="destructive" className="text-[10px]">caminho local — sem foto</Badge>
+                          <Badge variant="destructive" className="text-[10px]">
+                            {mediaSource === "upload" ? "faltando upload" : "sem foto"}
+                          </Badge>
                         ) : null}
                         {res && (
                           <Badge variant={res.ok ? "default" : "destructive"} title={res.error}>
@@ -283,9 +406,9 @@ function ImportPage() {
                           {r.comentario}
                         </a>
                       )}
-                      {r.foto && !r.fotoOk && (
+                      {r.foto && (
                         <div className="text-[10px] text-muted-foreground font-mono truncate">
-                          {r.foto}
+                          {basename(r.raw.foto ?? r.foto)}
                         </div>
                       )}
                     </div>
