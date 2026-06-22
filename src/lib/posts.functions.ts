@@ -153,7 +153,12 @@ export const publishPostNow = createServerFn({ method: "POST" })
     await supabase.from("posts").update({ status: "publishing" }).eq("id", post.id);
 
     let okCount = 0, failCount = 0;
+    let processedInBatch = 0;
     for (const t of targets) {
+      if (processedInBatch > 0 && processedInBatch % 10 === 0) {
+        await new Promise((r) => setTimeout(r, 30000));
+      }
+      processedInBatch++;
       const { data: pg } = await supabase.from("fb_pages").select("fb_page_id, access_token").eq("id", t.page_id).single();
       if (!pg) {
         await supabase.from("post_targets").update({ status: "failed", error: "página ausente" }).eq("id", t.id);
