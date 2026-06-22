@@ -352,11 +352,39 @@ function BulkUploadPage() {
             )}
           </div>
 
+          {/* 2b. Delay do primeiro comentário */}
+          <div className="rounded-xl border border-border bg-card p-5 space-y-2">
+            <Label>Delay do primeiro comentário (segundos após publicar)</Label>
+            <div className="flex items-center gap-2 flex-wrap">
+              <Input
+                type="number"
+                min={0}
+                max={86400}
+                value={commentDelaySec}
+                onChange={(e) => setCommentDelaySec(Math.max(0, Math.min(86400, Number(e.target.value) || 0)))}
+                className="w-32"
+              />
+              <span className="text-xs text-muted-foreground">segundos</span>
+              <div className="flex flex-wrap gap-1 ml-2">
+                {[0, 30, 60, 120, 300, 600, 1800, 3600].map((v) => (
+                  <Button key={v} type="button" size="sm" variant={commentDelaySec === v ? "default" : "outline"}
+                    className="h-7 px-2 text-xs" onClick={() => setCommentDelaySec(v)}>
+                    {v === 0 ? "imediato" : v < 60 ? `${v}s` : v < 3600 ? `${v / 60}min` : `${v / 3600}h`}
+                  </Button>
+                ))}
+              </div>
+            </div>
+            <p className="text-[11px] text-muted-foreground">
+              Aplicado apenas às linhas da planilha que tenham coluna de comentário preenchida.
+            </p>
+          </div>
+
           {/* 3. Mídias */}
           <div className="rounded-xl border border-border bg-card p-5 space-y-3">
             <Label>Mídias (arraste do seu PC)</Label>
             <MediaDropzone expectedFilenames={expectedFilenames} onChange={setLocalMedia} />
           </div>
+
 
           {/* 4. Grupos e rotação */}
           <div className="rounded-xl border border-border bg-card p-5 space-y-4">
