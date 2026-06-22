@@ -94,7 +94,7 @@ export const Route = createFileRoute("/api/public/cron/scheduler")({
           .from("posts")
           .select("id")
           .in("status", ["scheduled", "publishing"] as any)
-          .lte("scheduled_at", fallbackReadyIso)
+          .lte("scheduled_at", nowIso)
           .limit(100);
         for (const p of nativeScheduledPosts ?? []) {
           const { data: rows } = await supabaseAdmin
@@ -327,7 +327,8 @@ export const Route = createFileRoute("/api/public/cron/scheduler")({
             .select("id", { count: "exact", head: true })
             .eq("post_id", row.id)
             .is("fb_post_id", null)
-            .in("status", ["pending", "failed"] as any);
+            .eq("status", "pending")
+            .or(`next_retry_at.is.null,next_retry_at.lte.${nowIso}`);
           if (!unsentTargets) continue;
           const { data: claimed } = await supabaseAdmin
             .from("posts")
@@ -357,7 +358,14 @@ export const Route = createFileRoute("/api/public/cron/scheduler")({
 
           const candidateTargets: any[] = [];
           for (const target of targets ?? []) {
-            if (fallbackPublishedPages.has(target.page_id)) continue;
+            const nextCooldownIso = new Date(Date.now() + PAGE_FALLBACK_COOLDOWN_MS).toISOString();
+            if (fallbackPublishedPages.has(target.page_id)) {
+              await supabaseAdmin
+                .from("post_targets")
+                .update({ next_retry_at: nextCooldownIso } as any)
+                .eq("id", target.id);
+              continue;
+            }
             const { data: recentForPage } = await supabaseAdmin
               .from("post_targets")
               .select("id")
@@ -365,7 +373,13 @@ export const Route = createFileRoute("/api/public/cron/scheduler")({
               .eq("status", "published")
               .gte("published_at", new Date(Date.now() - PAGE_FALLBACK_COOLDOWN_MS).toISOString())
               .limit(1);
-            if (recentForPage?.length) continue;
+            if (recentForPage?.length) {
+              await supabaseAdmin
+                .from("post_targets")
+                .update({ next_retry_at: nextCooldownIso } as any)
+                .eq("id", target.id);
+              continue;
+            }
             candidateTargets.push(target);
           }
 
