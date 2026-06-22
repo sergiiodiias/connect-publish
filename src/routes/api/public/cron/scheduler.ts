@@ -216,7 +216,6 @@ export const Route = createFileRoute("/api/public/cron/scheduler")({
             await supabaseAdmin.from("auto_comments")
               .update({ status: "posted", posted_at: new Date().toISOString() })
               .eq("post_id", post.id).is("target_id", null).eq("status", "pending");
-          }
           } else {
             // Reset any orphan 'publishing' targets back to 'pending' so next tick retries them,
             // then hand the post back to 'scheduled'.
