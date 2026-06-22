@@ -172,9 +172,9 @@ export const deleteAllPosts = createServerFn({ method: "POST" })
   )
   .handler(async ({ data, context }) => {
     const { supabase, userId } = context;
-    let q = supabase.from("posts").delete().eq("user_id", userId);
+    let q = supabase.from("posts").delete({ count: "exact" }).eq("user_id", userId);
     if (data.status !== "all") q = q.eq("status", data.status as any);
-    const { error, count } = await q.select("id", { count: "exact", head: true });
+    const { error, count } = await q;
     if (error) throw new Error(error.message);
     return { ok: true, count: count ?? 0 };
   });
