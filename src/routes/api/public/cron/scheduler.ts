@@ -185,14 +185,26 @@ export const Route = createFileRoute("/api/public/cron/scheduler")({
               normalizeComment(item?.message ?? "") === wanted && (!item?.from?.id || item.from.id === pg.fb_page_id),
             );
             if (alreadyThere?.id) {
-              await supabaseAdmin.from("auto_comments").update({
-                status: "posted", fb_comment_id: alreadyThere.id, posted_at: new Date().toISOString(), error: "comentário já existia no Facebook; não repostado",
-              }).eq("id", c.id);
+              await supabaseAdmin
+                .from("auto_comments")
+                .update({
+                  status: "posted",
+                  fb_comment_id: alreadyThere.id,
+                  posted_at: new Date().toISOString(),
+                  error: "comentário já existia no Facebook; não repostado",
+                })
+                .eq("id", c.id);
               comments++;
               return;
             }
-            const r: any = await fbPost(`/${target.fb_post_id}/comments`, { access_token: pg.access_token, message: c.message });
-            await supabaseAdmin.from("auto_comments").update({ status: "posted", fb_comment_id: r.id, posted_at: new Date().toISOString() }).eq("id", c.id);
+            const r: any = await fbPost(`/${target.fb_post_id}/comments`, {
+              access_token: pg.access_token,
+              message: c.message,
+            });
+            await supabaseAdmin
+              .from("auto_comments")
+              .update({ status: "posted", fb_comment_id: r.id, posted_at: new Date().toISOString() })
+              .eq("id", c.id);
             comments++;
           } catch (e: any) {
             const msg = e?.message ?? "";
