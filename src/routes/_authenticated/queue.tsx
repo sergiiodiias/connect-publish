@@ -254,7 +254,9 @@ function QueuePage() {
         <div className="min-w-0">
           <h1 className="text-2xl font-bold tracking-tight truncate">Fila de Publicações</h1>
           <p className="text-sm text-muted-foreground">
-            {isLoading ? "Carregando…" : `${totalPosts} ${totalPosts === 1 ? "publicação" : "publicações"} em ${groups.length} ${groups.length === 1 ? "página" : "páginas"}`}
+            {isLoading
+              ? "Carregando…"
+              : `${totalPosts} ${totalPosts === 1 ? "publicação" : "publicações"} · página ${safePage} de ${totalPages}`}
           </p>
         </div>
         <div className="flex items-center gap-2 shrink-0">
