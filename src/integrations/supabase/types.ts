@@ -320,10 +320,13 @@ export type Database = {
       }
       post_targets: {
         Row: {
+          attempts: number
           created_at: string
           error: string | null
           fb_post_id: string | null
           id: string
+          last_attempt_at: string | null
+          next_retry_at: string | null
           page_id: string
           post_id: string
           published_at: string | null
@@ -331,10 +334,13 @@ export type Database = {
           user_id: string
         }
         Insert: {
+          attempts?: number
           created_at?: string
           error?: string | null
           fb_post_id?: string | null
           id?: string
+          last_attempt_at?: string | null
+          next_retry_at?: string | null
           page_id: string
           post_id: string
           published_at?: string | null
@@ -342,10 +348,13 @@ export type Database = {
           user_id: string
         }
         Update: {
+          attempts?: number
           created_at?: string
           error?: string | null
           fb_post_id?: string | null
           id?: string
+          last_attempt_at?: string | null
+          next_retry_at?: string | null
           page_id?: string
           post_id?: string
           published_at?: string | null
