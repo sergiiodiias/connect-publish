@@ -121,7 +121,17 @@ function QueuePage() {
                 </div>
               )}
             </div>
-            <Badge variant={p.status === "failed" ? "destructive" : p.status === "published" ? "default" : "outline"}>{p.status}</Badge>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button type="button" className="inline-flex items-center gap-1 cursor-help">
+                  <Badge variant={p.status === "failed" ? "destructive" : p.status === "published" ? "default" : "outline"}>{p.status}</Badge>
+                  <HelpCircle className="size-3 text-muted-foreground" />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent side="left" className="max-w-xs text-xs leading-relaxed">
+                {explainStatus(p)}
+              </TooltipContent>
+            </Tooltip>
             {(p.status === "failed" || p.error) && (
               <Button size="sm" variant="outline" onClick={() => setDetailId(p.id)}>
                 <Info className="size-3 mr-1" /> detalhes
