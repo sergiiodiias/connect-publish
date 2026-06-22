@@ -73,6 +73,11 @@ function QueuePage() {
   const publish = useMutation({ mutationFn: (id: string) => publishFn({ data: { postId: id } }), onSuccess: () => { toast.success("Publicado"); qc.invalidateQueries({ queryKey: ["posts"] }); }, onError: (e: any) => toast.error(e.message) });
   const cancel = useMutation({ mutationFn: (id: string) => cancelFn({ data: { postId: id } }), onSuccess: () => { toast.success("Cancelado"); qc.invalidateQueries({ queryKey: ["posts"] }); }, onError: (e: any) => toast.error(e.message) });
   const remove = useMutation({ mutationFn: (id: string) => delFn({ data: { postId: id } }), onSuccess: () => { toast.success("Removido"); qc.invalidateQueries({ queryKey: ["posts"] }); }, onError: (e: any) => toast.error(e.message) });
+  const removeAll = useMutation({
+    mutationFn: (s: string) => delAllFn({ data: { status: s as any } }),
+    onSuccess: (r: any) => { toast.success(`${r.count} post(s) removido(s)`); qc.invalidateQueries({ queryKey: ["posts"] }); },
+    onError: (e: any) => toast.error(e.message),
+  });
 
   const details = useQuery({
     queryKey: ["post-details", detailId],
