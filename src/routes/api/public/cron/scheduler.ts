@@ -30,8 +30,8 @@ export const Route = createFileRoute("/api/public/cron/scheduler")({
         };
         let rateLimitHit = false;
 
-        // -2) Reconcilia posts que já foram agendados nativamente no Facebook.
-        // Se todos os targets têm fb_post_id, o cron NÃO deve publicar de novo no horário.
+        // -2) Reconcilia targets que já foram agendados nativamente no Facebook.
+        // Qualquer target com fb_post_id NÃO deve ser publicado de novo pelo cron.
         const { data: nativeScheduledPosts } = await supabaseAdmin
           .from("posts")
           .select("id")
@@ -44,18 +44,21 @@ export const Route = createFileRoute("/api/public/cron/scheduler")({
             .select("id, fb_post_id, status")
             .eq("post_id", p.id);
           if (!rows?.length) continue;
-          const allNative = rows.every((r) => !!r.fb_post_id);
-          if (!allNative) continue;
           await supabaseAdmin.from("post_targets")
             .update({ status: "published", published_at: nowIso, error: null } as any)
             .eq("post_id", p.id)
             .not("fb_post_id", "is", null)
             .neq("status", "published");
-          await supabaseAdmin.from("posts").update({
-            status: "published",
-            published_at: nowIso,
-            error: null,
-          }).eq("id", p.id);
+          const allNative = rows.every((r) => !!r.fb_post_id);
+          const hasUnsentPending = rows.some((r) => !r.fb_post_id && (r.status === "pending" || r.status === "publishing"));
+          if (allNative || !hasUnsentPending) {
+            const failedCount = rows.filter((r) => !r.fb_post_id && r.status === "failed").length;
+            await supabaseAdmin.from("posts").update({
+              status: failedCount ? "partial" : "published",
+              published_at: nowIso,
+              error: failedCount ? `${failedCount} falha(s)` : null,
+            }).eq("id", p.id);
+          }
         }
 
         // -1) Auto-recuperação de comentários travados
