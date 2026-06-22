@@ -60,7 +60,12 @@ export const Route = createFileRoute("/api/public/cron/scheduler")({
           await supabaseAdmin.from("posts").update({ status: "publishing" }).eq("id", post.id);
           const { data: targets } = await supabaseAdmin.from("post_targets").select("id,page_id").eq("post_id", post.id);
           let ok = 0, fl = 0;
+          let batchCount = 0;
           for (const t of targets ?? []) {
+            if (batchCount > 0 && batchCount % 10 === 0) {
+              await new Promise((r) => setTimeout(r, 30000));
+            }
+            batchCount++;
             const { data: pg } = await supabaseAdmin.from("fb_pages").select("fb_page_id, access_token").eq("id", t.page_id).single();
             if (!pg) { await supabaseAdmin.from("post_targets").update({ status: "failed", error: "página ausente" }).eq("id", t.id); fl++; continue; }
             try {
