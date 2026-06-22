@@ -141,18 +141,34 @@ function ImportPage() {
     else setSelected(new Set(data.rows.map((r) => r.rowIndex)));
   };
 
+  const resolveMedia = (r: SheetRow): { url: string | null; sourceLabel: "upload" | "drive" | "url" | null } => {
+    const fname = basename(r.raw.foto ?? r.foto ?? "");
+    if (mediaSource === "upload") {
+      if (fname) {
+        const hit = uploadedMedia.get(normName(fname));
+        if (hit) return { url: hit.url, sourceLabel: "upload" };
+      }
+      if (/^https?:\/\//i.test(r.raw.foto ?? "")) return { url: r.raw.foto, sourceLabel: "url" };
+      return { url: null, sourceLabel: null };
+    }
+    if (r.fotoOk) return { url: publicAssetUrl(r.foto), sourceLabel: /^https?:/i.test(r.foto) ? "url" : "drive" };
+    return { url: null, sourceLabel: null };
+  };
+
   const stats = useMemo(() => {
     if (!data) return null;
     const sel = data.rows.filter((r) => selected.has(r.rowIndex));
+    const withPhoto = sel.filter((r) => resolveMedia(r).url).length;
     return {
       total: data.rows.length,
       selected: sel.length,
-      withPhoto: sel.filter((r) => r.fotoOk).length,
-      badPhoto: sel.filter((r) => r.foto && !r.fotoOk).length,
+      withPhoto,
+      badPhoto: sel.filter((r) => r.foto && !resolveMedia(r).url).length,
       scheduled: sel.filter((r) => r.scheduledAt).length,
       withComment: sel.filter((r) => r.comentario).length,
     };
-  }, [data, selected]);
+     
+  }, [data, selected, uploadedMedia, mediaSource]);
 
   const importAll = async (rowIndexes?: number[], scheduleOverride?: Map<number, string | null>) => {
     if (!data) return;
@@ -168,15 +184,16 @@ function ImportPage() {
     let i = 0;
     for (const r of list) {
       try {
-        const useMedia = r.fotoOk;
-        const type = useMedia ? r.tipo : (r.tipo === "photo" ? "text" : r.tipo);
+        const { url } = resolveMedia(r);
+        const useMedia = !!url;
+        const type = useMedia ? r.tipo : (r.tipo === "photo" || r.tipo === "video" ? "text" : r.tipo);
         const scheduledAt = scheduleOverride ? (scheduleOverride.get(r.rowIndex) ?? null) : r.scheduledAt;
 
         await createFn({
           data: {
             type: type as any,
             message: r.titulo,
-            mediaUrls: useMedia ? [publicAssetUrl(r.foto)] : [],
+            mediaUrls: useMedia ? [url!] : [],
             linkUrl: undefined,
             pageIds: pageSel,
             scheduledAt,
