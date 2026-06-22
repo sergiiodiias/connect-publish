@@ -109,7 +109,7 @@ export const publishPostNow = createServerFn({ method: "POST" })
       }
     }
 
-    const finalStatus = failCount === 0 ? "published" : (okCount === 0 ? "failed" : "published");
+    const finalStatus = failCount === 0 ? "published" : (okCount === 0 ? "failed" : "partial");
     await supabase.from("posts").update({
       status: finalStatus, published_at: new Date().toISOString(),
       error: failCount > 0 ? `${failCount} falha(s)` : null,
