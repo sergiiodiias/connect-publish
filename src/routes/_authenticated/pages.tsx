@@ -124,6 +124,10 @@ function PagesPage() {
           <p className="text-sm text-muted-foreground">Gerencie os Access Tokens das suas Páginas do Facebook.</p>
         </div>
         <div className="flex gap-2">
+          <Button variant="outline" onClick={() => refreshAll.mutate()} disabled={refreshAll.isPending || pages.length === 0} title="Roda o depurador oficial do Facebook e tenta renovar para token estendido">
+            <RefreshCw className={`size-4 mr-2 ${refreshAll.isPending ? "animate-spin" : ""}`} />
+            {refreshAll.isPending ? "Renovando…" : "Renovar agora"}
+          </Button>
           <Button variant="outline" onClick={() => refetchTokens()} disabled={tokenLoading || pages.length === 0}>
             <Clock className="size-4 mr-2" />{tokenLoading ? "Verificando…" : "Verificar validade"}
           </Button>
