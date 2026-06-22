@@ -13,11 +13,11 @@ import { Route as ResetPasswordRouteImport } from './routes/reset-password'
 import { Route as AuthRouteImport } from './routes/auth'
 import { Route as AuthenticatedRouteRouteImport } from './routes/_authenticated/route'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as AuthenticatedSheetsRouteImport } from './routes/_authenticated/sheets'
 import { Route as AuthenticatedSettingsRouteImport } from './routes/_authenticated/settings'
 import { Route as AuthenticatedQueueRouteImport } from './routes/_authenticated/queue'
 import { Route as AuthenticatedPagesRouteImport } from './routes/_authenticated/pages'
 import { Route as AuthenticatedLogsRouteImport } from './routes/_authenticated/logs'
-import { Route as AuthenticatedImportRouteImport } from './routes/_authenticated/import'
 import { Route as AuthenticatedGroupsRouteImport } from './routes/_authenticated/groups'
 import { Route as AuthenticatedExtractRouteImport } from './routes/_authenticated/extract'
 import { Route as AuthenticatedDashboardRouteImport } from './routes/_authenticated/dashboard'
@@ -43,6 +43,11 @@ const IndexRoute = IndexRouteImport.update({
   path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const AuthenticatedSheetsRoute = AuthenticatedSheetsRouteImport.update({
+  id: '/sheets',
+  path: '/sheets',
+  getParentRoute: () => AuthenticatedRouteRoute,
+} as any)
 const AuthenticatedSettingsRoute = AuthenticatedSettingsRouteImport.update({
   id: '/settings',
   path: '/settings',
@@ -61,11 +66,6 @@ const AuthenticatedPagesRoute = AuthenticatedPagesRouteImport.update({
 const AuthenticatedLogsRoute = AuthenticatedLogsRouteImport.update({
   id: '/logs',
   path: '/logs',
-  getParentRoute: () => AuthenticatedRouteRoute,
-} as any)
-const AuthenticatedImportRoute = AuthenticatedImportRouteImport.update({
-  id: '/import',
-  path: '/import',
   getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
 const AuthenticatedGroupsRoute = AuthenticatedGroupsRouteImport.update({
@@ -102,11 +102,11 @@ export interface FileRoutesByFullPath {
   '/dashboard': typeof AuthenticatedDashboardRoute
   '/extract': typeof AuthenticatedExtractRoute
   '/groups': typeof AuthenticatedGroupsRoute
-  '/import': typeof AuthenticatedImportRoute
   '/logs': typeof AuthenticatedLogsRoute
   '/pages': typeof AuthenticatedPagesRoute
   '/queue': typeof AuthenticatedQueueRoute
   '/settings': typeof AuthenticatedSettingsRoute
+  '/sheets': typeof AuthenticatedSheetsRoute
   '/api/public/cron/scheduler': typeof ApiPublicCronSchedulerRoute
 }
 export interface FileRoutesByTo {
@@ -117,11 +117,11 @@ export interface FileRoutesByTo {
   '/dashboard': typeof AuthenticatedDashboardRoute
   '/extract': typeof AuthenticatedExtractRoute
   '/groups': typeof AuthenticatedGroupsRoute
-  '/import': typeof AuthenticatedImportRoute
   '/logs': typeof AuthenticatedLogsRoute
   '/pages': typeof AuthenticatedPagesRoute
   '/queue': typeof AuthenticatedQueueRoute
   '/settings': typeof AuthenticatedSettingsRoute
+  '/sheets': typeof AuthenticatedSheetsRoute
   '/api/public/cron/scheduler': typeof ApiPublicCronSchedulerRoute
 }
 export interface FileRoutesById {
@@ -134,11 +134,11 @@ export interface FileRoutesById {
   '/_authenticated/dashboard': typeof AuthenticatedDashboardRoute
   '/_authenticated/extract': typeof AuthenticatedExtractRoute
   '/_authenticated/groups': typeof AuthenticatedGroupsRoute
-  '/_authenticated/import': typeof AuthenticatedImportRoute
   '/_authenticated/logs': typeof AuthenticatedLogsRoute
   '/_authenticated/pages': typeof AuthenticatedPagesRoute
   '/_authenticated/queue': typeof AuthenticatedQueueRoute
   '/_authenticated/settings': typeof AuthenticatedSettingsRoute
+  '/_authenticated/sheets': typeof AuthenticatedSheetsRoute
   '/api/public/cron/scheduler': typeof ApiPublicCronSchedulerRoute
 }
 export interface FileRouteTypes {
@@ -151,11 +151,11 @@ export interface FileRouteTypes {
     | '/dashboard'
     | '/extract'
     | '/groups'
-    | '/import'
     | '/logs'
     | '/pages'
     | '/queue'
     | '/settings'
+    | '/sheets'
     | '/api/public/cron/scheduler'
   fileRoutesByTo: FileRoutesByTo
   to:
@@ -166,11 +166,11 @@ export interface FileRouteTypes {
     | '/dashboard'
     | '/extract'
     | '/groups'
-    | '/import'
     | '/logs'
     | '/pages'
     | '/queue'
     | '/settings'
+    | '/sheets'
     | '/api/public/cron/scheduler'
   id:
     | '__root__'
@@ -182,11 +182,11 @@ export interface FileRouteTypes {
     | '/_authenticated/dashboard'
     | '/_authenticated/extract'
     | '/_authenticated/groups'
-    | '/_authenticated/import'
     | '/_authenticated/logs'
     | '/_authenticated/pages'
     | '/_authenticated/queue'
     | '/_authenticated/settings'
+    | '/_authenticated/sheets'
     | '/api/public/cron/scheduler'
   fileRoutesById: FileRoutesById
 }
@@ -228,6 +228,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/_authenticated/sheets': {
+      id: '/_authenticated/sheets'
+      path: '/sheets'
+      fullPath: '/sheets'
+      preLoaderRoute: typeof AuthenticatedSheetsRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
     '/_authenticated/settings': {
       id: '/_authenticated/settings'
       path: '/settings'
@@ -254,13 +261,6 @@ declare module '@tanstack/react-router' {
       path: '/logs'
       fullPath: '/logs'
       preLoaderRoute: typeof AuthenticatedLogsRouteImport
-      parentRoute: typeof AuthenticatedRouteRoute
-    }
-    '/_authenticated/import': {
-      id: '/_authenticated/import'
-      path: '/import'
-      fullPath: '/import'
-      preLoaderRoute: typeof AuthenticatedImportRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
     '/_authenticated/groups': {
@@ -306,11 +306,11 @@ interface AuthenticatedRouteRouteChildren {
   AuthenticatedDashboardRoute: typeof AuthenticatedDashboardRoute
   AuthenticatedExtractRoute: typeof AuthenticatedExtractRoute
   AuthenticatedGroupsRoute: typeof AuthenticatedGroupsRoute
-  AuthenticatedImportRoute: typeof AuthenticatedImportRoute
   AuthenticatedLogsRoute: typeof AuthenticatedLogsRoute
   AuthenticatedPagesRoute: typeof AuthenticatedPagesRoute
   AuthenticatedQueueRoute: typeof AuthenticatedQueueRoute
   AuthenticatedSettingsRoute: typeof AuthenticatedSettingsRoute
+  AuthenticatedSheetsRoute: typeof AuthenticatedSheetsRoute
 }
 
 const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
@@ -318,11 +318,11 @@ const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
   AuthenticatedDashboardRoute: AuthenticatedDashboardRoute,
   AuthenticatedExtractRoute: AuthenticatedExtractRoute,
   AuthenticatedGroupsRoute: AuthenticatedGroupsRoute,
-  AuthenticatedImportRoute: AuthenticatedImportRoute,
   AuthenticatedLogsRoute: AuthenticatedLogsRoute,
   AuthenticatedPagesRoute: AuthenticatedPagesRoute,
   AuthenticatedQueueRoute: AuthenticatedQueueRoute,
   AuthenticatedSettingsRoute: AuthenticatedSettingsRoute,
+  AuthenticatedSheetsRoute: AuthenticatedSheetsRoute,
 }
 
 const AuthenticatedRouteRouteWithChildren =
