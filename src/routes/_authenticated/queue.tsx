@@ -203,6 +203,7 @@ function QueuePage() {
           )}
         </DialogContent>
       </Dialog>
+    </TooltipProvider>
     </div>
   );
 }
