@@ -172,11 +172,9 @@ export const Route = createFileRoute("/api/public/cron/scheduler")({
                   run_at: new Date(Date.now() + c.delay_seconds * 1000).toISOString(),
                 });
               }
-              if (tmpl?.length) {
-                await supabaseAdmin.from("auto_comments")
-                  .update({ status: "posted", posted_at: new Date().toISOString() })
-                  .in("id", tmpl.map((x: any) => x.id));
-              }
+              // NÃO marcar template como posted aqui — outros targets do mesmo post
+              // ainda precisam encontrar o template para instanciar seus comentários.
+              // O template é marcado posted na finalização do post (quando todos targets terminam).
             } catch (e: any) {
               const msg = e?.message ?? "";
               const isRate = /limit|#4|#17|#32|#613/i.test(msg);
