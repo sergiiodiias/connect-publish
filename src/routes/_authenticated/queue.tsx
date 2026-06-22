@@ -17,7 +17,7 @@ import {
   Send, Trash2, X, AlertCircle, Info, RefreshCw, ExternalLink,
   ShieldCheck, CheckCircle2, XCircle, MoreHorizontal, ImageIcon,
   Video, Link as LinkIcon, FileText, Plus, Calendar, Download,
-  ChevronLeft, ChevronRight,
+  ChevronLeft, ChevronRight, Clock, AlertTriangle,
 } from "lucide-react";
 import { toast } from "sonner";
 import { useEffect, useMemo, useState } from "react";
@@ -251,6 +251,68 @@ function QueuePage() {
     enabled: !!detailId,
   });
 
+  // Stuck-post alerts: pending targets whose post was due >5min ago,
+  // or any target marked failed after exhausting retries.
+  const STUCK_AFTER_MIN = 5;
+  const { data: stuckRows = [] } = useQuery({
+    queryKey: ["queue-stuck"],
+    refetchInterval: 30_000,
+    queryFn: async () => {
+      const cutoff = new Date(Date.now() - STUCK_AFTER_MIN * 60_000).toISOString();
+      const { data } = await supabase
+        .from("post_targets")
+        .select(`
+          id, status, error, attempts, last_attempt_at, next_retry_at, page_id,
+          fb_pages!inner(name),
+          posts!inner(id, message, scheduled_at, status)
+        `)
+        .in("status", ["pending", "failed"])
+        .order("last_attempt_at", { ascending: false, nullsFirst: false })
+        .limit(200);
+      const rows = (data ?? []) as any[];
+      return rows.filter((r) => {
+        const sched = r.posts?.scheduled_at;
+        if (r.status === "failed") return (r.attempts ?? 0) > 0 || (sched && sched < cutoff);
+        // pending: stuck if scheduled before cutoff
+        return sched && sched < cutoff;
+      });
+    },
+  });
+
+  const stuckByPost = useMemo(() => {
+    const m = new Map<string, { postId: string; message: string | null; scheduledAt: string | null; targets: any[] }>();
+    for (const r of stuckRows as any[]) {
+      const k = r.posts.id;
+      const g = m.get(k) ?? { postId: k, message: r.posts.message, scheduledAt: r.posts.scheduled_at, targets: [] as any[] };
+      g.targets.push(r);
+      m.set(k, g);
+    }
+    return [...m.values()];
+  }, [stuckRows]);
+
+  const retryStuck = useMutation({
+    mutationFn: async (postId: string) => {
+      // Reset failed targets back to pending and clear retry gate so the next cron tick picks them up.
+      await supabase.from("post_targets")
+        .update({ status: "pending", attempts: 0, next_retry_at: null, error: null } as any)
+        .eq("post_id", postId)
+        .in("status", ["failed"]);
+      // Also drop the retry gate on pending targets so they're tried immediately.
+      await supabase.from("post_targets")
+        .update({ next_retry_at: null } as any)
+        .eq("post_id", postId)
+        .eq("status", "pending");
+      // Make sure the post is scheduled so the cron picks it up.
+      await supabase.from("posts").update({ status: "scheduled", error: null }).eq("id", postId);
+    },
+    onSuccess: () => {
+      toast.success("Reagendado — próxima execução do cron tentará novamente");
+      qc.invalidateQueries({ queryKey: ["queue"] });
+      qc.invalidateQueries({ queryKey: ["queue-stuck"] });
+    },
+    onError: (e: any) => toast.error(e.message),
+  });
+
   return (
     <div className="p-6 md:p-8 space-y-8">
       {/* Header */}
@@ -348,6 +410,77 @@ function QueuePage() {
           Excluir {status === "all" ? "todos" : `(${new Set(filteredRows.map((r) => r.post_id)).size})`}
         </Button>
       </div>
+
+      {/* Stuck-posts alert banner */}
+      {stuckByPost.length > 0 && (
+        <div className="rounded-xl border border-destructive/40 bg-destructive/5 p-4 space-y-3">
+          <div className="flex items-start gap-3">
+            <AlertTriangle className="size-5 text-destructive shrink-0 mt-0.5" />
+            <div className="min-w-0 flex-1">
+              <h3 className="text-sm font-semibold text-destructive">
+                {stuckByPost.length} {stuckByPost.length === 1 ? "post travado" : "posts travados"} há mais de {STUCK_AFTER_MIN} min
+              </h3>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                O cron tenta automaticamente até 3 vezes (backoff de 1, 5 e 15 min). Use "Tentar agora" para forçar uma nova tentativa imediata.
+              </p>
+            </div>
+          </div>
+          <div className="space-y-2 max-h-72 overflow-y-auto">
+            {stuckByPost.map((g) => {
+              const failedAll = g.targets.every((t) => t.status === "failed");
+              const waiting = g.targets.find((t) => t.next_retry_at && t.next_retry_at > new Date().toISOString());
+              const maxAttempts = Math.max(...g.targets.map((t) => t.attempts ?? 0));
+              const firstError = g.targets.find((t) => t.error)?.error;
+              return (
+                <div key={g.postId} className="rounded-md border border-border bg-card p-3 grid grid-cols-[minmax(0,1fr)_auto] gap-3 items-center">
+                  <div className="min-w-0 space-y-1">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="text-xs font-medium truncate max-w-[24rem]">
+                        {g.message?.trim() || <span className="italic text-muted-foreground">Sem texto</span>}
+                      </span>
+                      <Badge variant={failedAll ? "destructive" : "outline"} className="text-[10px]">
+                        {failedAll ? "Falhou" : "Aguardando retry"}
+                      </Badge>
+                      <span className="text-[10px] text-muted-foreground inline-flex items-center gap-1">
+                        <Clock className="size-3" />
+                        agendado {formatWhen(g.scheduledAt)}
+                      </span>
+                      <span className="text-[10px] text-muted-foreground">
+                        {g.targets.length} pág · tentativa {maxAttempts}/3
+                      </span>
+                      {waiting && (
+                        <span className="text-[10px] text-amber-400 inline-flex items-center gap-1">
+                          <RefreshCw className="size-3" />
+                          próximo retry {formatWhen(waiting.next_retry_at)}
+                        </span>
+                      )}
+                    </div>
+                    {firstError && (
+                      <div className="text-[11px] text-destructive break-words line-clamp-2 flex items-start gap-1">
+                        <AlertCircle className="size-3 mt-0.5 shrink-0" /> {firstError}
+                      </div>
+                    )}
+                  </div>
+                  <div className="flex gap-1 shrink-0">
+                    <Button size="sm" variant="ghost" onClick={() => setDetailId(g.postId)}>
+                      <Info className="size-3.5 mr-1" /> Detalhes
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled={retryStuck.isPending}
+                      onClick={() => retryStuck.mutate(g.postId)}
+                    >
+                      <RefreshCw className="size-3.5 mr-1" /> Tentar agora
+                    </Button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
 
       {/* Empty / loading */}
       {isLoading && (
