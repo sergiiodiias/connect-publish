@@ -144,8 +144,15 @@ export const readSheet = createServerFn({ method: "POST" })
       const raw: Record<string, string> = {};
       headers.forEach((h, idx) => { raw[h] = (row[idx] ?? "").toString().trim(); });
 
-      const foto = raw.foto ?? "";
-      const fotoOk = /^https?:\/\//i.test(foto);
+      let foto = raw.foto ?? "";
+      let fotoOk = /^https?:\/\//i.test(foto);
+      if (foto && !fotoOk) {
+        const fname = foto.split(/[\\/]/).pop()?.trim() ?? "";
+        if (fname) {
+          foto = `/api/public/drive/${encodeURIComponent(fname)}`;
+          fotoOk = true;
+        }
+      }
       const titulo = raw.titulo ?? "";
       if (!titulo) continue; // need title at minimum
 
