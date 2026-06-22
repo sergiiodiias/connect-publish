@@ -26,3 +26,10 @@ export async function fbPost<T = any>(path: string, params: Record<string, strin
   if (!res.ok || json.error) throw new Error(fmtErr(json, `Graph POST ${path} ${res.status}`));
   return json;
 }
+
+export async function fbPostMultipart<T = any>(path: string, form: FormData): Promise<T> {
+  const res = await fetch(FB_GRAPH + path, { method: "POST", body: form });
+  const json: any = await res.json();
+  if (!res.ok || json.error) throw new Error(fmtErr(json, `Graph multipart POST ${path} ${res.status}`));
+  return json;
+}
