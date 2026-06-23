@@ -84,6 +84,12 @@ export async function runRefreshTokens(opts: { force?: boolean } = {}): Promise<
       errors.push({ pageId: row.id, error: e?.message ?? "erro" });
     }
 
+    // Pick this user's credentials, falling back to global env.
+    const userCreds = credsByUser.get(row.user_id);
+    const appId = userCreds?.appId || envAppId;
+    const appSecret = userCreds?.appSecret || envAppSecret;
+    const canExtend = !!(appId && appSecret);
+
     // Manual "Renovar agora" → force exchange on every valid token.
     // Cron monthly → only when expiry is within 20 days (avoids app-level rate quota).
     const TWENTY_DAYS_MS = 20 * 24 * 60 * 60 * 1000;
@@ -99,6 +105,7 @@ export async function runRefreshTokens(opts: { force?: boolean } = {}): Promise<
           client_secret: appSecret!,
           fb_exchange_token: row.access_token,
         });
+
         if (r?.access_token && r.access_token !== row.access_token) {
           update.access_token = r.access_token;
           update.token_last_refreshed_at = new Date().toISOString();
