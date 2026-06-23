@@ -30,7 +30,7 @@ export const updateMyFbApp = createServerFn({ method: "POST" })
   )
   .handler(async ({ data, context }) => {
     const { supabase, userId } = context;
-    const patch: Record<string, string | null> = {};
+    const patch: { fb_app_id?: string | null; fb_app_secret?: string | null } = {};
     if (data.clear) {
       patch.fb_app_id = null;
       patch.fb_app_secret = null;
@@ -41,6 +41,7 @@ export const updateMyFbApp = createServerFn({ method: "POST" })
       }
     }
     const { error } = await supabase.from("profiles").update(patch).eq("id", userId);
+
     if (error) throw new Error(error.message);
     return { ok: true as const };
   });
