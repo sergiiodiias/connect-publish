@@ -181,9 +181,12 @@ export const inspectTokens = createServerFn({ method: "POST" })
       .eq("user_id", userId);
     if (error) throw new Error(error.message);
 
-    const appId = process.env.FB_APP_ID;
-    const appSecret = process.env.FB_APP_SECRET;
+    const { data: profile } = await supabase
+      .from("profiles").select("fb_app_id, fb_app_secret").eq("id", userId).single();
+    const appId = profile?.fb_app_id || process.env.FB_APP_ID;
+    const appSecret = profile?.fb_app_secret || process.env.FB_APP_SECRET;
     const canExtend = !!(appId && appSecret);
+
 
     const out: Record<string, {
       isValid: boolean;

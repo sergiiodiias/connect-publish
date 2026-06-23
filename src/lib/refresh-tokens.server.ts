@@ -34,9 +34,19 @@ export async function runRefreshTokens(opts: { force?: boolean } = {}): Promise<
     .select("id, user_id, fb_page_id, name, access_token");
   if (error) throw new Error(error.message);
 
-  const appId = process.env.FB_APP_ID;
-  const appSecret = process.env.FB_APP_SECRET;
-  const canExtend = !!(appId && appSecret);
+  // Per-user FB App credentials (fallback to global env vars).
+  const userIds = Array.from(new Set((rows ?? []).map((r) => r.user_id)));
+  const { data: profiles } = userIds.length
+    ? await supabaseAdmin.from("profiles").select("id, fb_app_id, fb_app_secret").in("id", userIds)
+    : { data: [] as any[] };
+  const credsByUser = new Map<string, { appId?: string; appSecret?: string }>();
+  for (const p of profiles ?? []) {
+    credsByUser.set(p.id, { appId: p.fb_app_id ?? undefined, appSecret: p.fb_app_secret ?? undefined });
+  }
+  const envAppId = process.env.FB_APP_ID;
+  const envAppSecret = process.env.FB_APP_SECRET;
+  const canExtendAny = !!(envAppId && envAppSecret) || (profiles ?? []).some((p) => p.fb_app_id && p.fb_app_secret);
+
 
   let debugged = 0;
   let refreshed = 0;
@@ -74,6 +84,12 @@ export async function runRefreshTokens(opts: { force?: boolean } = {}): Promise<
       errors.push({ pageId: row.id, error: e?.message ?? "erro" });
     }
 
+    // Pick this user's credentials, falling back to global env.
+    const userCreds = credsByUser.get(row.user_id);
+    const appId = userCreds?.appId || envAppId;
+    const appSecret = userCreds?.appSecret || envAppSecret;
+    const canExtend = !!(appId && appSecret);
+
     // Manual "Renovar agora" → force exchange on every valid token.
     // Cron monthly → only when expiry is within 20 days (avoids app-level rate quota).
     const TWENTY_DAYS_MS = 20 * 24 * 60 * 60 * 1000;
@@ -89,6 +105,7 @@ export async function runRefreshTokens(opts: { force?: boolean } = {}): Promise<
           client_secret: appSecret!,
           fb_exchange_token: row.access_token,
         });
+
         if (r?.access_token && r.access_token !== row.access_token) {
           update.access_token = r.access_token;
           update.token_last_refreshed_at = new Date().toISOString();
@@ -130,5 +147,5 @@ export async function runRefreshTokens(opts: { force?: boolean } = {}): Promise<
     });
   });
 
-  return { ok: true, total: rows?.length ?? 0, debugged, refreshed, invalidated, canExtend, errors };
+  return { ok: true, total: rows?.length ?? 0, debugged, refreshed, invalidated, canExtend: canExtendAny, errors };
 }
