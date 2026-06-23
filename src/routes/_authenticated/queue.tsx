@@ -382,6 +382,34 @@ function QueuePage() {
     onError: (e: any) => toast.error(e.message),
   });
 
+  const dismissStuck = useMutation({
+    mutationFn: async (postId: string) => {
+      await delFn({ data: { postId } });
+    },
+    onSuccess: () => {
+      toast.success("Post travado removido");
+      qc.invalidateQueries({ queryKey: ["queue"] });
+      qc.invalidateQueries({ queryKey: ["queue-stuck"] });
+    },
+    onError: (e: any) => toast.error(e.message),
+  });
+
+  const dismissAllStuck = useMutation({
+    mutationFn: async (postIds: string[]) => {
+      let ok = 0;
+      for (const id of postIds) {
+        try { await delFn({ data: { postId: id } }); ok++; } catch (e) { console.warn("dismiss failed", id, e); }
+      }
+      return ok;
+    },
+    onSuccess: (n) => {
+      toast.success(`${n} post(s) travado(s) removido(s)`);
+      qc.invalidateQueries({ queryKey: ["queue"] });
+      qc.invalidateQueries({ queryKey: ["queue-stuck"] });
+    },
+    onError: (e: any) => toast.error(e.message),
+  });
+
   return (
     <div className="p-6 md:p-8 space-y-8">
       {/* Header */}
@@ -503,10 +531,24 @@ function QueuePage() {
                 {stuckByPost.length} {stuckByPost.length === 1 ? "post travado" : "posts travados"} há mais de {STUCK_AFTER_MIN} min
               </h3>
               <p className="text-xs text-muted-foreground mt-0.5">
-                O cron tenta automaticamente até 3 vezes (backoff de 1, 5 e 15 min). Use "Tentar agora" para forçar uma nova tentativa imediata.
+                O cron tenta automaticamente até 3 vezes (backoff de 1, 5 e 15 min). Use "Tentar agora" para forçar uma nova tentativa imediata, ou "Limpar" para descartar.
               </p>
             </div>
+            <Button
+              size="sm"
+              variant="outline"
+              className="shrink-0 text-destructive hover:text-destructive hover:bg-destructive/10 border-destructive/40"
+              disabled={dismissAllStuck.isPending}
+              onClick={() => {
+                if (confirm(`Remover todos os ${stuckByPost.length} posts travados? Esta ação não pode ser desfeita.`))
+                  dismissAllStuck.mutate(stuckByPost.map((g) => g.postId));
+              }}
+            >
+              <Trash2 className="size-3.5 mr-1" />
+              {dismissAllStuck.isPending ? "Limpando…" : "Limpar todos"}
+            </Button>
           </div>
+
           <div className="space-y-2 max-h-72 overflow-y-auto">
             {stuckByPost.map((g) => {
               const failedAll = g.targets.every((t) => t.status === "failed");
@@ -554,6 +596,18 @@ function QueuePage() {
                       onClick={() => retryStuck.mutate(g.postId)}
                     >
                       <RefreshCw className="size-3.5 mr-1" /> Tentar agora
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="text-destructive hover:text-destructive hover:bg-destructive/10"
+                      disabled={dismissStuck.isPending}
+                      onClick={() => {
+                        if (confirm("Remover este post travado? Esta ação não pode ser desfeita."))
+                          dismissStuck.mutate(g.postId);
+                      }}
+                    >
+                      <Trash2 className="size-3.5 mr-1" /> Limpar
                     </Button>
                   </div>
                 </div>
