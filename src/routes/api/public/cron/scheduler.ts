@@ -274,9 +274,37 @@ export const Route = createFileRoute("/api/public/cron/scheduler")({
               .eq("id", c.id);
             return;
           }
+          const { data: postForComment } = await supabaseAdmin
+            .from("posts")
+            .select("type, message")
+            .eq("id", c.post_id)
+            .single();
           try {
             const wanted = normalizeComment(c.message ?? "");
             const commentObjectIds = [String(target.fb_post_id)];
+            if (postForComment?.type === "video") {
+              try {
+                const videos: any = await fbGet(`/${pg.fb_page_id}/videos`, {
+                  access_token: pg.access_token,
+                  fields: "id,post_id,description,created_time",
+                  limit: "100",
+                });
+                const postMessage = normalizeComment(postForComment.message ?? "");
+                const matchedVideo = (videos?.data ?? []).find((item: any) => {
+                  const desc = normalizeComment(item?.description ?? "");
+                  return desc && postMessage && (desc === postMessage || desc.includes(postMessage.slice(0, 80)));
+                });
+                if (matchedVideo?.id && !commentObjectIds.includes(String(matchedVideo.id))) {
+                  commentObjectIds.push(String(matchedVideo.id));
+                  await supabaseAdmin
+                    .from("post_targets")
+                    .update({ fb_post_id: String(matchedVideo.id) } as any)
+                    .eq("id", c.target_id!);
+                }
+              } catch {
+                // If video lookup fails, still try the stored ids below.
+              }
+            }
             if (!String(target.fb_post_id).includes("_")) {
               // Videos often return only the video id. Comments must be posted on PAGEID_VIDEOID.
               commentObjectIds.push(`${pg.fb_page_id}_${target.fb_post_id}`);
