@@ -363,7 +363,7 @@ export const Route = createFileRoute("/api/public/cron/scheduler")({
               } catch (e: any) {
                 lastCommentError = e?.message ?? String(e);
                 if (/limit|#4\b|#17\b|#32\b|#613/i.test(lastCommentError)) throw e;
-                if (!/nonexisting field \(comments\)|Tried accessing nonexisting field \(comments\)|#100\b/i.test(lastCommentError)) break;
+                if (!/does not exist|missing permissions|does not support|nonexisting field \(comments\)|Tried accessing nonexisting field \(comments\)|#100\b/i.test(lastCommentError)) break;
               }
             }
 
