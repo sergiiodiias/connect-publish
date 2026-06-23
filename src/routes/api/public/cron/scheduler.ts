@@ -159,7 +159,7 @@ export const Route = createFileRoute("/api/public/cron/scheduler")({
           .is("fb_comment_id", null)
           .limit(100);
         const transientRe =
-          /limit|rate|timeout|temporar|network|fetch failed|#4\b|#17\b|#32\b|#613/i;
+          /limit|rate|timeout|temporar|network|fetch failed|nonexisting field \(comments\)|pages_read_engagement|impersonating a user's page|#4\b|#17\b|#32\b|#100\b|#190\b|#613/i;
         for (const r of (retryable ?? []) as any[]) {
           const att = r.attempts ?? 0;
           if (att >= 3) continue;
@@ -275,44 +275,75 @@ export const Route = createFileRoute("/api/public/cron/scheduler")({
             return;
           }
           try {
-            const existing: any = await fbGet(`/${target.fb_post_id}/comments`, {
-              access_token: pg.access_token,
-              fields: "id,message,from{name,id}",
-              limit: "25",
-              order: "reverse_chronological",
-            });
             const wanted = normalizeComment(c.message ?? "");
-            const alreadyThere = (existing?.data ?? []).find(
-              (item: any) =>
-                normalizeComment(item?.message ?? "") === wanted &&
-                (!item?.from?.id || item.from.id === pg.fb_page_id),
-            );
-            if (alreadyThere?.id) {
-              await supabaseAdmin
-                .from("auto_comments")
-                .update({
-                  status: "posted",
-                  fb_comment_id: alreadyThere.id,
-                  posted_at: new Date().toISOString(),
-                  error: "comentário já existia no Facebook; não repostado",
-                })
-                .eq("id", c.id);
-              comments++;
-              return;
+            const commentObjectIds = [String(target.fb_post_id)];
+            if (!String(target.fb_post_id).includes("_")) {
+              // Videos often return only the video id. Comments must be posted on PAGEID_VIDEOID.
+              commentObjectIds.push(`${pg.fb_page_id}_${target.fb_post_id}`);
             }
-            const r: any = await fbPost(`/${target.fb_post_id}/comments`, {
-              access_token: pg.access_token,
-              message: c.message,
-            });
-            await supabaseAdmin
-              .from("auto_comments")
-              .update({
-                status: "posted",
-                fb_comment_id: r.id,
-                posted_at: new Date().toISOString(),
-              })
-              .eq("id", c.id);
-            comments++;
+            let lastCommentError = "";
+
+            for (const objectId of commentObjectIds) {
+              let canPostToObject = true;
+              try {
+                const existing: any = await fbGet(`/${objectId}/comments`, {
+                  access_token: pg.access_token,
+                  fields: "id,message,from{name,id}",
+                  limit: "25",
+                  order: "reverse_chronological",
+                });
+                const alreadyThere = (existing?.data ?? []).find(
+                  (item: any) =>
+                    normalizeComment(item?.message ?? "") === wanted &&
+                    (!item?.from?.id || item.from.id === pg.fb_page_id),
+                );
+                if (alreadyThere?.id) {
+                  await supabaseAdmin
+                    .from("auto_comments")
+                    .update({
+                      status: "posted",
+                      fb_comment_id: alreadyThere.id,
+                      posted_at: new Date().toISOString(),
+                      error: "comentário já existia no Facebook; não repostado",
+                    })
+                    .eq("id", c.id);
+                  comments++;
+                  return;
+                }
+              } catch (e: any) {
+                lastCommentError = e?.message ?? String(e);
+                if (/limit|#4\b|#17\b|#32\b|#613/i.test(lastCommentError)) throw e;
+                if (/nonexisting field \(comments\)|Tried accessing nonexisting field \(comments\)|#100\b/i.test(lastCommentError)) {
+                  canPostToObject = false;
+                }
+                // Permission/read glitches can block duplicate-check reads while POST still works.
+              }
+
+              if (!canPostToObject) continue;
+              try {
+                const r: any = await fbPost(`/${objectId}/comments`, {
+                  access_token: pg.access_token,
+                  message: c.message,
+                });
+                await supabaseAdmin
+                  .from("auto_comments")
+                  .update({
+                    status: "posted",
+                    fb_comment_id: r.id,
+                    posted_at: new Date().toISOString(),
+                    error: null,
+                  })
+                  .eq("id", c.id);
+                comments++;
+                return;
+              } catch (e: any) {
+                lastCommentError = e?.message ?? String(e);
+                if (/limit|#4\b|#17\b|#32\b|#613/i.test(lastCommentError)) throw e;
+                if (!/nonexisting field \(comments\)|Tried accessing nonexisting field \(comments\)|#100\b/i.test(lastCommentError)) break;
+              }
+            }
+
+            throw new Error(lastCommentError || "não foi possível comentar no post");
           } catch (e: any) {
             const msg = e?.message ?? "";
             await supabaseAdmin
