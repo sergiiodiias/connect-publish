@@ -284,7 +284,6 @@ export const Route = createFileRoute("/api/public/cron/scheduler")({
             let lastCommentError = "";
 
             for (const objectId of commentObjectIds) {
-              let canPostToObject = true;
               try {
                 const existing: any = await fbGet(`/${objectId}/comments`, {
                   access_token: pg.access_token,
@@ -313,13 +312,10 @@ export const Route = createFileRoute("/api/public/cron/scheduler")({
               } catch (e: any) {
                 lastCommentError = e?.message ?? String(e);
                 if (/limit|#4\b|#17\b|#32\b|#613/i.test(lastCommentError)) throw e;
-                if (/nonexisting field \(comments\)|Tried accessing nonexisting field \(comments\)|#100\b/i.test(lastCommentError)) {
-                  canPostToObject = false;
-                }
-                // Permission/read glitches can block duplicate-check reads while POST still works.
+                // Some video/photo objects do not allow reading comments, but still accept comment creation.
+                // Permission/read glitches can also block duplicate-check reads while POST still works.
               }
 
-              if (!canPostToObject) continue;
               try {
                 const r: any = await fbPost(`/${objectId}/comments`, {
                   access_token: pg.access_token,
