@@ -20,7 +20,6 @@ import { Route as AuthenticatedPagesRouteImport } from './routes/_authenticated/
 import { Route as AuthenticatedLogsRouteImport } from './routes/_authenticated/logs'
 import { Route as AuthenticatedGroupsRouteImport } from './routes/_authenticated/groups'
 import { Route as AuthenticatedExtractRouteImport } from './routes/_authenticated/extract'
-import { Route as AuthenticatedEngagementRouteImport } from './routes/_authenticated/engagement'
 import { Route as AuthenticatedDashboardRouteImport } from './routes/_authenticated/dashboard'
 import { Route as AuthenticatedComposerRouteImport } from './routes/_authenticated/composer'
 import { Route as AuthenticatedCommentsRouteImport } from './routes/_authenticated/comments'
@@ -83,11 +82,6 @@ const AuthenticatedExtractRoute = AuthenticatedExtractRouteImport.update({
   path: '/extract',
   getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
-const AuthenticatedEngagementRoute = AuthenticatedEngagementRouteImport.update({
-  id: '/engagement',
-  path: '/engagement',
-  getParentRoute: () => AuthenticatedRouteRoute,
-} as any)
 const AuthenticatedDashboardRoute = AuthenticatedDashboardRouteImport.update({
   id: '/dashboard',
   path: '/dashboard',
@@ -133,7 +127,6 @@ export interface FileRoutesByFullPath {
   '/comments': typeof AuthenticatedCommentsRoute
   '/composer': typeof AuthenticatedComposerRoute
   '/dashboard': typeof AuthenticatedDashboardRoute
-  '/engagement': typeof AuthenticatedEngagementRoute
   '/extract': typeof AuthenticatedExtractRoute
   '/groups': typeof AuthenticatedGroupsRoute
   '/logs': typeof AuthenticatedLogsRoute
@@ -153,7 +146,6 @@ export interface FileRoutesByTo {
   '/comments': typeof AuthenticatedCommentsRoute
   '/composer': typeof AuthenticatedComposerRoute
   '/dashboard': typeof AuthenticatedDashboardRoute
-  '/engagement': typeof AuthenticatedEngagementRoute
   '/extract': typeof AuthenticatedExtractRoute
   '/groups': typeof AuthenticatedGroupsRoute
   '/logs': typeof AuthenticatedLogsRoute
@@ -175,7 +167,6 @@ export interface FileRoutesById {
   '/_authenticated/comments': typeof AuthenticatedCommentsRoute
   '/_authenticated/composer': typeof AuthenticatedComposerRoute
   '/_authenticated/dashboard': typeof AuthenticatedDashboardRoute
-  '/_authenticated/engagement': typeof AuthenticatedEngagementRoute
   '/_authenticated/extract': typeof AuthenticatedExtractRoute
   '/_authenticated/groups': typeof AuthenticatedGroupsRoute
   '/_authenticated/logs': typeof AuthenticatedLogsRoute
@@ -197,7 +188,6 @@ export interface FileRouteTypes {
     | '/comments'
     | '/composer'
     | '/dashboard'
-    | '/engagement'
     | '/extract'
     | '/groups'
     | '/logs'
@@ -217,7 +207,6 @@ export interface FileRouteTypes {
     | '/comments'
     | '/composer'
     | '/dashboard'
-    | '/engagement'
     | '/extract'
     | '/groups'
     | '/logs'
@@ -238,7 +227,6 @@ export interface FileRouteTypes {
     | '/_authenticated/comments'
     | '/_authenticated/composer'
     | '/_authenticated/dashboard'
-    | '/_authenticated/engagement'
     | '/_authenticated/extract'
     | '/_authenticated/groups'
     | '/_authenticated/logs'
@@ -342,13 +330,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedExtractRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
-    '/_authenticated/engagement': {
-      id: '/_authenticated/engagement'
-      path: '/engagement'
-      fullPath: '/engagement'
-      preLoaderRoute: typeof AuthenticatedEngagementRouteImport
-      parentRoute: typeof AuthenticatedRouteRoute
-    }
     '/_authenticated/dashboard': {
       id: '/_authenticated/dashboard'
       path: '/dashboard'
@@ -405,7 +386,6 @@ interface AuthenticatedRouteRouteChildren {
   AuthenticatedCommentsRoute: typeof AuthenticatedCommentsRoute
   AuthenticatedComposerRoute: typeof AuthenticatedComposerRoute
   AuthenticatedDashboardRoute: typeof AuthenticatedDashboardRoute
-  AuthenticatedEngagementRoute: typeof AuthenticatedEngagementRoute
   AuthenticatedExtractRoute: typeof AuthenticatedExtractRoute
   AuthenticatedGroupsRoute: typeof AuthenticatedGroupsRoute
   AuthenticatedLogsRoute: typeof AuthenticatedLogsRoute
@@ -419,7 +399,6 @@ const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
   AuthenticatedCommentsRoute: AuthenticatedCommentsRoute,
   AuthenticatedComposerRoute: AuthenticatedComposerRoute,
   AuthenticatedDashboardRoute: AuthenticatedDashboardRoute,
-  AuthenticatedEngagementRoute: AuthenticatedEngagementRoute,
   AuthenticatedExtractRoute: AuthenticatedExtractRoute,
   AuthenticatedGroupsRoute: AuthenticatedGroupsRoute,
   AuthenticatedLogsRoute: AuthenticatedLogsRoute,
