@@ -382,6 +382,34 @@ function QueuePage() {
     onError: (e: any) => toast.error(e.message),
   });
 
+  const dismissStuck = useMutation({
+    mutationFn: async (postId: string) => {
+      await delFn({ data: { postId } });
+    },
+    onSuccess: () => {
+      toast.success("Post travado removido");
+      qc.invalidateQueries({ queryKey: ["queue"] });
+      qc.invalidateQueries({ queryKey: ["queue-stuck"] });
+    },
+    onError: (e: any) => toast.error(e.message),
+  });
+
+  const dismissAllStuck = useMutation({
+    mutationFn: async (postIds: string[]) => {
+      let ok = 0;
+      for (const id of postIds) {
+        try { await delFn({ data: { postId: id } }); ok++; } catch (e) { console.warn("dismiss failed", id, e); }
+      }
+      return ok;
+    },
+    onSuccess: (n) => {
+      toast.success(`${n} post(s) travado(s) removido(s)`);
+      qc.invalidateQueries({ queryKey: ["queue"] });
+      qc.invalidateQueries({ queryKey: ["queue-stuck"] });
+    },
+    onError: (e: any) => toast.error(e.message),
+  });
+
   return (
     <div className="p-6 md:p-8 space-y-8">
       {/* Header */}
