@@ -34,9 +34,19 @@ export async function runRefreshTokens(opts: { force?: boolean } = {}): Promise<
     .select("id, user_id, fb_page_id, name, access_token");
   if (error) throw new Error(error.message);
 
-  const appId = process.env.FB_APP_ID;
-  const appSecret = process.env.FB_APP_SECRET;
-  const canExtend = !!(appId && appSecret);
+  // Per-user FB App credentials (fallback to global env vars).
+  const userIds = Array.from(new Set((rows ?? []).map((r) => r.user_id)));
+  const { data: profiles } = userIds.length
+    ? await supabaseAdmin.from("profiles").select("id, fb_app_id, fb_app_secret").in("id", userIds)
+    : { data: [] as any[] };
+  const credsByUser = new Map<string, { appId?: string; appSecret?: string }>();
+  for (const p of profiles ?? []) {
+    credsByUser.set(p.id, { appId: p.fb_app_id ?? undefined, appSecret: p.fb_app_secret ?? undefined });
+  }
+  const envAppId = process.env.FB_APP_ID;
+  const envAppSecret = process.env.FB_APP_SECRET;
+  const canExtendAny = !!(envAppId && envAppSecret) || (profiles ?? []).some((p) => p.fb_app_id && p.fb_app_secret);
+
 
   let debugged = 0;
   let refreshed = 0;
