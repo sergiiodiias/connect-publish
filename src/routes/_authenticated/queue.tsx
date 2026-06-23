@@ -597,6 +597,18 @@ function QueuePage() {
                     >
                       <RefreshCw className="size-3.5 mr-1" /> Tentar agora
                     </Button>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="text-destructive hover:text-destructive hover:bg-destructive/10"
+                      disabled={dismissStuck.isPending}
+                      onClick={() => {
+                        if (confirm("Remover este post travado? Esta ação não pode ser desfeita."))
+                          dismissStuck.mutate(g.postId);
+                      }}
+                    >
+                      <Trash2 className="size-3.5 mr-1" /> Limpar
+                    </Button>
                   </div>
                 </div>
               );
