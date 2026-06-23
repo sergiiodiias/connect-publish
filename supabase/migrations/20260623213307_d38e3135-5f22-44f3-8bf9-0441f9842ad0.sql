@@ -1,0 +1,1 @@
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS fb_app_id text, ADD COLUMN IF NOT EXISTS fb_app_secret text;
