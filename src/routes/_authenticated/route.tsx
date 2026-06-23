@@ -21,7 +21,7 @@ const NAV = [
   { to: "/sheets", label: "Importar Planilha", icon: FileSpreadsheet },
   { to: "/queue", label: "Agenda", icon: CalendarClock },
   { to: "/comments", label: "Comentários", icon: MessageCircle },
-  { to: "/engagement", label: "Engajamento", icon: TrendingUp },
+  
   { to: "/pages", label: "Páginas", icon: Layers },
   { to: "/extract", label: "Extrair tokens", icon: KeyRound },
   { to: "/groups", label: "Grupos", icon: Users },
