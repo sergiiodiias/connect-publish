@@ -159,7 +159,7 @@ export const Route = createFileRoute("/api/public/cron/scheduler")({
           .is("fb_comment_id", null)
           .limit(100);
         const transientRe =
-          /limit|rate|timeout|temporar|network|fetch failed|nonexisting field \(comments\)|pages_read_engagement|impersonating a user's page|#4\b|#17\b|#32\b|#100\b|#190\b|#613/i;
+          /limit|rate|timeout|temporar|unexpected|retry|network|fetch failed|nonexisting field \(comments\)|pages_read_engagement|impersonating a user's page|#4\b|#17\b|#32\b|#100\b|#190\b|#613/i;
         for (const r of (retryable ?? []) as any[]) {
           const att = r.attempts ?? 0;
           if (att >= 3) continue;
