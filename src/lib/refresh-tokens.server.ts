@@ -147,5 +147,5 @@ export async function runRefreshTokens(opts: { force?: boolean } = {}): Promise<
     });
   });
 
-  return { ok: true, total: rows?.length ?? 0, debugged, refreshed, invalidated, canExtend, errors };
+  return { ok: true, total: rows?.length ?? 0, debugged, refreshed, invalidated, canExtend: canExtendAny, errors };
 }
