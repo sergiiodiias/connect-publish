@@ -105,7 +105,9 @@ function EngagementPage() {
         .eq("status", "published")
         .not("fb_post_id", "is", null)
         .order("published_at", { ascending: false })
-        .limit(500);
+        .order("captured_at", { foreignTable: "post_insights", ascending: false })
+        .limit(1, { foreignTable: "post_insights" })
+        .limit(300);
 
       if (sinceIso) q = q.gte("published_at", sinceIso);
       if (pageFilter !== "all") q = q.eq("page_id", pageFilter);
