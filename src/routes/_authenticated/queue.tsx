@@ -531,10 +531,24 @@ function QueuePage() {
                 {stuckByPost.length} {stuckByPost.length === 1 ? "post travado" : "posts travados"} há mais de {STUCK_AFTER_MIN} min
               </h3>
               <p className="text-xs text-muted-foreground mt-0.5">
-                O cron tenta automaticamente até 3 vezes (backoff de 1, 5 e 15 min). Use "Tentar agora" para forçar uma nova tentativa imediata.
+                O cron tenta automaticamente até 3 vezes (backoff de 1, 5 e 15 min). Use "Tentar agora" para forçar uma nova tentativa imediata, ou "Limpar" para descartar.
               </p>
             </div>
+            <Button
+              size="sm"
+              variant="outline"
+              className="shrink-0 text-destructive hover:text-destructive hover:bg-destructive/10 border-destructive/40"
+              disabled={dismissAllStuck.isPending}
+              onClick={() => {
+                if (confirm(`Remover todos os ${stuckByPost.length} posts travados? Esta ação não pode ser desfeita.`))
+                  dismissAllStuck.mutate(stuckByPost.map((g) => g.postId));
+              }}
+            >
+              <Trash2 className="size-3.5 mr-1" />
+              {dismissAllStuck.isPending ? "Limpando…" : "Limpar todos"}
+            </Button>
           </div>
+
           <div className="space-y-2 max-h-72 overflow-y-auto">
             {stuckByPost.map((g) => {
               const failedAll = g.targets.every((t) => t.status === "failed");
