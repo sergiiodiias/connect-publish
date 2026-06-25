@@ -103,10 +103,14 @@ export const createBulkJob = createServerFn({ method: "POST" })
 
     });
 
+    const insertedTargetIds: string[] = [];
     for (const part of chunk(targetRows, 500)) {
-      const { error } = await supabase.from("post_targets").insert(part);
+      const { data: ins, error } = await supabase.from("post_targets").insert(part).select("id");
       if (error) errors.push(`targets: ${error.message}`);
-      else success += part.length;
+      else {
+        success += part.length;
+        for (const r of (ins ?? []) as any[]) insertedTargetIds.push(r.id);
+      }
     }
 
     if (commentRows.length) {
