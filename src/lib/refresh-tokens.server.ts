@@ -7,12 +7,28 @@ export type PageRefreshOutcome = {
   name: string;
   isValid: boolean;
   extended: boolean;
-  skipped?: "quota_high" | "outside_window" | null;
+  skipped?: "quota_high" | "outside_window" | "fresh" | null;
   previousExpiresAt: string | null;
   newExpiresAt: string | null;
   appSlot: 1 | 2 | null;
+  needsReconnect?: boolean;
+  reconnectReason?: string;
   debugError?: string;
   exchangeError?: string;
+};
+
+/** Subcódigos do Facebook (code=190) que indicam que o token foi revogado pelo usuário
+ *  e exige reconexão manual (não adianta tentar de novo). */
+const RECONNECT_SUBCODES: Record<number, string> = {
+  458: "App removido pelo usuário",
+  459: "Usuário fez checkpoint de segurança",
+  460: "Senha do usuário foi trocada",
+  463: "Token expirado",
+  464: "Usuário não confirmado",
+  466: "Token revogado pelo usuário",
+  467: "Token inválido",
+  490: "Sessão invalidada",
+  492: "Sessão inválida",
 };
 
 export type RefreshResult = {
