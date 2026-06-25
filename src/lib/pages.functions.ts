@@ -3,6 +3,7 @@ import { z } from "zod";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import { fbGet, fbGetWithUsage, fbPost } from "@/lib/fb-graph";
 import { recordAppUsage } from "@/lib/fb-app-creds";
+import { debugFacebookToken, normalizeFacebookExpiresAt, reconnectReasonFromDebugError } from "@/lib/fb-token-debug";
 
 // Connect a page by pasting either a Page Access Token directly,
 // or a User Access Token containing pages — we'll list and pick the matching one.
@@ -176,7 +177,7 @@ export const listPages = createServerFn({ method: "GET" })
   .handler(async ({ context }) => {
     const { data, error } = await context.supabase
       .from("fb_pages")
-      .select("id, fb_page_id, name, category, picture_url, is_active, last_checked_at, created_at, token_expires_at, token_data_access_expires_at, token_scopes, token_last_debugged_at, token_last_refreshed_at, token_debug_error")
+      .select("id, fb_page_id, name, category, picture_url, is_active, last_checked_at, created_at, token_expires_at, token_data_access_expires_at, token_scopes, token_last_debugged_at, token_last_refreshed_at, token_debug_error, needs_reconnect, reconnect_reason")
       .order("created_at", { ascending: false });
     if (error) throw new Error(error.message);
     return data;
@@ -231,12 +232,17 @@ export const inspectTokens = createServerFn({ method: "POST" })
       .single();
     type Slot = { slot: 1 | 2; appId: string; appSecret: string };
     const credsByAppId = new Map<string, Slot>();
-    if (profile?.fb_app_id && profile.fb_app_secret) credsByAppId.set(profile.fb_app_id, { slot: 1, appId: profile.fb_app_id, appSecret: profile.fb_app_secret });
-    if (profile?.fb_app_id_2 && profile.fb_app_secret_2) credsByAppId.set(profile.fb_app_id_2, { slot: 2, appId: profile.fb_app_id_2, appSecret: profile.fb_app_secret_2 });
+    const configuredCreds: Slot[] = [];
+    const addCred = (cred: Slot) => {
+      if (!credsByAppId.has(cred.appId)) configuredCreds.push(cred);
+      credsByAppId.set(cred.appId, cred);
+    };
+    if (profile?.fb_app_id && profile.fb_app_secret) addCred({ slot: 1, appId: profile.fb_app_id, appSecret: profile.fb_app_secret });
+    if (profile?.fb_app_id_2 && profile.fb_app_secret_2) addCred({ slot: 2, appId: profile.fb_app_id_2, appSecret: profile.fb_app_secret_2 });
     const envAppId = process.env.FB_APP_ID;
     const envAppSecret = process.env.FB_APP_SECRET;
     if (envAppId && envAppSecret && !credsByAppId.has(envAppId)) {
-      credsByAppId.set(envAppId, { slot: 1, appId: envAppId, appSecret: envAppSecret });
+      addCred({ slot: 1, appId: envAppId, appSecret: envAppSecret });
     }
     const canExtendAny = credsByAppId.size > 0;
     const usageBySlot = new Map<1 | 2, import("@/lib/fb-graph").AppUsage>();
@@ -280,17 +286,15 @@ export const inspectTokens = createServerFn({ method: "POST" })
 
       let issuerAppId: string | null = null;
       try {
-        const r = await fbGet<any>("/debug_token", {
-          input_token: row.access_token,
-          access_token: row.access_token,
-        });
-        const d = r?.data ?? {};
+        const r = await debugFacebookToken(row.access_token, configuredCreds);
+        const d = r.data ?? {};
+        if (r.slot) mergeUsageForSlot(r.slot, r.usage);
         base.isValid = !!d.is_valid;
-        base.expiresAt = typeof d.expires_at === "number" ? d.expires_at : null;
+        base.expiresAt = normalizeFacebookExpiresAt(d);
         base.dataAccessExpiresAt = typeof d.data_access_expires_at === "number" ? d.data_access_expires_at : null;
         base.scopes = Array.isArray(d.scopes) ? d.scopes : [];
         base.error = d.error?.message;
-        issuerAppId = d.app_id ? String(d.app_id) : null;
+        issuerAppId = r.appId ?? (d.app_id ? String(d.app_id) : null);
       } catch (e: any) {
         base.error = e?.message ?? "erro";
       }
@@ -338,6 +342,14 @@ export const inspectTokens = createServerFn({ method: "POST" })
         token_debug_error: base.error ?? null,
         token_scopes: base.scopes,
       };
+      const reconnectReason = reconnectReasonFromDebugError((base as any).debugError);
+      if (reconnectReason) {
+        upd.needs_reconnect = true;
+        upd.reconnect_reason = reconnectReason;
+      } else if (base.isValid) {
+        upd.needs_reconnect = false;
+        upd.reconnect_reason = null;
+      }
       upd.token_expires_at = base.expiresAt && base.expiresAt > 0
         ? new Date(base.expiresAt * 1000).toISOString()
         : null;
