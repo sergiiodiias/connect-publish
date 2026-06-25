@@ -40,6 +40,7 @@ export function reconnectReasonFromDebugError(error: any): string | null {
 export async function debugFacebookToken(inputToken: string, creds: FacebookDebugCred[]): Promise<FacebookTokenDebugResult> {
   const uniqueCreds = creds.filter((cred, index, all) => cred.appId && cred.appSecret && all.findIndex((x) => x.appId === cred.appId) === index);
   const errors: string[] = [];
+  let firstResult: FacebookTokenDebugResult | null = null;
 
   for (const cred of uniqueCreds) {
     try {
@@ -48,11 +49,15 @@ export async function debugFacebookToken(inputToken: string, creds: FacebookDebu
         access_token: `${cred.appId}|${cred.appSecret}`,
       });
       const d = data?.data ?? {};
-      return { data: d, appId: d.app_id ? String(d.app_id) : cred.appId, slot: cred.slot, usage, errors };
+      const result = { data: d, appId: d.app_id ? String(d.app_id) : cred.appId, slot: cred.slot, usage, errors };
+      if (d.is_valid) return result;
+      firstResult ??= result;
     } catch (e: any) {
       errors.push(`App ${cred.slot}: ${e?.message ?? "falha ao verificar"}`);
     }
   }
+
+  if (firstResult) return firstResult;
 
   try {
     const { data, usage } = await fbGetWithUsage<any>("/debug_token", {
