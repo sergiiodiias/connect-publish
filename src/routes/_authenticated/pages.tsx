@@ -228,6 +228,7 @@ function PagesPage() {
           return (
             <div key={p.id} className="p-4 space-y-3">
               <div className="flex items-center gap-4">
+                <Checkbox checked={selected.has(p.id)} onCheckedChange={() => toggleSel(p.id)} />
                 <div className="size-12 rounded-full bg-muted overflow-hidden grid place-items-center">
                   {p.picture_url ? <img src={p.picture_url} alt="" className="w-full h-full object-cover" /> : <span className="text-muted-foreground text-xs">FB</span>}
                 </div>
