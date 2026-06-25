@@ -110,7 +110,7 @@ export async function scheduleTargetsNative(opts: {
   const { data: pages } = pageIds.length
     ? await supabase.from("fb_pages").select("id, fb_page_id, access_token, is_active, name").in("id", pageIds)
     : { data: [] as any[] };
-  const pageMap = new Map((pages ?? []).map((p: any) => [p.id, p]));
+  const pageMap = new Map<string, any>((pages ?? []).map((p: any) => [p.id, p]));
 
   let scheduled = 0, skipped = 0, failed = 0;
   const errors: string[] = [];
