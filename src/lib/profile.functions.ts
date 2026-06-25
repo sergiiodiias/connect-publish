@@ -59,7 +59,7 @@ export const updateMyFbApp = createServerFn({ method: "POST" })
       }
     }
     if (Object.keys(patch).length === 0) return { ok: true as const };
-    const { error } = await supabase.from("profiles").update(patch).eq("id", userId);
+    const { error } = await supabase.from("profiles").update(patch as any).eq("id", userId);
     if (error) throw new Error(error.message);
     return { ok: true as const };
   });
