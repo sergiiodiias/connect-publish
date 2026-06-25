@@ -239,6 +239,10 @@ function PagesPage() {
         </div>
       </div>
 
+      <ApiUsagePanel />
+
+
+
       {(expiringSoon.length > 0 || expired.length > 0) && (
         <div className="rounded-lg border border-warning/40 bg-warning/5 p-4 text-sm">
           <div className="flex items-start gap-2">
