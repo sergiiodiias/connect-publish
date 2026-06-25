@@ -65,6 +65,19 @@ export const connectPage = createServerFn({ method: "POST" })
       me = chosen;
     }
 
+    // Preserva token já validado se a página já existe
+    if (!data.overwriteExisting) {
+      const { data: existing } = await supabase
+        .from("fb_pages")
+        .select("id, fb_page_id, name, is_active, needs_reconnect, token_expires_at")
+        .eq("user_id", userId)
+        .eq("fb_page_id", pageId!)
+        .maybeSingle();
+      if (existing && isStoredTokenStillValid(existing)) {
+        return { ok: true, page: existing, skipped: true as const, reason: "Token existente ainda válido — preservado" };
+      }
+    }
+
     // Picture
     let picture_url: string | null = null;
     try {
@@ -82,6 +95,10 @@ export const connectPage = createServerFn({ method: "POST" })
         access_token: pageToken!,
         picture_url,
         is_active: true,
+        needs_reconnect: false,
+        reconnect_reason: null,
+        token_debug_error: null,
+        token_last_refreshed_at: new Date().toISOString(),
         last_checked_at: new Date().toISOString(),
       }, { onConflict: "user_id,fb_page_id" })
       .select()
@@ -93,7 +110,7 @@ export const connectPage = createServerFn({ method: "POST" })
       metadata: { name: me.name }, status: "ok",
     });
 
-    return { ok: true, page: upserted };
+    return { ok: true, page: upserted, skipped: false as const };
   });
 
 export const testPageToken = createServerFn({ method: "POST" })
