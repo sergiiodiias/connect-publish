@@ -222,19 +222,36 @@ export const inspectTokens = createServerFn({ method: "POST" })
       .eq("user_id", userId);
     if (error) throw new Error(error.message);
 
-    const creds = await getAppCredsForUser(supabase, userId);
-    const canExtend = !!creds;
-    let maxUsage: import("@/lib/fb-graph").AppUsage | null = null;
-    const mergeUsage = (u: import("@/lib/fb-graph").AppUsage | null) => {
+    // Carrega TODAS as creds configuradas e indexa por app_id.
+    // Exchange só funciona com o App que EMITIU o token — não dá pra rotacionar.
+    const { data: profile } = await supabase
+      .from("profiles")
+      .select("fb_app_id, fb_app_secret, fb_app_id_2, fb_app_secret_2")
+      .eq("id", userId)
+      .single();
+    type Slot = { slot: 1 | 2; appId: string; appSecret: string };
+    const credsByAppId = new Map<string, Slot>();
+    if (profile?.fb_app_id && profile.fb_app_secret) credsByAppId.set(profile.fb_app_id, { slot: 1, appId: profile.fb_app_id, appSecret: profile.fb_app_secret });
+    if (profile?.fb_app_id_2 && profile.fb_app_secret_2) credsByAppId.set(profile.fb_app_id_2, { slot: 2, appId: profile.fb_app_id_2, appSecret: profile.fb_app_secret_2 });
+    const envAppId = process.env.FB_APP_ID;
+    const envAppSecret = process.env.FB_APP_SECRET;
+    if (envAppId && envAppSecret && !credsByAppId.has(envAppId)) {
+      credsByAppId.set(envAppId, { slot: 1, appId: envAppId, appSecret: envAppSecret });
+    }
+    const canExtendAny = credsByAppId.size > 0;
+    const usageBySlot = new Map<1 | 2, import("@/lib/fb-graph").AppUsage>();
+    const mergeUsageForSlot = (slot: 1 | 2, u: import("@/lib/fb-graph").AppUsage | null) => {
       if (!u) return;
-      if (!maxUsage) { maxUsage = u; return; }
-      maxUsage = {
-        call_count: Math.max(maxUsage.call_count, u.call_count),
-        total_time: Math.max(maxUsage.total_time, u.total_time),
-        total_cputime: Math.max(maxUsage.total_cputime, u.total_cputime),
-        max: Math.max(maxUsage.max, u.max),
-      };
+      const cur = usageBySlot.get(slot);
+      if (!cur) { usageBySlot.set(slot, u); return; }
+      usageBySlot.set(slot, {
+        call_count: Math.max(cur.call_count, u.call_count),
+        total_time: Math.max(cur.total_time, u.total_time),
+        total_cputime: Math.max(cur.total_cputime, u.total_cputime),
+        max: Math.max(cur.max, u.max),
+      });
     };
+
 
     const out: Record<string, {
       isValid: boolean;
