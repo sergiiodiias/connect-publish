@@ -66,7 +66,7 @@ function PagesPage() {
   const { data: tokenInfo = {}, isFetching: tokenLoading, refetch: refetchTokens } = useQuery({
     queryKey: ["pages-token-info"],
     queryFn: () => inspectFn(),
-    enabled: pages.length > 0,
+    enabled: false,
     staleTime: 60_000,
   });
 
@@ -201,7 +201,7 @@ function PagesPage() {
             </DropdownMenu>
 
           </div>
-          <Button variant="outline" onClick={async () => { await refetchTokens(); qc.invalidateQueries({ queryKey: ["pages"] }); }} disabled={tokenLoading || pages.length === 0}>
+          <Button variant="outline" onClick={async () => { await refetchTokens(); await qc.invalidateQueries({ queryKey: ["pages"] }); }} disabled={tokenLoading || pages.length === 0}>
             <Clock className="size-4 mr-2" />{tokenLoading ? "Verificando…" : "Verificar validade"}
           </Button>
           {selected.size > 0 && (

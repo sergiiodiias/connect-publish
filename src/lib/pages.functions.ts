@@ -1,7 +1,7 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
-import { fbGet, fbGetWithUsage, fbPost } from "@/lib/fb-graph";
+import { fbGet, fbPost } from "@/lib/fb-graph";
 import { recordAppUsage } from "@/lib/fb-app-creds";
 import { debugFacebookToken, normalizeFacebookExpiresAt, reconnectReasonFromDebugError } from "@/lib/fb-token-debug";
 
@@ -308,24 +308,9 @@ export const inspectTokens = createServerFn({ method: "POST" })
         base.longLivedToken = row.access_token;
         base.longLivedExpiresAt = 0;
       } else if (matchedCreds) {
-        try {
-          const { data: r, usage } = await fbGetWithUsage<any>("/oauth/access_token", {
-            grant_type: "fb_exchange_token",
-            client_id: matchedCreds.appId,
-            client_secret: matchedCreds.appSecret,
-            fb_exchange_token: row.access_token,
-          });
-          mergeUsageForSlot(matchedCreds.slot, usage);
-          if (r?.access_token) {
-            base.longLivedToken = r.access_token;
-            base.longLivedExpiresAt = typeof r.expires_in === "number"
-              ? Math.floor(Date.now() / 1000) + r.expires_in
-              : 0;
-          }
-        } catch (e: any) {
-          if (e?.usage) mergeUsageForSlot(matchedCreds.slot, e.usage);
-          base.extendError = e?.message ?? "falha ao estender";
-        }
+        base.longLivedToken = null;
+        base.longLivedExpiresAt = base.expiresAt;
+        base.extendError = "Use Renovar agora para estender este token.";
       } else if (canExtendAny && issuerAppId) {
         base.longLivedToken = row.access_token;
         base.longLivedExpiresAt = base.expiresAt;
