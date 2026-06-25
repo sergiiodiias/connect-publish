@@ -234,8 +234,10 @@ function ExtractPage() {
 
     setBusy(false);
     const okCount = out.filter((r) => r.ok).length;
-    if (okCount === list.length) toast.success(`${okCount}/${list.length} páginas conectadas${groupId ? " e adicionadas ao grupo" : ""}`);
-    else toast.error(`${list.length - okCount} token(s) expirado(s) ou inválido(s)`);
+    const skippedCount = out.filter((r) => r.ok && r.skipped).length;
+    const newCount = okCount - skippedCount;
+    if (okCount === list.length) toast.success(`${newCount} nova(s) · ${skippedCount} preservada(s)${groupId ? " · adicionadas ao grupo" : ""}`);
+    else toast.error(`${list.length - okCount} token(s) expirado(s) ou inválido(s) · ${newCount} nova(s) · ${skippedCount} preservada(s)`);
   };
 
   return (
