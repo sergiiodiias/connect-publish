@@ -375,8 +375,12 @@ function PagesPage() {
                   <Copy className="size-4" />
                 </Button>
                 <Button variant="ghost" size="icon" onClick={() => { setUpdateFor({ id: p.id, name: p.name }); setNewToken(""); }} title="Atualizar token"><KeyRound className="size-4" /></Button>
-                <Button variant="ghost" size="icon" onClick={() => test.mutate(p.id)} title="Testar token"><RefreshCw className="size-4" /></Button>
+                <Button variant="ghost" size="icon" onClick={() => refreshOne.mutate(p.id)} disabled={refreshOne.isPending && refreshOne.variables === p.id} title="Renovar só esta página (sem estourar a API)">
+                  <RefreshCw className={`size-4 ${refreshOne.isPending && refreshOne.variables === p.id ? "animate-spin" : ""}`} />
+                </Button>
+                <Button variant="ghost" size="icon" onClick={() => test.mutate(p.id)} title="Testar token (rápido)"><CheckCircle2 className="size-4" /></Button>
                 <Button variant="ghost" size="icon" onClick={() => { if (confirm("Remover esta página?")) remove.mutate(p.id); }}><Trash2 className="size-4 text-destructive" /></Button>
+
               </div>
               {info && (
                 <div className="ml-16 space-y-2">
