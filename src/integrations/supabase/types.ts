@@ -438,7 +438,10 @@ export type Database = {
           created_at: string
           email: string | null
           fb_app_id: string | null
+          fb_app_id_2: string | null
           fb_app_secret: string | null
+          fb_app_secret_2: string | null
+          fb_app_usage: Json
           full_name: string | null
           id: string
           updated_at: string
@@ -448,7 +451,10 @@ export type Database = {
           created_at?: string
           email?: string | null
           fb_app_id?: string | null
+          fb_app_id_2?: string | null
           fb_app_secret?: string | null
+          fb_app_secret_2?: string | null
+          fb_app_usage?: Json
           full_name?: string | null
           id: string
           updated_at?: string
@@ -458,7 +464,10 @@ export type Database = {
           created_at?: string
           email?: string | null
           fb_app_id?: string | null
+          fb_app_id_2?: string | null
           fb_app_secret?: string | null
+          fb_app_secret_2?: string | null
+          fb_app_usage?: Json
           full_name?: string | null
           id?: string
           updated_at?: string

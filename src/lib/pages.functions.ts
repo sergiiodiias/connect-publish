@@ -1,7 +1,8 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
-import { fbGet, fbPost } from "@/lib/fb-graph";
+import { fbGet, fbGetWithUsage, fbPost } from "@/lib/fb-graph";
+import { getAppCredsForUser, recordAppUsage } from "@/lib/fb-app-creds";
 
 // Connect a page by pasting either a Page Access Token directly,
 // or a User Access Token containing pages — we'll list and pick the matching one.
@@ -196,16 +197,13 @@ export const inspectTokens = createServerFn({ method: "POST" })
       .eq("user_id", userId);
     if (error) throw new Error(error.message);
 
-    const { data: profile } = await supabase
-      .from("profiles").select("fb_app_id, fb_app_secret").eq("id", userId).single();
-    const appId = profile?.fb_app_id || process.env.FB_APP_ID;
-    const appSecret = profile?.fb_app_secret || process.env.FB_APP_SECRET;
-    const canExtend = !!(appId && appSecret);
-
+    const creds = await getAppCredsForUser(supabase, userId);
+    const canExtend = !!creds;
+    let maxUsage: number | null = null;
 
     const out: Record<string, {
       isValid: boolean;
-      expiresAt: number | null; // unix seconds; 0/null = never expires
+      expiresAt: number | null;
       dataAccessExpiresAt: number | null;
       scopes: string[];
       accessToken: string;
@@ -243,18 +241,18 @@ export const inspectTokens = createServerFn({ method: "POST" })
         base.error = e?.message ?? "erro";
       }
 
-      // If token already never expires, it IS the long-lived version.
       if (base.expiresAt === 0) {
         base.longLivedToken = row.access_token;
         base.longLivedExpiresAt = 0;
-      } else if (canExtend) {
+      } else if (canExtend && creds) {
         try {
-          const r = await fbGet<any>("/oauth/access_token", {
+          const { data: r, usage } = await fbGetWithUsage<any>("/oauth/access_token", {
             grant_type: "fb_exchange_token",
-            client_id: appId!,
-            client_secret: appSecret!,
+            client_id: creds.appId,
+            client_secret: creds.appSecret,
             fb_exchange_token: row.access_token,
           });
+          if (usage !== null) maxUsage = Math.max(maxUsage ?? 0, usage);
           if (r?.access_token) {
             base.longLivedToken = r.access_token;
             base.longLivedExpiresAt = typeof r.expires_in === "number"
@@ -262,16 +260,18 @@ export const inspectTokens = createServerFn({ method: "POST" })
               : 0;
           }
         } catch (e: any) {
+          if (typeof e?.usage === "number") maxUsage = Math.max(maxUsage ?? 0, e.usage);
           base.extendError = e?.message ?? "falha ao estender";
         }
       } else {
-        // Sem credenciais para estender — assumimos que o token armazenado já é o usado.
         base.longLivedToken = row.access_token;
         base.longLivedExpiresAt = base.expiresAt;
       }
 
       out[row.id] = base;
     }));
+
+    if (creds) await recordAppUsage(supabase, userId, creds.slot, maxUsage);
 
     return out;
   });

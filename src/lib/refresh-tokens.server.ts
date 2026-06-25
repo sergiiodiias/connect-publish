@@ -1,4 +1,4 @@
-import { fbGet } from "@/lib/fb-graph";
+import { fbGet, fbGetWithUsage } from "@/lib/fb-graph";
 
 export type RefreshResult = {
   ok: boolean;
@@ -34,18 +34,48 @@ export async function runRefreshTokens(opts: { force?: boolean } = {}): Promise<
     .select("id, user_id, fb_page_id, name, access_token");
   if (error) throw new Error(error.message);
 
-  // Per-user FB App credentials (fallback to global env vars).
+  // Per-user FB App credentials (com rotação entre App #1 e App #2 conforme uso).
+  const USAGE_THRESHOLD = 80;
   const userIds = Array.from(new Set((rows ?? []).map((r) => r.user_id)));
   const { data: profiles } = userIds.length
-    ? await supabaseAdmin.from("profiles").select("id, fb_app_id, fb_app_secret").in("id", userIds)
+    ? await supabaseAdmin.from("profiles").select("id, fb_app_id, fb_app_secret, fb_app_id_2, fb_app_secret_2, fb_app_usage").in("id", userIds)
     : { data: [] as any[] };
-  const credsByUser = new Map<string, { appId?: string; appSecret?: string }>();
+
+  type UserApps = {
+    apps: { slot: 1 | 2; appId: string; appSecret: string; usage: number }[];
+    usageMap: Record<string, { pct: number; ts: number }>;
+  };
+  const appsByUser = new Map<string, UserApps>();
   for (const p of profiles ?? []) {
-    credsByUser.set(p.id, { appId: p.fb_app_id ?? undefined, appSecret: p.fb_app_secret ?? undefined });
+    const usageMap = (p.fb_app_usage ?? {}) as Record<string, { pct: number; ts: number }>;
+    const apps: UserApps["apps"] = [];
+    if (p.fb_app_id && p.fb_app_secret) apps.push({ slot: 1, appId: p.fb_app_id, appSecret: p.fb_app_secret, usage: usageMap.app1?.pct ?? 0 });
+    if (p.fb_app_id_2 && p.fb_app_secret_2) apps.push({ slot: 2, appId: p.fb_app_id_2, appSecret: p.fb_app_secret_2, usage: usageMap.app2?.pct ?? 0 });
+    appsByUser.set(p.id, { apps, usageMap });
   }
   const envAppId = process.env.FB_APP_ID;
   const envAppSecret = process.env.FB_APP_SECRET;
-  const canExtendAny = !!(envAppId && envAppSecret) || (profiles ?? []).some((p) => p.fb_app_id && p.fb_app_secret);
+  const canExtendAny = !!(envAppId && envAppSecret) || (profiles ?? []).some((p) => (p.fb_app_id && p.fb_app_secret) || (p.fb_app_id_2 && p.fb_app_secret_2));
+
+  function pickCreds(userId: string): { slot: 1 | 2; appId: string; appSecret: string } | null {
+    const u = appsByUser.get(userId);
+    if (!u || u.apps.length === 0) {
+      if (envAppId && envAppSecret) return { slot: 1, appId: envAppId, appSecret: envAppSecret };
+      return null;
+    }
+    const below = u.apps.filter((a) => a.usage < USAGE_THRESHOLD);
+    const pool = below.length ? below : u.apps;
+    pool.sort((a, b) => a.usage - b.usage);
+    return { slot: pool[0].slot, appId: pool[0].appId, appSecret: pool[0].appSecret };
+  }
+  function noteUsage(userId: string, slot: 1 | 2, pct: number) {
+    const u = appsByUser.get(userId);
+    if (!u) return;
+    const key = slot === 1 ? "app1" : "app2";
+    u.usageMap[key] = { pct, ts: Date.now() };
+    const a = u.apps.find((x) => x.slot === slot);
+    if (a) a.usage = pct;
+  }
 
 
   let debugged = 0;
@@ -84,11 +114,9 @@ export async function runRefreshTokens(opts: { force?: boolean } = {}): Promise<
       errors.push({ pageId: row.id, error: e?.message ?? "erro" });
     }
 
-    // Pick this user's credentials, falling back to global env.
-    const userCreds = credsByUser.get(row.user_id);
-    const appId = userCreds?.appId || envAppId;
-    const appSecret = userCreds?.appSecret || envAppSecret;
-    const canExtend = !!(appId && appSecret);
+    // Pick this user's credentials com rotação por uso.
+    const creds = pickCreds(row.user_id);
+    const canExtend = !!creds;
 
     // Manual "Renovar agora" → force exchange on every valid token.
     // Cron monthly → only when expiry is within 20 days (avoids app-level rate quota).
@@ -97,14 +125,15 @@ export async function runRefreshTokens(opts: { force?: boolean } = {}): Promise<
       expiresAt !== null && expiresAt > 0 && expiresAt * 1000 - Date.now() < TWENTY_DAYS_MS;
     const needsExchange = isValid && canExtend && (force || withinWindow);
 
-    if (needsExchange) {
+    if (needsExchange && creds) {
       try {
-        const r = await fbGet<any>("/oauth/access_token", {
+        const { data: r, usage } = await fbGetWithUsage<any>("/oauth/access_token", {
           grant_type: "fb_exchange_token",
-          client_id: appId!,
-          client_secret: appSecret!,
+          client_id: creds.appId,
+          client_secret: creds.appSecret,
           fb_exchange_token: row.access_token,
         });
+        if (usage !== null) noteUsage(row.user_id, creds.slot, usage);
 
         if (r?.access_token && r.access_token !== row.access_token) {
           update.access_token = r.access_token;
@@ -116,6 +145,7 @@ export async function runRefreshTokens(opts: { force?: boolean } = {}): Promise<
           refreshed++;
         }
       } catch (e: any) {
+        if (typeof e?.usage === "number") noteUsage(row.user_id, creds.slot, e.usage);
         console.warn(`[refresh-tokens] exchange failed for ${row.fb_page_id}:`, e?.message);
         errors.push({ pageId: row.id, error: `exchange: ${e?.message ?? "erro"}` });
       }
@@ -146,6 +176,11 @@ export async function runRefreshTokens(opts: { force?: boolean } = {}): Promise<
       status: isValid ? "ok" : "error",
     });
   });
+
+  // Persiste o uso por app de cada usuário
+  await Promise.all(Array.from(appsByUser.entries()).map(([userId, u]) =>
+    supabaseAdmin.from("profiles").update({ fb_app_usage: u.usageMap }).eq("id", userId),
+  ));
 
   return { ok: true, total: rows?.length ?? 0, debugged, refreshed, invalidated, canExtend: canExtendAny, errors };
 }
