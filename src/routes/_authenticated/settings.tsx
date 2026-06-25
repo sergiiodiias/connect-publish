@@ -101,16 +101,25 @@ function SettingsPage() {
     }
   };
 
-  const renderUsage = (u: UsageEntry) => {
-    if (!u) return <div className="text-xs text-muted-foreground">Sem dados de uso ainda — execute "Renovar agora" em Páginas.</div>;
-    const tone = u.pct >= 80 ? "bg-destructive" : u.pct >= 60 ? "bg-warning" : "bg-success";
+  const bar = (label: string, pct: number) => {
+    const tone = pct >= 80 ? "bg-destructive" : pct >= 60 ? "bg-warning" : "bg-success";
     return (
       <div className="space-y-1">
-        <div className="flex items-center justify-between text-xs">
-          <span className="text-muted-foreground">Uso da quota (X-App-Usage)</span>
-          <span className="font-medium">{Math.round(u.pct)}%</span>
+        <div className="flex items-center justify-between text-[11px]">
+          <span className="text-muted-foreground">{label}</span>
+          <span className="font-medium">{Math.round(pct)}%</span>
         </div>
-        <Progress value={Math.min(100, u.pct)} className={`h-2 [&>div]:${tone}`} />
+        <Progress value={Math.min(100, pct)} className={`h-1.5 [&>div]:${tone}`} />
+      </div>
+    );
+  };
+  const renderUsage = (u: UsageEntry) => {
+    if (!u) return <div className="text-xs text-muted-foreground">Sem dados de uso ainda — execute "Renovar agora" em Páginas.</div>;
+    return (
+      <div className="space-y-2">
+        {bar("Chamadas (call_count)", u.call_count ?? u.pct)}
+        {bar("Tempo total (total_time)", u.total_time ?? 0)}
+        {bar("CPU (total_cputime)", u.total_cputime ?? 0)}
         <div className="text-[10px] text-muted-foreground">Atualizado em {new Date(u.ts).toLocaleString("pt-BR")}</div>
       </div>
     );
