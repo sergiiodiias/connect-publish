@@ -148,7 +148,7 @@ export async function runRefreshTokens(opts: RefreshOptions = {}): Promise<Refre
   const results: PageRefreshOutcome[] = [];
   let economyTriggered = false;
 
-  await mapWithConcurrency(rows ?? [], 6, async (row) => {
+  await mapWithConcurrency(rows ?? [], 3, async (row) => {
     const previousExpiresAt = row.token_expires_at ?? null;
     const outcome: PageRefreshOutcome = {
       pageId: row.id,
