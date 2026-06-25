@@ -126,9 +126,10 @@ function ExtractPage() {
   const [raw, setRaw] = useState("");
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [busy, setBusy] = useState(false);
-  const [results, setResults] = useState<{ id: string; ok: boolean; error?: string; name: string }[]>([]);
+  const [results, setResults] = useState<{ id: string; ok: boolean; error?: string; name: string; skipped?: boolean }[]>([]);
   const [groupChoice, setGroupChoice] = useState<string>("none"); // "none" | "new" | <uuid>
   const [newGroupName, setNewGroupName] = useState("");
+  const [overwriteExisting, setOverwriteExisting] = useState(false);
   const connectFn = useServerFn(connectPage);
 
   const { data: groups = [] } = useQuery({
@@ -204,12 +205,12 @@ function ExtractPage() {
     for (const p of list) {
       try {
         const response = await connectFn({
-          data: { accessToken: p.token, ...(p.bare ? {} : { pageId: p.id }) },
+          data: { accessToken: p.token, overwriteExisting, ...(p.bare ? {} : { pageId: p.id }) },
         });
         if (!response.ok) {
           out.push({ id: p.id, name: p.name, ok: false, error: response.error });
         } else {
-          out.push({ id: p.id, name: response.page?.name ?? p.name, ok: true });
+          out.push({ id: p.id, name: response.page?.name ?? p.name, ok: true, skipped: (response as any).skipped });
           if (response.page?.id) connectedPageUuids.push(response.page.id);
         }
       } catch (e: any) {
@@ -233,8 +234,10 @@ function ExtractPage() {
 
     setBusy(false);
     const okCount = out.filter((r) => r.ok).length;
-    if (okCount === list.length) toast.success(`${okCount}/${list.length} páginas conectadas${groupId ? " e adicionadas ao grupo" : ""}`);
-    else toast.error(`${list.length - okCount} token(s) expirado(s) ou inválido(s)`);
+    const skippedCount = out.filter((r) => r.ok && r.skipped).length;
+    const newCount = okCount - skippedCount;
+    if (okCount === list.length) toast.success(`${newCount} nova(s) · ${skippedCount} preservada(s)${groupId ? " · adicionadas ao grupo" : ""}`);
+    else toast.error(`${list.length - okCount} token(s) expirado(s) ou inválido(s) · ${newCount} nova(s) · ${skippedCount} preservada(s)`);
   };
 
   return (
@@ -295,6 +298,10 @@ function ExtractPage() {
                 </div>
               )}
             </div>
+            <label className="flex items-center gap-2 text-sm">
+              <Checkbox checked={overwriteExisting} onCheckedChange={(v) => setOverwriteExisting(!!v)} />
+              Sobrescrever tokens já existentes e válidos (por padrão, são preservados)
+            </label>
             <div className="flex items-center gap-3">
               <Checkbox
                 checked={selected.size === extracted.length}
@@ -327,8 +334,8 @@ function ExtractPage() {
                   </div>
                 </div>
                 {r && (
-                  <Badge variant={r.ok ? "default" : "destructive"} title={r.error}>
-                    {r.ok ? "Conectada" : r.error?.slice(0, 40) ?? "Falhou"}
+                  <Badge variant={r.ok ? (r.skipped ? "secondary" : "default") : "destructive"} title={r.error}>
+                    {r.ok ? (r.skipped ? "Preservada" : "Conectada") : r.error?.slice(0, 40) ?? "Falhou"}
                   </Badge>
                 )}
               </div>

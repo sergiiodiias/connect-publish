@@ -7,12 +7,25 @@ import { debugFacebookToken, normalizeFacebookExpiresAt, reconnectReasonFromDebu
 
 // Connect a page by pasting either a Page Access Token directly,
 // or a User Access Token containing pages — we'll list and pick the matching one.
+// Considera um token "ainda válido" e portanto preservável quando:
+// - a página está ativa, não está marcada para reconectar
+// - e não tem expiração conhecida OU expira em mais de 7 dias
+function isStoredTokenStillValid(row: any): boolean {
+  if (!row) return false;
+  if (row.is_active === false) return false;
+  if (row.needs_reconnect === true) return false;
+  if (!row.token_expires_at) return true; // sem expiry = permanente / desconhecido válido
+  const ms = new Date(row.token_expires_at).getTime() - Date.now();
+  return ms > 7 * 24 * 3600 * 1000;
+}
+
 export const connectPage = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((d) =>
     z.object({
       accessToken: z.string().min(20),
       pageId: z.string().optional(),
+      overwriteExisting: z.boolean().optional(), // default false: preserva token já validado
     }).parse(d),
   )
   .handler(async ({ data, context }) => {
@@ -52,6 +65,19 @@ export const connectPage = createServerFn({ method: "POST" })
       me = chosen;
     }
 
+    // Preserva token já validado se a página já existe
+    if (!data.overwriteExisting) {
+      const { data: existing } = await supabase
+        .from("fb_pages")
+        .select("id, fb_page_id, name, is_active, needs_reconnect, token_expires_at")
+        .eq("user_id", userId)
+        .eq("fb_page_id", pageId!)
+        .maybeSingle();
+      if (existing && isStoredTokenStillValid(existing)) {
+        return { ok: true, page: existing, skipped: true as const, reason: "Token existente ainda válido — preservado" };
+      }
+    }
+
     // Picture
     let picture_url: string | null = null;
     try {
@@ -69,6 +95,10 @@ export const connectPage = createServerFn({ method: "POST" })
         access_token: pageToken!,
         picture_url,
         is_active: true,
+        needs_reconnect: false,
+        reconnect_reason: null,
+        token_debug_error: null,
+        token_last_refreshed_at: new Date().toISOString(),
         last_checked_at: new Date().toISOString(),
       }, { onConflict: "user_id,fb_page_id" })
       .select()
@@ -80,7 +110,7 @@ export const connectPage = createServerFn({ method: "POST" })
       metadata: { name: me.name }, status: "ok",
     });
 
-    return { ok: true, page: upserted };
+    return { ok: true, page: upserted, skipped: false as const };
   });
 
 export const testPageToken = createServerFn({ method: "POST" })
@@ -181,6 +211,7 @@ export const reconnectAllWithUserToken = createServerFn({ method: "POST" })
     z.object({
       userAccessToken: z.string().min(20),
       onlyNeedsReconnect: z.boolean().optional(),
+      overwriteValid: z.boolean().optional(), // default false: preserva tokens ainda válidos
     }).parse(d),
   )
   .handler(async ({ data, context }) => {
@@ -236,15 +267,20 @@ export const reconnectAllWithUserToken = createServerFn({ method: "POST" })
     }
 
     // 3) Carrega páginas locais para fazer match por fb_page_id
-    let q = supabase.from("fb_pages").select("id, fb_page_id, name").eq("user_id", userId);
+    let q = supabase
+      .from("fb_pages")
+      .select("id, fb_page_id, name, is_active, needs_reconnect, token_expires_at")
+      .eq("user_id", userId);
     if (data.onlyNeedsReconnect) q = q.eq("needs_reconnect", true);
     const { data: localPages, error: lpErr } = await q;
     if (lpErr) throw new Error(lpErr.message);
 
     const byFbId = new Map(allPages.map((p) => [p.id, p]));
     let updated = 0;
+    let skipped = 0;
     let notFound = 0;
     const updatedNames: string[] = [];
+    const skippedNames: string[] = [];
     const notFoundNames: string[] = [];
 
     for (const lp of localPages ?? []) {
@@ -252,6 +288,12 @@ export const reconnectAllWithUserToken = createServerFn({ method: "POST" })
       if (!remote) {
         notFound++;
         notFoundNames.push(lp.name);
+        continue;
+      }
+      // Preserva token já validado a menos que o usuário peça para sobrescrever
+      if (!data.overwriteValid && isStoredTokenStillValid(lp)) {
+        skipped++;
+        skippedNames.push(lp.name);
         continue;
       }
       const { error: updErr } = await supabase
@@ -280,17 +322,19 @@ export const reconnectAllWithUserToken = createServerFn({ method: "POST" })
       action: "pages.bulk_reconnected",
       entity: "fb_page",
       entity_id: null,
-      metadata: { updated, notFound, extendedUserToken, totalRemote: allPages.length },
+      metadata: { updated, skipped, notFound, extendedUserToken, totalRemote: allPages.length },
       status: "ok",
     });
 
     return {
       ok: true as const,
       updated,
+      skipped,
       notFound,
       totalRemote: allPages.length,
       extendedUserToken,
       updatedNames,
+      skippedNames,
       notFoundNames,
     };
   });

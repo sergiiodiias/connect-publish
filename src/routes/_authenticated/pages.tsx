@@ -170,14 +170,15 @@ function PagesPage() {
   const [reconnectOpen, setReconnectOpen] = useState(false);
   const [userToken, setUserToken] = useState("");
   const [onlyNeedsReconnect, setOnlyNeedsReconnect] = useState(true);
+  const [overwriteValid, setOverwriteValid] = useState(false);
   const reconnectMut = useMutation({
     mutationFn: async () => {
-      const r = await reconnectFn({ data: { userAccessToken: userToken.trim(), onlyNeedsReconnect } });
+      const r = await reconnectFn({ data: { userAccessToken: userToken.trim(), onlyNeedsReconnect, overwriteValid } });
       if (!r.ok) throw new Error(r.error);
       return r;
     },
     onSuccess: (r) => {
-      toast.success(`${r.updated} página(s) reconectada(s)${r.extendedUserToken ? " · User Token estendido" : ""}`);
+      toast.success(`${r.updated} atualizada(s) · ${r.skipped ?? 0} preservada(s)${r.extendedUserToken ? " · User Token estendido" : ""}`);
       if (r.notFound > 0) toast.message(`${r.notFound} página(s) locais sem correspondência no User Token`);
       setReconnectOpen(false);
       setUserToken("");
@@ -293,6 +294,10 @@ function PagesPage() {
               <label className="flex items-center gap-2 text-sm">
                 <Checkbox checked={onlyNeedsReconnect} onCheckedChange={(v) => setOnlyNeedsReconnect(!!v)} />
                 Atualizar somente páginas marcadas como "precisa reconectar"
+              </label>
+              <label className="flex items-center gap-2 text-sm">
+                <Checkbox checked={overwriteValid} onCheckedChange={(v) => setOverwriteValid(!!v)} />
+                Sobrescrever tokens ainda válidos (por padrão, são preservados)
               </label>
             </div>
             <DialogFooter>
