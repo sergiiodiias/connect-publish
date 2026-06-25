@@ -215,11 +215,13 @@ export const listRefreshReports = createServerFn({ method: "GET" })
 
 export const inspectTokens = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .handler(async ({ context }) => {
+  .inputValidator((d) => z.object({ force: z.boolean().optional() }).optional().parse(d) ?? {})
+  .handler(async ({ data, context }) => {
+    const force = !!data?.force;
     const { supabase, userId } = context;
     const { data: rows, error } = await supabase
       .from("fb_pages")
-      .select("id, access_token")
+      .select("id, access_token, token_last_debugged_at, token_expires_at, token_data_access_expires_at, token_scopes, is_active, token_debug_error")
       .eq("user_id", userId);
     if (error) throw new Error(error.message);
 
@@ -269,9 +271,37 @@ export const inspectTokens = createServerFn({ method: "POST" })
       longLivedExpiresAt: number | null;
       extendError?: string;
       error?: string;
+      cached?: boolean;
     }> = {};
 
-    await Promise.all((rows ?? []).map(async (row) => {
+    // Cache: pula debug_token se já verificamos nas últimas 6h.
+    // Evita estourar quota quando o usuário clica "Verificar validade" várias vezes.
+    const CACHE_MS = 6 * 60 * 60 * 1000;
+    const now = Date.now();
+
+    // Processa em pequenos lotes (3 simultâneos) em vez de bursting tudo.
+    const tasks = (rows ?? []).map((row) => async () => {
+      const lastDebug = row.token_last_debugged_at ? new Date(row.token_last_debugged_at).getTime() : 0;
+      const isFresh = !force && lastDebug && now - lastDebug < CACHE_MS;
+
+      if (isFresh) {
+        const expSec = row.token_expires_at ? Math.floor(new Date(row.token_expires_at).getTime() / 1000) : (row.is_active ? 0 : null);
+        const dataExpSec = row.token_data_access_expires_at ? Math.floor(new Date(row.token_data_access_expires_at).getTime() / 1000) : null;
+        out[row.id] = {
+          isValid: !!row.is_active,
+          expiresAt: expSec,
+          dataAccessExpiresAt: dataExpSec,
+          scopes: Array.isArray(row.token_scopes) ? row.token_scopes as string[] : [],
+          accessToken: row.access_token,
+          longLivedToken: row.access_token,
+          longLivedExpiresAt: expSec,
+          error: row.token_debug_error ?? undefined,
+          extendError: canExtendAny ? "Use Renovar agora para estender este token." : undefined,
+          cached: true,
+        };
+        return;
+      }
+
       const base = {
         isValid: false as boolean,
         expiresAt: null as number | null,
@@ -301,7 +331,6 @@ export const inspectTokens = createServerFn({ method: "POST" })
         base.error = e?.message ?? "erro";
       }
 
-      // Escolhe o App que EMITIU o token. Não dá pra rotacionar entre apps no exchange.
       const matchedCreds = issuerAppId ? credsByAppId.get(issuerAppId) ?? null : null;
 
       if (base.expiresAt === 0) {
@@ -322,7 +351,6 @@ export const inspectTokens = createServerFn({ method: "POST" })
 
       out[row.id] = base;
 
-      // Persiste o resultado do debug_token no banco.
       const upd: Record<string, any> = {
         token_last_debugged_at: new Date().toISOString(),
         is_active: base.isValid,
@@ -344,13 +372,23 @@ export const inspectTokens = createServerFn({ method: "POST" })
         ? new Date(base.dataAccessExpiresAt * 1000).toISOString()
         : null;
       await supabase.from("fb_pages").update(upd as any).eq("id", row.id).eq("user_id", userId);
+    });
+
+    // Concorrência limitada a 3 (vs Promise.all que disparava tudo de uma vez)
+    const CONCURRENCY = 3;
+    let cursor = 0;
+    await Promise.all(Array.from({ length: Math.min(CONCURRENCY, tasks.length) }, async () => {
+      while (cursor < tasks.length) {
+        const i = cursor++;
+        await tasks[i]();
+      }
     }));
 
-    // Persiste uso de cada slot que foi efetivamente chamado.
     for (const [slot, usage] of usageBySlot.entries()) {
       await recordAppUsage(supabase, userId, slot, usage);
     }
 
     return out;
   });
+
 
