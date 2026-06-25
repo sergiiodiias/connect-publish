@@ -205,12 +205,12 @@ function ExtractPage() {
     for (const p of list) {
       try {
         const response = await connectFn({
-          data: { accessToken: p.token, ...(p.bare ? {} : { pageId: p.id }) },
+          data: { accessToken: p.token, overwriteExisting, ...(p.bare ? {} : { pageId: p.id }) },
         });
         if (!response.ok) {
           out.push({ id: p.id, name: p.name, ok: false, error: response.error });
         } else {
-          out.push({ id: p.id, name: response.page?.name ?? p.name, ok: true });
+          out.push({ id: p.id, name: response.page?.name ?? p.name, ok: true, skipped: (response as any).skipped });
           if (response.page?.id) connectedPageUuids.push(response.page.id);
         }
       } catch (e: any) {
