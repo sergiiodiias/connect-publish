@@ -60,18 +60,19 @@ export async function debugFacebookToken(inputToken: string, creds: FacebookDebu
     }
   }
 
-  if (firstResult) return firstResult;
-
-  // Só faz fallback usando o próprio token quando NÃO há nenhum App configurado.
+  // Fallback: usa o próprio token para descobrir validade/expiração quando
+  // nenhum App configurado bateu como emissor. Sem isso, a página fica para
+  // sempre como "validade desconhecida".
   try {
     const { data, usage } = await fbGetWithUsage<any>("/debug_token", {
       input_token: inputToken,
       access_token: inputToken,
     });
     const d = data?.data ?? {};
-    return { data: d, appId: d.app_id ? String(d.app_id) : null, slot: null, usage, errors };
+    return { data: d, appId: d.app_id ? String(d.app_id) : firstResult?.appId ?? null, slot: firstResult?.slot ?? null, usage, errors };
   } catch (e: any) {
     errors.push(e?.message ?? "falha ao verificar");
+    if (firstResult) return firstResult;
     const err: any = new Error(errors.join(" | "));
     err.debugErrors = errors;
     throw err;
