@@ -31,17 +31,31 @@ export type RefreshResult = {
   results: PageRefreshOutcome[];
 };
 
-async function mapWithConcurrency<T, R>(items: T[], limit: number, fn: (item: T) => Promise<R>): Promise<R[]> {
+async function mapInBatches<T, R>(
+  items: T[],
+  batchSize: number,
+  concurrency: number,
+  pauseMs: number,
+  fn: (item: T) => Promise<R>,
+  shouldAbort?: () => boolean,
+): Promise<R[]> {
   const out: R[] = new Array(items.length);
-  let cursor = 0;
-  const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
-    while (true) {
-      const i = cursor++;
-      if (i >= items.length) return;
-      out[i] = await fn(items[i]);
+  for (let start = 0; start < items.length; start += batchSize) {
+    if (shouldAbort?.()) break;
+    const batch = items.slice(start, start + batchSize);
+    let cursor = 0;
+    const workers = Array.from({ length: Math.min(concurrency, batch.length) }, async () => {
+      while (true) {
+        const i = cursor++;
+        if (i >= batch.length) return;
+        out[start + i] = await fn(batch[i]);
+      }
+    });
+    await Promise.all(workers);
+    if (start + batchSize < items.length && pauseMs > 0) {
+      await new Promise((r) => setTimeout(r, pauseMs));
     }
-  });
-  await Promise.all(workers);
+  }
   return out;
 }
 
