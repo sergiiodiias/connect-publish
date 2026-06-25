@@ -41,6 +41,7 @@ function PagesPage() {
   const listFn = useServerFn(listPages);
   const connectFn = useServerFn(connectPage);
   const delFn = useServerFn(deletePage);
+  const delManyFn = useServerFn(deletePages);
   const testFn = useServerFn(testPageToken);
   const inspectFn = useServerFn(inspectTokens);
   const { data: pages = [], isLoading } = useQuery({ queryKey: ["pages"], queryFn: () => listFn() });
