@@ -199,7 +199,17 @@ export const inspectTokens = createServerFn({ method: "POST" })
 
     const creds = await getAppCredsForUser(supabase, userId);
     const canExtend = !!creds;
-    let maxUsage: number | null = null;
+    let maxUsage: import("@/lib/fb-graph").AppUsage | null = null;
+    const mergeUsage = (u: import("@/lib/fb-graph").AppUsage | null) => {
+      if (!u) return;
+      if (!maxUsage) { maxUsage = u; return; }
+      maxUsage = {
+        call_count: Math.max(maxUsage.call_count, u.call_count),
+        total_time: Math.max(maxUsage.total_time, u.total_time),
+        total_cputime: Math.max(maxUsage.total_cputime, u.total_cputime),
+        max: Math.max(maxUsage.max, u.max),
+      };
+    };
 
     const out: Record<string, {
       isValid: boolean;
