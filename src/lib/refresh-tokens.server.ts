@@ -60,7 +60,7 @@ export async function runRefreshTokens(opts: RefreshOptions = {}): Promise<Refre
 
   const { data: rows, error } = await supabaseAdmin
     .from("fb_pages")
-    .select("id, user_id, fb_page_id, name, access_token, token_expires_at");
+    .select("id, user_id, fb_page_id, name, access_token, token_expires_at, token_last_debugged_at, token_scopes, token_data_access_expires_at, is_active");
   if (error) throw new Error(error.message);
 
   const userIds = Array.from(new Set((rows ?? []).map((r) => r.user_id)));
@@ -148,7 +148,7 @@ export async function runRefreshTokens(opts: RefreshOptions = {}): Promise<Refre
   const results: PageRefreshOutcome[] = [];
   let economyTriggered = false;
 
-  await mapWithConcurrency(rows ?? [], 6, async (row) => {
+  await mapWithConcurrency(rows ?? [], 3, async (row) => {
     const previousExpiresAt = row.token_expires_at ?? null;
     const outcome: PageRefreshOutcome = {
       pageId: row.id,
@@ -167,40 +167,55 @@ export async function runRefreshTokens(opts: RefreshOptions = {}): Promise<Refre
     let expiresAt: number | null = null;
 
     let issuerAppId: string | null = null;
-    try {
-      const r = await debugFacebookToken(row.access_token, debugCredsForUser(row.user_id));
-      if (r.slot) noteUsage(row.user_id, r.slot, r.usage);
-      const d = r.data ?? {};
-      isValid = !!d.is_valid;
-      expiresAt = normalizeFacebookExpiresAt(d);
-      issuerAppId = r.appId ?? (d.app_id ? String(d.app_id) : null);
-      update.token_expires_at = expiresAt && expiresAt > 0 ? new Date(expiresAt * 1000).toISOString() : null;
-      update.token_data_access_expires_at =
-        typeof d.data_access_expires_at === "number" && d.data_access_expires_at > 0
-          ? new Date(d.data_access_expires_at * 1000).toISOString() : null;
-      update.token_scopes = Array.isArray(d.scopes) ? d.scopes : [];
-      update.token_debug_error = d.error?.message ?? null;
-      update.is_active = isValid;
-      debugged++;
-      if (d.error?.message) outcome.debugError = d.error.message;
 
-      // Detecta tokens revogados pelo usuário no Facebook (precisa reconectar)
-      const reconnectReason = reconnectReasonFromDebugError(d.error);
-      if (!isValid && reconnectReason) {
-        update.needs_reconnect = true;
-        update.reconnect_reason = reconnectReason;
-        outcome.needsReconnect = true;
-        outcome.reconnectReason = update.reconnect_reason;
-      } else if (isValid) {
-        // Token voltou a ser válido — limpa flag de reconexão
-        update.needs_reconnect = false;
-        update.reconnect_reason = null;
+    // Cache de debug_token: se já verificamos nas últimas 24h E o token ainda tem >7d de validade,
+    // pula a chamada de debug_token e reutiliza os dados do banco. Economiza muita quota.
+    const lastDebug = row.token_last_debugged_at ? new Date(row.token_last_debugged_at).getTime() : 0;
+    const debugCacheMs = 24 * 60 * 60 * 1000;
+    const prevExpMs = row.token_expires_at ? new Date(row.token_expires_at).getTime() : null;
+    const stillValid = prevExpMs === null ? row.is_active : (prevExpMs - Date.now() > 7 * 24 * 60 * 60 * 1000);
+    const debugFresh = !force && lastDebug && (Date.now() - lastDebug < debugCacheMs) && row.is_active && stillValid;
+
+    if (debugFresh) {
+      isValid = !!row.is_active;
+      expiresAt = prevExpMs ? Math.floor(prevExpMs / 1000) : (row.is_active ? 0 : null);
+      // não atualiza token_last_debugged_at — mantemos o original
+      delete update.token_last_debugged_at;
+      debugged++;
+    } else {
+      try {
+        const r = await debugFacebookToken(row.access_token, debugCredsForUser(row.user_id));
+        if (r.slot) noteUsage(row.user_id, r.slot, r.usage);
+        const d = r.data ?? {};
+        isValid = !!d.is_valid;
+        expiresAt = normalizeFacebookExpiresAt(d);
+        issuerAppId = r.appId ?? (d.app_id ? String(d.app_id) : null);
+        update.token_expires_at = expiresAt && expiresAt > 0 ? new Date(expiresAt * 1000).toISOString() : null;
+        update.token_data_access_expires_at =
+          typeof d.data_access_expires_at === "number" && d.data_access_expires_at > 0
+            ? new Date(d.data_access_expires_at * 1000).toISOString() : null;
+        update.token_scopes = Array.isArray(d.scopes) ? d.scopes : [];
+        update.token_debug_error = d.error?.message ?? null;
+        update.is_active = isValid;
+        debugged++;
+        if (d.error?.message) outcome.debugError = d.error.message;
+
+        const reconnectReason = reconnectReasonFromDebugError(d.error);
+        if (!isValid && reconnectReason) {
+          update.needs_reconnect = true;
+          update.reconnect_reason = reconnectReason;
+          outcome.needsReconnect = true;
+          outcome.reconnectReason = update.reconnect_reason;
+        } else if (isValid) {
+          update.needs_reconnect = false;
+          update.reconnect_reason = null;
+        }
+      } catch (e: any) {
+        update.token_debug_error = e?.message ?? "erro";
+        update.is_active = false;
+        errors.push({ pageId: row.id, error: e?.message ?? "erro" });
+        outcome.debugError = e?.message ?? "erro";
       }
-    } catch (e: any) {
-      update.token_debug_error = e?.message ?? "erro";
-      update.is_active = false;
-      errors.push({ pageId: row.id, error: e?.message ?? "erro" });
-      outcome.debugError = e?.message ?? "erro";
     }
     outcome.isValid = isValid;
     outcome.newExpiresAt = update.token_expires_at ?? null;
