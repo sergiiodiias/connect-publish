@@ -31,17 +31,31 @@ export type RefreshResult = {
   results: PageRefreshOutcome[];
 };
 
-async function mapWithConcurrency<T, R>(items: T[], limit: number, fn: (item: T) => Promise<R>): Promise<R[]> {
+async function mapInBatches<T, R>(
+  items: T[],
+  batchSize: number,
+  concurrency: number,
+  pauseMs: number,
+  fn: (item: T) => Promise<R>,
+  shouldAbort?: () => boolean,
+): Promise<R[]> {
   const out: R[] = new Array(items.length);
-  let cursor = 0;
-  const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
-    while (true) {
-      const i = cursor++;
-      if (i >= items.length) return;
-      out[i] = await fn(items[i]);
+  for (let start = 0; start < items.length; start += batchSize) {
+    if (shouldAbort?.()) break;
+    const batch = items.slice(start, start + batchSize);
+    let cursor = 0;
+    const workers = Array.from({ length: Math.min(concurrency, batch.length) }, async () => {
+      while (true) {
+        const i = cursor++;
+        if (i >= batch.length) return;
+        out[start + i] = await fn(batch[i]);
+      }
+    });
+    await Promise.all(workers);
+    if (start + batchSize < items.length && pauseMs > 0) {
+      await new Promise((r) => setTimeout(r, pauseMs));
     }
-  });
-  await Promise.all(workers);
+  }
   return out;
 }
 
@@ -149,7 +163,23 @@ export async function runRefreshTokens(opts: RefreshOptions = {}): Promise<Refre
   let economyTriggered = false;
 
   const { withApiCallTracking } = await import("@/lib/fb-api-tracker.server");
-  await mapWithConcurrency(rows ?? [], 3, async (row) => withApiCallTracking(row.user_id, async () => {
+
+  // Batching para não estourar a API: 20 páginas por lote, 3 em paralelo,
+  // pausa de 3s entre lotes. Aborta se TODOS os apps de TODOS os usuários
+  // saturarem (>=USAGE_THRESHOLD) — nesse caso o resto cai pra próxima rodada.
+  const BATCH_SIZE = Number(process.env.FB_REFRESH_BATCH_SIZE ?? 20);
+  const BATCH_PAUSE_MS = Number(process.env.FB_REFRESH_BATCH_PAUSE_MS ?? 3000);
+  const CONCURRENCY = Number(process.env.FB_REFRESH_CONCURRENCY ?? 3);
+
+  const shouldAbort = () => {
+    if (force) return false;
+    const users = Array.from(appsByUser.values());
+    if (users.length === 0) return false;
+    // Aborta só se TODOS os usuários estão totalmente saturados
+    return users.every((u) => u.apps.length > 0 && u.apps.every((a) => a.usage >= 95));
+  };
+
+  await mapInBatches(rows ?? [], BATCH_SIZE, CONCURRENCY, BATCH_PAUSE_MS, async (row: any) => withApiCallTracking(row.user_id, async () => {
     const previousExpiresAt = row.token_expires_at ?? null;
     const outcome: PageRefreshOutcome = {
       pageId: row.id,
@@ -335,7 +365,7 @@ export async function runRefreshTokens(opts: RefreshOptions = {}): Promise<Refre
     });
 
     results.push(outcome);
-  }));
+  }), shouldAbort);
 
   // Persiste o uso por app de cada usuário
   await Promise.all(Array.from(appsByUser.entries()).map(([userId, u]) =>
