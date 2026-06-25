@@ -295,6 +295,10 @@ function PagesPage() {
                 <Checkbox checked={onlyNeedsReconnect} onCheckedChange={(v) => setOnlyNeedsReconnect(!!v)} />
                 Atualizar somente páginas marcadas como "precisa reconectar"
               </label>
+              <label className="flex items-center gap-2 text-sm">
+                <Checkbox checked={overwriteValid} onCheckedChange={(v) => setOverwriteValid(!!v)} />
+                Sobrescrever tokens ainda válidos (por padrão, são preservados)
+              </label>
             </div>
             <DialogFooter>
               <Button variant="ghost" onClick={() => setReconnectOpen(false)}>Cancelar</Button>
