@@ -304,7 +304,26 @@ export const inspectTokens = createServerFn({ method: "POST" })
       }
 
       out[row.id] = base;
+
+      // Persiste o resultado do debug_token no banco para que a listagem mostre
+      // a expiração sem precisar reabrir a página.
+      const upd: Record<string, any> = {
+        token_last_debugged_at: new Date().toISOString(),
+        is_active: base.isValid,
+        token_debug_error: base.error ?? null,
+        token_scopes: base.scopes,
+      };
+      // expires_at = 0 (Facebook) significa "não expira" — gravamos NULL e
+      // tratamos no UI via token_last_debugged_at.
+      upd.token_expires_at = base.expiresAt && base.expiresAt > 0
+        ? new Date(base.expiresAt * 1000).toISOString()
+        : null;
+      upd.token_data_access_expires_at = base.dataAccessExpiresAt && base.dataAccessExpiresAt > 0
+        ? new Date(base.dataAccessExpiresAt * 1000).toISOString()
+        : null;
+      await supabase.from("fb_pages").update(upd).eq("id", row.id).eq("user_id", userId);
     }));
+
 
     if (creds) await recordAppUsage(supabase, userId, creds.slot, maxUsage);
 
