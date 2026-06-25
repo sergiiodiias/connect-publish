@@ -182,9 +182,25 @@ export const listPages = createServerFn({ method: "GET" })
 // Triggers the same monthly debug+refresh routine on demand.
 export const refreshTokensNow = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .handler(async () => {
+  .inputValidator((d) => z.object({ withinDays: z.number().int().positive().max(365).optional() }).optional().parse(d) ?? {})
+  .handler(async ({ data }) => {
     const { runRefreshTokens } = await import("@/lib/refresh-tokens.server");
-    return runRefreshTokens({ force: true });
+    return runRefreshTokens({ force: true, withinDays: data?.withinDays });
+  });
+
+export const listRefreshReports = createServerFn({ method: "GET" })
+  .middleware([requireSupabaseAuth])
+  .handler(async ({ context }) => {
+    const { data, error } = await (context.supabase as any)
+      .from("refresh_reports")
+      .select("id, created_at, source, summary, results")
+      .order("created_at", { ascending: false })
+      .limit(10);
+    if (error) throw new Error(error.message);
+    return (data ?? []) as Array<{
+      id: string; created_at: string; source: string;
+      summary: any; results: any[];
+    }>;
   });
 
 export const inspectTokens = createServerFn({ method: "POST" })
@@ -199,7 +215,17 @@ export const inspectTokens = createServerFn({ method: "POST" })
 
     const creds = await getAppCredsForUser(supabase, userId);
     const canExtend = !!creds;
-    let maxUsage: number | null = null;
+    let maxUsage: import("@/lib/fb-graph").AppUsage | null = null;
+    const mergeUsage = (u: import("@/lib/fb-graph").AppUsage | null) => {
+      if (!u) return;
+      if (!maxUsage) { maxUsage = u; return; }
+      maxUsage = {
+        call_count: Math.max(maxUsage.call_count, u.call_count),
+        total_time: Math.max(maxUsage.total_time, u.total_time),
+        total_cputime: Math.max(maxUsage.total_cputime, u.total_cputime),
+        max: Math.max(maxUsage.max, u.max),
+      };
+    };
 
     const out: Record<string, {
       isValid: boolean;
@@ -252,7 +278,7 @@ export const inspectTokens = createServerFn({ method: "POST" })
             client_secret: creds.appSecret,
             fb_exchange_token: row.access_token,
           });
-          if (usage !== null) maxUsage = Math.max(maxUsage ?? 0, usage);
+          mergeUsage(usage);
           if (r?.access_token) {
             base.longLivedToken = r.access_token;
             base.longLivedExpiresAt = typeof r.expires_in === "number"
@@ -260,7 +286,7 @@ export const inspectTokens = createServerFn({ method: "POST" })
               : 0;
           }
         } catch (e: any) {
-          if (typeof e?.usage === "number") maxUsage = Math.max(maxUsage ?? 0, e.usage);
+          if (e?.usage) mergeUsage(e.usage);
           base.extendError = e?.message ?? "falha ao estender";
         }
       } else {

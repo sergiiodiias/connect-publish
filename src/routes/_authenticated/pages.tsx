@@ -2,15 +2,16 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
-import { listPages, connectPage, deletePage, deletePages, testPageToken, inspectTokens, updatePageToken, refreshTokensNow } from "@/lib/pages.functions";
+import { listPages, connectPage, deletePage, deletePages, testPageToken, inspectTokens, updatePageToken, refreshTokensNow, listRefreshReports } from "@/lib/pages.functions";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from "@/components/ui/dialog";
+import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator } from "@/components/ui/dropdown-menu";
 import { Badge } from "@/components/ui/badge";
-import { Plus, Trash2, CheckCircle2, AlertTriangle, RefreshCw, Clock, Copy, Eye, EyeOff, KeyRound } from "lucide-react";
+import { Plus, Trash2, CheckCircle2, AlertTriangle, RefreshCw, Clock, Copy, Eye, EyeOff, KeyRound, History, ChevronDown } from "lucide-react";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/_authenticated/pages")({
@@ -34,6 +35,23 @@ function formatExpiry(expiresAt: number | null): { label: string; tone: "ok" | "
   }
   const tone: "ok" | "warn" | "bad" = days >= 7 ? "ok" : days >= 1 ? "warn" : "bad";
   return { label, tone };
+}
+
+function daysUntil(iso: string | null): number | null {
+  if (!iso) return null;
+  const ms = new Date(iso).getTime() - Date.now();
+  if (ms <= 0) return 0;
+  return Math.round(ms / (24 * 60 * 60 * 1000));
+}
+
+function deltaLabel(prev: string | null, next: string | null): string {
+  const a = daysUntil(prev);
+  const b = daysUntil(next);
+  if (a === null && b === null) return "—";
+  if (a === null) return `agora ${b}d`;
+  if (b === null) return `${a}d → ?`;
+  if (a === b) return `${a}d (sem mudança)`;
+  return `${a}d → ${b}d`;
 }
 
 function PagesPage() {
@@ -105,22 +123,33 @@ function PagesPage() {
   });
   const refreshFn = useServerFn(refreshTokensNow);
   const [refreshReport, setRefreshReport] = useState<any | null>(null);
+  const [historyOpen, setHistoryOpen] = useState(false);
   const refreshAll = useMutation({
-    mutationFn: () => refreshFn(),
+    mutationFn: (vars?: { withinDays?: number }) => refreshFn({ data: vars ?? {} }),
     onSuccess: (r) => {
       const extendedNames = (r.results ?? []).filter((x: any) => x.extended).map((x: any) => x.name);
       const failed = (r.results ?? []).filter((x: any) => x.exchangeError || x.debugError);
+      const skipped = (r.results ?? []).filter((x: any) => x.skipped).length;
       if (r.refreshed > 0) {
         toast.success(`${r.refreshed} token(s) estendido(s)${extendedNames.length <= 3 ? `: ${extendedNames.join(", ")}` : ""}`);
       } else {
-        toast.message("Nenhum token precisou ser estendido", { description: `${r.debugged}/${r.total} verificados` });
+        toast.message("Nenhum token precisou ser estendido", { description: `${r.debugged}/${r.total} verificados${skipped ? ` · ${skipped} adiados` : ""}` });
       }
+      if (r.economyMode) toast.warning("Modo econômico ativo: quota dos Apps ≥ 80% — só os urgentes foram processados");
       if (failed.length) toast.error(`${failed.length} página(s) com erro — veja o relatório`);
       setRefreshReport(r);
       qc.invalidateQueries({ queryKey: ["pages"] });
       qc.invalidateQueries({ queryKey: ["pages-token-info"] });
+      qc.invalidateQueries({ queryKey: ["refresh-reports"] });
     },
     onError: (e: any) => toast.error(e.message),
+  });
+
+  const listReportsFn = useServerFn(listRefreshReports);
+  const { data: reports = [] } = useQuery({
+    queryKey: ["refresh-reports"],
+    queryFn: () => listReportsFn(),
+    enabled: historyOpen,
   });
 
   // Alerts derived from persisted token_expires_at
@@ -143,10 +172,27 @@ function PagesPage() {
           <p className="text-sm text-muted-foreground">Gerencie os Access Tokens das suas Páginas do Facebook.</p>
         </div>
         <div className="flex gap-2">
-          <Button variant="outline" onClick={() => refreshAll.mutate()} disabled={refreshAll.isPending || pages.length === 0} title="Roda o depurador oficial do Facebook e tenta renovar para token estendido">
-            <RefreshCw className={`size-4 mr-2 ${refreshAll.isPending ? "animate-spin" : ""}`} />
-            {refreshAll.isPending ? "Renovando…" : "Renovar agora"}
-          </Button>
+          <div className="flex">
+            <Button variant="outline" className="rounded-r-none" onClick={() => refreshAll.mutate(undefined)} disabled={refreshAll.isPending || pages.length === 0} title="Renova todos os tokens (full)">
+              <RefreshCw className={`size-4 mr-2 ${refreshAll.isPending ? "animate-spin" : ""}`} />
+              {refreshAll.isPending ? "Renovando…" : "Renovar agora"}
+            </Button>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="outline" className="rounded-l-none border-l-0 px-2" disabled={refreshAll.isPending || pages.length === 0} title="Opções de renovação">
+                  <ChevronDown className="size-4" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuLabel>Renovar somente as que expiram em</DropdownMenuLabel>
+                <DropdownMenuItem onClick={() => refreshAll.mutate({ withinDays: 7 })}>menos de 7 dias</DropdownMenuItem>
+                <DropdownMenuItem onClick={() => refreshAll.mutate({ withinDays: 15 })}>menos de 15 dias</DropdownMenuItem>
+                <DropdownMenuItem onClick={() => refreshAll.mutate({ withinDays: 30 })}>menos de 30 dias</DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem onClick={() => setHistoryOpen(true)}><History className="size-4 mr-2" />Ver histórico</DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
           <Button variant="outline" onClick={() => refetchTokens()} disabled={tokenLoading || pages.length === 0}>
             <Clock className="size-4 mr-2" />{tokenLoading ? "Verificando…" : "Verificar validade"}
           </Button>
@@ -331,12 +377,18 @@ function PagesPage() {
           </DialogHeader>
           {refreshReport && (
             <div className="space-y-3">
-              <div className="grid grid-cols-4 gap-2 text-center text-xs">
+              <div className="grid grid-cols-5 gap-2 text-center text-xs">
                 <div className="rounded border p-2"><div className="text-lg font-semibold">{refreshReport.total}</div><div className="text-muted-foreground">total</div></div>
                 <div className="rounded border p-2"><div className="text-lg font-semibold text-success">{refreshReport.refreshed}</div><div className="text-muted-foreground">estendidos</div></div>
                 <div className="rounded border p-2"><div className="text-lg font-semibold">{refreshReport.debugged}</div><div className="text-muted-foreground">verificados</div></div>
+                <div className="rounded border p-2"><div className="text-lg font-semibold text-warning">{refreshReport.skipped ?? 0}</div><div className="text-muted-foreground">adiados</div></div>
                 <div className="rounded border p-2"><div className="text-lg font-semibold text-destructive">{refreshReport.invalidated}</div><div className="text-muted-foreground">inválidos</div></div>
               </div>
+              {refreshReport.economyMode && (
+                <div className="rounded border border-warning/40 bg-warning/5 p-2 text-xs">
+                  ⚠️ Modo econômico: a quota dos Apps configurados está ≥ 80%. Só foram renovados tokens que expiram em menos de 7 dias.
+                </div>
+              )}
               {!refreshReport.canExtend && (
                 <div className="rounded border border-warning/40 bg-warning/5 p-2 text-xs">
                   Sem App ID/Secret configurado em Ajustes — só foi possível verificar, não estender.
@@ -348,7 +400,7 @@ function PagesPage() {
                     <div className="flex-1 min-w-0">
                       <div className="font-medium truncate">{r.name}</div>
                       <div className="text-xs text-muted-foreground">
-                        {r.newExpiresAt ? `expira ${new Date(r.newExpiresAt).toLocaleString("pt-BR")}` : r.isValid ? "não expira" : "—"}
+                        {deltaLabel(r.previousExpiresAt, r.newExpiresAt)}
                         {r.appSlot ? ` · App #${r.appSlot}` : ""}
                       </div>
                       {(r.debugError || r.exchangeError) && (
@@ -359,6 +411,10 @@ function PagesPage() {
                     </div>
                     {r.extended ? (
                       <Badge variant="outline" className="border-success/40 text-success gap-1"><CheckCircle2 className="size-3" />estendido</Badge>
+                    ) : r.skipped === "quota_high" ? (
+                      <Badge variant="outline" className="border-warning/40 text-warning">adiado (quota)</Badge>
+                    ) : r.skipped === "outside_window" ? (
+                      <Badge variant="outline">fora da janela</Badge>
                     ) : r.isValid ? (
                       <Badge variant="outline">já válido</Badge>
                     ) : (
@@ -370,8 +426,47 @@ function PagesPage() {
             </div>
           )}
           <DialogFooter>
+            <Button variant="outline" onClick={() => { setRefreshReport(null); setHistoryOpen(true); }}><History className="size-4 mr-2" />Ver histórico</Button>
             <Button onClick={() => setRefreshReport(null)}>Fechar</Button>
           </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={historyOpen} onOpenChange={setHistoryOpen}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Histórico de renovações</DialogTitle>
+          </DialogHeader>
+          <div className="max-h-[60vh] overflow-auto space-y-2">
+            {reports.length === 0 && <p className="text-sm text-muted-foreground text-center py-8">Nenhum relatório ainda.</p>}
+            {reports.map((rep: any) => (
+              <details key={rep.id} className="rounded border p-2 text-sm">
+                <summary className="cursor-pointer flex items-center justify-between gap-2">
+                  <span>
+                    <span className="text-xs text-muted-foreground">{new Date(rep.created_at).toLocaleString("pt-BR")}</span>
+                    {" "}<Badge variant="outline" className="text-[10px]">{rep.source}</Badge>
+                  </span>
+                  <span className="text-xs text-muted-foreground">
+                    {rep.summary?.refreshed ?? 0} estendidos · {rep.summary?.total ?? 0} páginas
+                    {rep.summary?.economyMode ? " · econômico" : ""}
+                  </span>
+                </summary>
+                <div className="mt-2 divide-y border-t">
+                  {(rep.results ?? []).map((r: any) => (
+                    <div key={r.pageId} className="py-1.5 flex items-center gap-2 text-xs">
+                      <span className="flex-1 truncate">{r.name}</span>
+                      <span className="text-muted-foreground">{deltaLabel(r.previousExpiresAt, r.newExpiresAt)}</span>
+                      {r.extended ? <Badge variant="outline" className="border-success/40 text-success text-[10px]">estendido</Badge>
+                        : r.skipped ? <Badge variant="outline" className="text-[10px]">adiado</Badge>
+                        : r.isValid ? <Badge variant="outline" className="text-[10px]">válido</Badge>
+                        : <Badge variant="destructive" className="text-[10px]">inválido</Badge>}
+                    </div>
+                  ))}
+                </div>
+              </details>
+            ))}
+          </div>
+          <DialogFooter><Button onClick={() => setHistoryOpen(false)}>Fechar</Button></DialogFooter>
         </DialogContent>
       </Dialog>
     </div>

@@ -116,6 +116,7 @@ export type Database = {
       fb_pages: {
         Row: {
           access_token: string
+          access_token_enc: string | null
           category: string | null
           created_at: string
           fb_page_id: string
@@ -135,6 +136,7 @@ export type Database = {
         }
         Insert: {
           access_token: string
+          access_token_enc?: string | null
           category?: string | null
           created_at?: string
           fb_page_id: string
@@ -154,6 +156,7 @@ export type Database = {
         }
         Update: {
           access_token?: string
+          access_token_enc?: string | null
           category?: string | null
           created_at?: string
           fb_page_id?: string
@@ -474,6 +477,33 @@ export type Database = {
         }
         Relationships: []
       }
+      refresh_reports: {
+        Row: {
+          created_at: string
+          id: string
+          results: Json
+          source: string
+          summary: Json
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          results?: Json
+          source?: string
+          summary?: Json
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          results?: Json
+          source?: string
+          summary?: Json
+          user_id?: string
+        }
+        Relationships: []
+      }
       upload_jobs: {
         Row: {
           completed_at: string | null
@@ -542,6 +572,9 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      _fb_enc_key: { Args: never; Returns: string }
+      decrypt_fb_token: { Args: { enc: string }; Returns: string }
+      encrypt_fb_token: { Args: { plain: string }; Returns: string }
       has_role: {
         Args: {
           _role: Database["public"]["Enums"]["app_role"]
