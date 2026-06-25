@@ -201,7 +201,7 @@ function PagesPage() {
             </DropdownMenu>
 
           </div>
-          <Button variant="outline" onClick={() => refetchTokens()} disabled={tokenLoading || pages.length === 0}>
+          <Button variant="outline" onClick={async () => { await refetchTokens(); qc.invalidateQueries({ queryKey: ["pages"] }); }} disabled={tokenLoading || pages.length === 0}>
             <Clock className="size-4 mr-2" />{tokenLoading ? "Verificando…" : "Verificar validade"}
           </Button>
           {selected.size > 0 && (
