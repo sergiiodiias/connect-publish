@@ -14,7 +14,7 @@ export const Route = createFileRoute("/_authenticated/settings")({
   component: SettingsPage,
 });
 
-type UsageEntry = { pct: number; ts: number } | null;
+type UsageEntry = { pct: number; call_count?: number; total_time?: number; total_cputime?: number; ts: number } | null;
 
 function SettingsPage() {
   const [name, setName] = useState("");
