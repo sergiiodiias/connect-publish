@@ -114,11 +114,9 @@ export async function runRefreshTokens(opts: { force?: boolean } = {}): Promise<
       errors.push({ pageId: row.id, error: e?.message ?? "erro" });
     }
 
-    // Pick this user's credentials, falling back to global env.
-    const userCreds = credsByUser.get(row.user_id);
-    const appId = userCreds?.appId || envAppId;
-    const appSecret = userCreds?.appSecret || envAppSecret;
-    const canExtend = !!(appId && appSecret);
+    // Pick this user's credentials com rotação por uso.
+    const creds = pickCreds(row.user_id);
+    const canExtend = !!creds;
 
     // Manual "Renovar agora" → force exchange on every valid token.
     // Cron monthly → only when expiry is within 20 days (avoids app-level rate quota).
@@ -127,14 +125,15 @@ export async function runRefreshTokens(opts: { force?: boolean } = {}): Promise<
       expiresAt !== null && expiresAt > 0 && expiresAt * 1000 - Date.now() < TWENTY_DAYS_MS;
     const needsExchange = isValid && canExtend && (force || withinWindow);
 
-    if (needsExchange) {
+    if (needsExchange && creds) {
       try {
-        const r = await fbGet<any>("/oauth/access_token", {
+        const { data: r, usage } = await fbGetWithUsage<any>("/oauth/access_token", {
           grant_type: "fb_exchange_token",
-          client_id: appId!,
-          client_secret: appSecret!,
+          client_id: creds.appId,
+          client_secret: creds.appSecret,
           fb_exchange_token: row.access_token,
         });
+        if (usage !== null) noteUsage(row.user_id, creds.slot, usage);
 
         if (r?.access_token && r.access_token !== row.access_token) {
           update.access_token = r.access_token;
@@ -146,6 +145,7 @@ export async function runRefreshTokens(opts: { force?: boolean } = {}): Promise<
           refreshed++;
         }
       } catch (e: any) {
+        if (typeof e?.usage === "number") noteUsage(row.user_id, creds.slot, e.usage);
         console.warn(`[refresh-tokens] exchange failed for ${row.fb_page_id}:`, e?.message);
         errors.push({ pageId: row.id, error: `exchange: ${e?.message ?? "erro"}` });
       }
