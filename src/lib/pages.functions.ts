@@ -182,9 +182,25 @@ export const listPages = createServerFn({ method: "GET" })
 // Triggers the same monthly debug+refresh routine on demand.
 export const refreshTokensNow = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .handler(async () => {
+  .inputValidator((d) => z.object({ withinDays: z.number().int().positive().max(365).optional() }).optional().parse(d) ?? {})
+  .handler(async ({ data }) => {
     const { runRefreshTokens } = await import("@/lib/refresh-tokens.server");
-    return runRefreshTokens({ force: true });
+    return runRefreshTokens({ force: true, withinDays: data?.withinDays });
+  });
+
+export const listRefreshReports = createServerFn({ method: "GET" })
+  .middleware([requireSupabaseAuth])
+  .handler(async ({ context }) => {
+    const { data, error } = await (context.supabase as any)
+      .from("refresh_reports")
+      .select("id, created_at, source, summary, results")
+      .order("created_at", { ascending: false })
+      .limit(10);
+    if (error) throw new Error(error.message);
+    return (data ?? []) as Array<{
+      id: string; created_at: string; source: string;
+      summary: any; results: any[];
+    }>;
   });
 
 export const inspectTokens = createServerFn({ method: "POST" })
