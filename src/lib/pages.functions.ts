@@ -217,6 +217,8 @@ export const inspectTokens = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((d) => z.object({ force: z.boolean().optional() }).optional().parse(d) ?? {})
   .handler(async ({ data, context }) => {
+    const { withApiCallTracking } = await import("@/lib/fb-api-tracker.server");
+    return withApiCallTracking(context.userId, async () => {
     const force = !!data?.force;
     const { supabase, userId } = context;
     const { data: rows, error } = await supabase
