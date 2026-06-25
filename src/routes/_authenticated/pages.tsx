@@ -2,15 +2,16 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
-import { listPages, connectPage, deletePage, deletePages, testPageToken, inspectTokens, updatePageToken, refreshTokensNow } from "@/lib/pages.functions";
+import { listPages, connectPage, deletePage, deletePages, testPageToken, inspectTokens, updatePageToken, refreshTokensNow, listRefreshReports } from "@/lib/pages.functions";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from "@/components/ui/dialog";
+import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator } from "@/components/ui/dropdown-menu";
 import { Badge } from "@/components/ui/badge";
-import { Plus, Trash2, CheckCircle2, AlertTriangle, RefreshCw, Clock, Copy, Eye, EyeOff, KeyRound } from "lucide-react";
+import { Plus, Trash2, CheckCircle2, AlertTriangle, RefreshCw, Clock, Copy, Eye, EyeOff, KeyRound, History, ChevronDown } from "lucide-react";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/_authenticated/pages")({
