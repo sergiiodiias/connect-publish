@@ -163,6 +163,16 @@ export async function runRefreshTokens(opts: RefreshOptions = {}): Promise<Refre
       appSlot: null,
     };
 
+    // Skip total para páginas marcadas como "precisa reconectar" — não gasta quota
+    // até o usuário enviar um novo token válido. Force ignora esse atalho.
+    if (row.needs_reconnect && !force) {
+      outcome.skipped = "fresh"; // reusa o tipo existente
+      outcome.debugError = "precisa reconectar (skip)";
+      skippedCount++;
+      results.push(outcome);
+      return;
+    }
+
     const update: Record<string, any> = { token_last_debugged_at: new Date().toISOString() };
     let isValid = false;
     let expiresAt: number | null = null;
