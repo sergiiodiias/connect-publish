@@ -163,7 +163,23 @@ export async function runRefreshTokens(opts: RefreshOptions = {}): Promise<Refre
   let economyTriggered = false;
 
   const { withApiCallTracking } = await import("@/lib/fb-api-tracker.server");
-  await mapWithConcurrency(rows ?? [], 3, async (row) => withApiCallTracking(row.user_id, async () => {
+
+  // Batching para não estourar a API: 20 páginas por lote, 3 em paralelo,
+  // pausa de 3s entre lotes. Aborta se TODOS os apps de TODOS os usuários
+  // saturarem (>=USAGE_THRESHOLD) — nesse caso o resto cai pra próxima rodada.
+  const BATCH_SIZE = Number(process.env.FB_REFRESH_BATCH_SIZE ?? 20);
+  const BATCH_PAUSE_MS = Number(process.env.FB_REFRESH_BATCH_PAUSE_MS ?? 3000);
+  const CONCURRENCY = Number(process.env.FB_REFRESH_CONCURRENCY ?? 3);
+
+  const shouldAbort = () => {
+    if (force) return false;
+    const users = Array.from(appsByUser.values());
+    if (users.length === 0) return false;
+    // Aborta só se TODOS os usuários estão totalmente saturados
+    return users.every((u) => u.apps.length > 0 && u.apps.every((a) => a.usage >= 95));
+  };
+
+  await mapInBatches(rows ?? [], BATCH_SIZE, CONCURRENCY, BATCH_PAUSE_MS, async (row: any) => withApiCallTracking(row.user_id, async () => {
     const previousExpiresAt = row.token_expires_at ?? null;
     const outcome: PageRefreshOutcome = {
       pageId: row.id,
