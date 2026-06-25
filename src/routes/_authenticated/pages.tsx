@@ -125,7 +125,8 @@ function PagesPage() {
   const [refreshReport, setRefreshReport] = useState<any | null>(null);
   const [historyOpen, setHistoryOpen] = useState(false);
   const refreshAll = useMutation({
-    mutationFn: (vars?: { withinDays?: number }) => refreshFn({ data: vars ?? {} }),
+    mutationFn: (vars?: { withinDays?: number; force?: boolean }) => refreshFn({ data: vars ?? {} }),
+
     onSuccess: (r) => {
       const extendedNames = (r.results ?? []).filter((x: any) => x.extended).map((x: any) => x.name);
       const failed = (r.results ?? []).filter((x: any) => x.exchangeError || x.debugError);
