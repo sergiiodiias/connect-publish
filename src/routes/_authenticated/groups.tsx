@@ -61,6 +61,23 @@ function GroupsPage() {
     onSuccess: () => { toast.success("Removido"); qc.invalidateQueries({ queryKey: ["groups"] }); },
   });
 
+  const addToGroup = useMutation({
+    mutationFn: async ({ pageIds, groupId }: { pageIds: string[]; groupId: string }) => {
+      const { data: u } = await supabase.auth.getUser();
+      const userId = u.user!.id;
+      const rows = pageIds.map(pid => ({ group_id: groupId, page_id: pid, user_id: userId }));
+      const { error } = await supabase.from("page_group_members").insert(rows);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      toast.success("Páginas adicionadas ao grupo");
+      setUngroupedSel([]);
+      setTargetGroup("");
+      qc.invalidateQueries({ queryKey: ["groups"] });
+    },
+    onError: (e: any) => toast.error(e.message),
+  });
+
   return (
     <div className="p-8 space-y-6">
       <div className="flex items-center justify-between">
