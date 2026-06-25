@@ -296,6 +296,10 @@ function ExtractPage() {
                 </div>
               )}
             </div>
+            <label className="flex items-center gap-2 text-sm">
+              <Checkbox checked={overwriteExisting} onCheckedChange={(v) => setOverwriteExisting(!!v)} />
+              Sobrescrever tokens já existentes e válidos (por padrão, são preservados)
+            </label>
             <div className="flex items-center gap-3">
               <Checkbox
                 checked={selected.size === extracted.length}
