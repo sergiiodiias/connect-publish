@@ -112,6 +112,32 @@ function GroupsPage() {
           </div>
         ))}
       </div>
+
+      {(() => {
+        const grouped = new Set<string>();
+        groups.forEach((g: any) => g.page_group_members?.forEach((m: any) => grouped.add(m.page_id)));
+        const ungrouped = pages.filter(p => !grouped.has(p.id));
+        return (
+          <div className="rounded-xl border border-border bg-card p-5">
+            <div className="flex items-center justify-between mb-3">
+              <div>
+                <h2 className="font-semibold">Páginas sem grupo</h2>
+                <p className="text-xs text-muted-foreground">Páginas conectadas que ainda não pertencem a nenhum grupo.</p>
+              </div>
+              <span className="text-xs text-muted-foreground">{ungrouped.length} de {pages.length}</span>
+            </div>
+            {ungrouped.length === 0 ? (
+              <p className="text-sm text-muted-foreground">Todas as páginas estão em pelo menos um grupo.</p>
+            ) : (
+              <div className="flex flex-wrap gap-2 max-h-72 overflow-y-auto">
+                {ungrouped.map(p => (
+                  <span key={p.id} className="text-xs px-2 py-1 rounded-md border border-border bg-muted/30">{p.name}</span>
+                ))}
+              </div>
+            )}
+          </div>
+        );
+      })()}
     </div>
   );
 }
