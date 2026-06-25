@@ -104,10 +104,19 @@ function PagesPage() {
     onError: (e: any) => toast.error(e.message),
   });
   const refreshFn = useServerFn(refreshTokensNow);
+  const [refreshReport, setRefreshReport] = useState<any | null>(null);
   const refreshAll = useMutation({
     mutationFn: () => refreshFn(),
     onSuccess: (r) => {
-      toast.success(`Depurados ${r.debugged}/${r.total} · ${r.refreshed} renovado(s)${r.invalidated ? ` · ${r.invalidated} inválido(s)` : ""}`);
+      const extendedNames = (r.results ?? []).filter((x: any) => x.extended).map((x: any) => x.name);
+      const failed = (r.results ?? []).filter((x: any) => x.exchangeError || x.debugError);
+      if (r.refreshed > 0) {
+        toast.success(`${r.refreshed} token(s) estendido(s)${extendedNames.length <= 3 ? `: ${extendedNames.join(", ")}` : ""}`);
+      } else {
+        toast.message("Nenhum token precisou ser estendido", { description: `${r.debugged}/${r.total} verificados` });
+      }
+      if (failed.length) toast.error(`${failed.length} página(s) com erro — veja o relatório`);
+      setRefreshReport(r);
       qc.invalidateQueries({ queryKey: ["pages"] });
       qc.invalidateQueries({ queryKey: ["pages-token-info"] });
     },
