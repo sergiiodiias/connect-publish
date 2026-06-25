@@ -199,6 +199,17 @@ function PagesPage() {
             <p className="text-sm text-muted-foreground">Nenhuma página conectada ainda.</p>
           </div>
         )}
+        {pages.length > 0 && (
+          <div className="px-4 py-2 bg-muted/30 flex items-center gap-3 text-xs">
+            <Checkbox
+              checked={allSelected}
+              onCheckedChange={(v) => setSelected(v ? new Set(pages.map((p: any) => p.id)) : new Set())}
+            />
+            <span className="text-muted-foreground">
+              {selected.size > 0 ? `${selected.size} de ${pages.length} selecionada(s)` : "Selecionar todas"}
+            </span>
+          </div>
+        )}
         {pages.map((p: any) => {
           const info = tokenInfo[p.id];
           // Prefer fresh on-demand data; fall back to persisted token_expires_at from monthly cron.
