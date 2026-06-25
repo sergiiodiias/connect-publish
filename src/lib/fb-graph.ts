@@ -72,9 +72,17 @@ export function parseAppUsage(headers: Headers): AppUsage | null {
   } catch { return null; }
 }
 
+async function track(path: string, method: "GET" | "POST" | "DELETE" | "MULTIPART") {
+  try {
+    const mod = await import("@/lib/fb-api-tracker.server");
+    mod.bumpCurrent(mod.categorizeEndpoint(path, method), 1);
+  } catch { /* tracker indisponível (ex: ambiente sem AsyncLocalStorage) */ }
+}
+
 export async function fbGet<T = any>(path: string, params: Record<string, string>): Promise<T> {
   const url = new URL(FB_GRAPH + path);
   for (const [k, v] of Object.entries(params)) url.searchParams.set(k, v);
+  await track(path, "GET");
   const { res, json } = await fetchWithRetry(url.toString(), { signal: timeoutSignal() });
   if (!res.ok || json.error) throw new Error(fmtErr(json, `Graph GET ${path} ${res.status}`));
   return json;
@@ -83,6 +91,7 @@ export async function fbGet<T = any>(path: string, params: Record<string, string
 export async function fbGetWithUsage<T = any>(path: string, params: Record<string, string>): Promise<{ data: T; usage: AppUsage | null }> {
   const url = new URL(FB_GRAPH + path);
   for (const [k, v] of Object.entries(params)) url.searchParams.set(k, v);
+  await track(path, "GET");
   const { res, json } = await fetchWithRetry(url.toString(), { signal: timeoutSignal() });
   const usage = parseAppUsage(res.headers);
   if (!res.ok || json.error) {
@@ -95,12 +104,14 @@ export async function fbGetWithUsage<T = any>(path: string, params: Record<strin
 
 export async function fbPost<T = any>(path: string, params: Record<string, string>): Promise<T> {
   const body = new URLSearchParams(params);
+  await track(path, "POST");
   const { res, json } = await fetchWithRetry(FB_GRAPH + path, { method: "POST", body, signal: timeoutSignal() });
   if (!res.ok || json.error) throw new Error(fmtErr(json, `Graph POST ${path} ${res.status}`));
   return json;
 }
 
 export async function fbPostMultipart<T = any>(path: string, form: FormData): Promise<T> {
+  await track(path, "MULTIPART");
   // multipart não retorna JSON consistente em erro de rate-limit; chamada única sem retry.
   const res = await fetch(FB_GRAPH + path, { method: "POST", body: form, signal: timeoutSignal(45_000) });
   const json: any = await res.json();
@@ -110,6 +121,7 @@ export async function fbPostMultipart<T = any>(path: string, form: FormData): Pr
 
 export async function fbDelete<T = any>(path: string, params: Record<string, string>): Promise<T> {
   const url = FB_GRAPH + path + "?" + new URLSearchParams(params).toString();
+  await track(path, "DELETE");
   const { res, json } = await fetchWithRetry(url, { method: "DELETE", signal: timeoutSignal() });
   if (!res.ok || json.error) throw new Error(fmtErr(json, `Graph DELETE ${path} ${res.status}`));
   return json;

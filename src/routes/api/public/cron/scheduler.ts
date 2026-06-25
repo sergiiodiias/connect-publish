@@ -13,6 +13,7 @@ export const Route = createFileRoute("/api/public/cron/scheduler")({
         const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
         const { fbGet, fbPost } = await import("@/lib/fb-graph");
         const { publishFacebookPost } = await import("@/lib/fb-publish");
+        const { withApiCallTracking } = await import("@/lib/fb-api-tracker.server");
 
         const nowIso = new Date().toISOString();
         // Give Facebook's native scheduler time to publish before using our fallback.
@@ -232,7 +233,7 @@ export const Route = createFileRoute("/api/public/cron/scheduler")({
           .lte("run_at", nowIso)
           .limit(60);
 
-        async function postComment(c: any) {
+        async function postComment(c: any) { return withApiCallTracking(c.user_id, async () => {
           if (c.fb_comment_id) {
             await supabaseAdmin
               .from("auto_comments")
@@ -376,7 +377,7 @@ export const Route = createFileRoute("/api/public/cron/scheduler")({
               .eq("id", c.id);
             if (/limit|#4|#17|#32|#613/i.test(msg)) rateLimitHit = true;
           }
-        }
+        }); }
 
         for (const group of chunk(dueComments ?? [], CONCURRENCY)) {
           if (outOfTime() || rateLimitHit) break;
@@ -459,7 +460,7 @@ export const Route = createFileRoute("/api/public/cron/scheduler")({
           // Backoff between attempts (minutes): after attempt 1 -> 1m, after 2 -> 5m, after 3 -> 15m (unused, marked failed)
           const BACKOFF_MIN = [1, 5, 15];
 
-          async function publishTarget(t: { id: string; page_id: string; attempts: number }) {
+          async function publishTarget(t: { id: string; page_id: string; attempts: number }) { return withApiCallTracking(post.user_id, async () => {
             if (fallbackPublishedPages.has(t.page_id)) return;
             const nowStamp = new Date().toISOString();
             // Atomic claim — prevents another tick from re-publishing it.
@@ -638,7 +639,7 @@ export const Route = createFileRoute("/api/public/cron/scheduler")({
                   .eq("id", t.id);
               }
             }
-          }
+          }); }
 
           for (const group of chunk(candidateTargets, CONCURRENCY)) {
             if (outOfTime() || rateLimitHit) break;
