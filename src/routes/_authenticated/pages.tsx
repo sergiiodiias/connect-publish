@@ -93,6 +93,11 @@ function PagesPage() {
     onSuccess: () => { toast.success("Página removida"); qc.invalidateQueries({ queryKey: ["pages"] }); },
     onError: (e: any) => toast.error(e.message),
   });
+  const removeMany = useMutation({
+    mutationFn: (opts: { ids?: string[]; all?: boolean }) => delManyFn({ data: { pageIds: opts.ids, all: opts.all } }),
+    onSuccess: (r) => { toast.success(`${r.deleted} página(s) removida(s)`); setSelected(new Set()); qc.invalidateQueries({ queryKey: ["pages"] }); },
+    onError: (e: any) => toast.error(e.message),
+  });
   const test = useMutation({
     mutationFn: (id: string) => testFn({ data: { pageId: id } }),
     onSuccess: (r) => { r.ok ? toast.success("Token válido") : toast.error(r.error ?? "Token inválido"); qc.invalidateQueries({ queryKey: ["pages"] }); },
