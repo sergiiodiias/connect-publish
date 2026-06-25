@@ -172,10 +172,27 @@ function PagesPage() {
           <p className="text-sm text-muted-foreground">Gerencie os Access Tokens das suas Páginas do Facebook.</p>
         </div>
         <div className="flex gap-2">
-          <Button variant="outline" onClick={() => refreshAll.mutate()} disabled={refreshAll.isPending || pages.length === 0} title="Roda o depurador oficial do Facebook e tenta renovar para token estendido">
-            <RefreshCw className={`size-4 mr-2 ${refreshAll.isPending ? "animate-spin" : ""}`} />
-            {refreshAll.isPending ? "Renovando…" : "Renovar agora"}
-          </Button>
+          <div className="flex">
+            <Button variant="outline" className="rounded-r-none" onClick={() => refreshAll.mutate(undefined)} disabled={refreshAll.isPending || pages.length === 0} title="Renova todos os tokens (full)">
+              <RefreshCw className={`size-4 mr-2 ${refreshAll.isPending ? "animate-spin" : ""}`} />
+              {refreshAll.isPending ? "Renovando…" : "Renovar agora"}
+            </Button>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="outline" className="rounded-l-none border-l-0 px-2" disabled={refreshAll.isPending || pages.length === 0} title="Opções de renovação">
+                  <ChevronDown className="size-4" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuLabel>Renovar somente as que expiram em</DropdownMenuLabel>
+                <DropdownMenuItem onClick={() => refreshAll.mutate({ withinDays: 7 })}>menos de 7 dias</DropdownMenuItem>
+                <DropdownMenuItem onClick={() => refreshAll.mutate({ withinDays: 15 })}>menos de 15 dias</DropdownMenuItem>
+                <DropdownMenuItem onClick={() => refreshAll.mutate({ withinDays: 30 })}>menos de 30 dias</DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem onClick={() => setHistoryOpen(true)}><History className="size-4 mr-2" />Ver histórico</DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
           <Button variant="outline" onClick={() => refetchTokens()} disabled={tokenLoading || pages.length === 0}>
             <Clock className="size-4 mr-2" />{tokenLoading ? "Verificando…" : "Verificar validade"}
           </Button>
