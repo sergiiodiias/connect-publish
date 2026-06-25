@@ -285,16 +285,6 @@ export async function runRefreshTokens(opts: RefreshOptions = {}): Promise<Refre
 
     let shouldExchange = isValid && !!creds;
 
-    // CRÍTICO: fb_exchange_token só funciona em USER tokens. Em PAGE tokens,
-    // o Facebook devolve um token short-lived (~1-2h) — DEGRADA o token original.
-    // Page tokens derivados de long-lived user tokens já são permanentes;
-    // não há "extensão" a fazer. Apenas valide via debug_token.
-    const tokenType = (outcome as any)._tokenType as string | null | undefined;
-    if (shouldExchange && tokenType === "PAGE") {
-      shouldExchange = false;
-      outcome.skipped = "fresh";
-    }
-
     // withinDays (filtro manual): só renova se está dentro da janela
     if (shouldExchange && withinDaysMs !== null) {
       if (msToExpiry === null || msToExpiry >= withinDaysMs) {
@@ -302,19 +292,11 @@ export async function runRefreshTokens(opts: RefreshOptions = {}): Promise<Refre
         outcome.skipped = "outside_window";
       }
     }
-    // Inteligente: pula exchange se já renovamos recentemente.
-    // - Se há expiry conhecida >30d: pula (regra original).
-    // - Se NÃO há expiry (token longa-duração) E foi renovado nos últimos 7 dias: pula.
-    //   Sem isso, 122 páginas sem expiry batem exchange a cada cron.
+    // Inteligente: pula exchange se o token tem >30d de validade conhecida.
+    // (Comportamento original que funcionava com 25 páginas.)
     const FRESH_MS = 30 * 24 * 60 * 60 * 1000;
-    const RECENT_REFRESH_MS = 7 * 24 * 60 * 60 * 1000;
-    const lastRefreshMs = row.token_last_refreshed_at ? new Date(row.token_last_refreshed_at).getTime() : 0;
-    const recentlyRefreshed = lastRefreshMs && (Date.now() - lastRefreshMs < RECENT_REFRESH_MS);
     if (shouldExchange && !force && withinDaysMs === null) {
       if (msToExpiry !== null && msToExpiry >= FRESH_MS) {
-        shouldExchange = false;
-        outcome.skipped = "fresh";
-      } else if (msToExpiry === null && recentlyRefreshed) {
         shouldExchange = false;
         outcome.skipped = "fresh";
       }
