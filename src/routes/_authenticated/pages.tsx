@@ -13,6 +13,7 @@ import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuIte
 import { Badge } from "@/components/ui/badge";
 import { Plus, Trash2, CheckCircle2, AlertTriangle, RefreshCw, Clock, Copy, Eye, EyeOff, KeyRound, History, ChevronDown } from "lucide-react";
 import { toast } from "sonner";
+import { ApiUsagePanel } from "@/components/ApiUsagePanel";
 
 export const Route = createFileRoute("/_authenticated/pages")({
   head: () => ({ meta: [{ title: "Páginas — PagePilot" }] }),
