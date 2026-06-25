@@ -176,6 +176,20 @@ export async function runRefreshTokens(opts: RefreshOptions = {}): Promise<Refre
       update.is_active = isValid;
       debugged++;
       if (d.error?.message) outcome.debugError = d.error.message;
+
+      // Detecta tokens revogados pelo usuário no Facebook (precisa reconectar)
+      const errCode = typeof d.error?.code === "number" ? d.error.code : null;
+      const errSub = typeof d.error?.subcode === "number" ? d.error.subcode : null;
+      if (!isValid && errCode === 190 && errSub && RECONNECT_SUBCODES[errSub]) {
+        update.needs_reconnect = true;
+        update.reconnect_reason = RECONNECT_SUBCODES[errSub];
+        outcome.needsReconnect = true;
+        outcome.reconnectReason = update.reconnect_reason;
+      } else if (isValid) {
+        // Token voltou a ser válido — limpa flag de reconexão
+        update.needs_reconnect = false;
+        update.reconnect_reason = null;
+      }
     } catch (e: any) {
       update.token_debug_error = e?.message ?? "erro";
       update.is_active = false;
@@ -184,6 +198,7 @@ export async function runRefreshTokens(opts: RefreshOptions = {}): Promise<Refre
     }
     outcome.isValid = isValid;
     outcome.newExpiresAt = update.token_expires_at ?? null;
+
 
     const creds = pickCreds(row.user_id);
     if (creds) outcome.appSlot = creds.slot;
