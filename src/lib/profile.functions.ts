@@ -12,7 +12,9 @@ export const getMyFbApp = createServerFn({ method: "GET" })
       .eq("id", userId)
       .single();
     if (error) throw new Error(error.message);
-    const usage = (data?.fb_app_usage ?? {}) as Record<string, { pct: number; ts: number }>;
+    const usage = (data?.fb_app_usage ?? {}) as Record<string, {
+      pct: number; call_count?: number; total_time?: number; total_cputime?: number; ts: number;
+    }>;
     return {
       fb_app_id: data?.fb_app_id ?? "",
       has_secret: !!data?.fb_app_secret,
