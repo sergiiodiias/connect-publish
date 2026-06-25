@@ -315,7 +315,7 @@ export async function runRefreshTokens(opts: RefreshOptions = {}): Promise<Refre
     });
 
     results.push(outcome);
-  });
+  }));
 
   // Persiste o uso por app de cada usuário
   await Promise.all(Array.from(appsByUser.entries()).map(([userId, u]) =>
