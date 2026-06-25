@@ -37,6 +37,8 @@ function GroupsPage() {
   const [name, setName] = useState("");
   const [desc, setDesc] = useState("");
   const [sel, setSel] = useState<string[]>([]);
+  const [ungroupedSel, setUngroupedSel] = useState<string[]>([]);
+  const [targetGroup, setTargetGroup] = useState<string>("");
 
   const create = useMutation({
     mutationFn: async () => {
