@@ -1,5 +1,18 @@
 import { fbGet, fbGetWithUsage } from "@/lib/fb-graph";
 
+export type PageRefreshOutcome = {
+  pageId: string;
+  fbPageId: string;
+  name: string;
+  isValid: boolean;
+  extended: boolean;
+  previousExpiresAt: string | null;
+  newExpiresAt: string | null;
+  appSlot: 1 | 2 | null;
+  debugError?: string;
+  exchangeError?: string;
+};
+
 export type RefreshResult = {
   ok: boolean;
   total: number;
@@ -8,6 +21,7 @@ export type RefreshResult = {
   invalidated: number;
   canExtend: boolean;
   errors: { pageId: string; error: string }[];
+  results: PageRefreshOutcome[];
 };
 
 // Limit concurrent Graph calls so we don't blow rate limits but stay well under the 60s gateway.
