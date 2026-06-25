@@ -279,6 +279,30 @@ function PagesPage() {
         </Dialog>
         </div>
       </div>
+        <Dialog open={reconnectOpen} onOpenChange={setReconnectOpen}>
+          <DialogContent>
+            <DialogHeader><DialogTitle>Reconectar páginas via User Token</DialogTitle></DialogHeader>
+            <div className="space-y-4">
+              <p className="text-sm text-muted-foreground">
+                Gere um <strong>User Access Token</strong> no Graph API Explorer com os scopes <code>pages_show_list</code>, <code>pages_manage_posts</code>, <code>pages_read_engagement</code>, <code>pages_manage_metadata</code>. Cole abaixo — o sistema vai buscar todas as suas páginas e regravar o Page Token correto de cada uma automaticamente.
+              </p>
+              <div className="space-y-2">
+                <Label>User Access Token</Label>
+                <Textarea rows={4} value={userToken} onChange={e => setUserToken(e.target.value)} placeholder="EAAB..." />
+              </div>
+              <label className="flex items-center gap-2 text-sm">
+                <Checkbox checked={onlyNeedsReconnect} onCheckedChange={(v) => setOnlyNeedsReconnect(!!v)} />
+                Atualizar somente páginas marcadas como "precisa reconectar"
+              </label>
+            </div>
+            <DialogFooter>
+              <Button variant="ghost" onClick={() => setReconnectOpen(false)}>Cancelar</Button>
+              <Button disabled={!userToken || reconnectMut.isPending} onClick={() => reconnectMut.mutate()}>
+                {reconnectMut.isPending ? "Reconectando…" : "Reconectar páginas"}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
 
       
 
