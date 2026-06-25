@@ -233,7 +233,7 @@ export const Route = createFileRoute("/api/public/cron/scheduler")({
           .lte("run_at", nowIso)
           .limit(60);
 
-        async function postComment(c: any) {
+        async function postComment(c: any) { return withApiCallTracking(c.user_id, async () => {
           if (c.fb_comment_id) {
             await supabaseAdmin
               .from("auto_comments")
