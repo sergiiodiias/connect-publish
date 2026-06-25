@@ -65,6 +65,10 @@ export type RefreshOptions = {
   withinDays?: number;
   /** Se origem é cron (true) ou ação manual do usuário (false). */
   fromCron?: boolean;
+  /** Restringe a um conjunto de páginas (renovação 1-a-1 ou seleção). */
+  pageIds?: string[];
+  /** Restringe ao dono (usado por server fns autenticadas). */
+  userId?: string;
 };
 
 export async function runRefreshTokens(opts: RefreshOptions = {}): Promise<RefreshResult> {
@@ -72,9 +76,12 @@ export async function runRefreshTokens(opts: RefreshOptions = {}): Promise<Refre
   const withinDaysMs = typeof opts.withinDays === "number" ? opts.withinDays * 24 * 60 * 60 * 1000 : null;
   const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
 
-  const { data: rows, error } = await supabaseAdmin
+  let q = supabaseAdmin
     .from("fb_pages")
     .select("id, user_id, fb_page_id, name, access_token, token_expires_at, token_last_debugged_at, token_last_refreshed_at, token_scopes, token_data_access_expires_at, is_active, needs_reconnect");
+  if (opts.userId) q = q.eq("user_id", opts.userId);
+  if (opts.pageIds && opts.pageIds.length) q = q.in("id", opts.pageIds);
+  const { data: rows, error } = await q;
   if (error) throw new Error(error.message);
 
   const userIds = Array.from(new Set((rows ?? []).map((r) => r.user_id)));
