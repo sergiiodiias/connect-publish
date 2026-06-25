@@ -3,7 +3,7 @@ import { createFileRoute } from "@tanstack/react-router";
 async function run() {
   const { runRefreshTokens } = await import("@/lib/refresh-tokens.server");
   try {
-    const result = await runRefreshTokens();
+    const result = await runRefreshTokens({ fromCron: true });
     return Response.json(result);
   } catch (e: any) {
     console.error("[cron/refresh-tokens]", e);
