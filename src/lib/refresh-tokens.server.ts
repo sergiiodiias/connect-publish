@@ -278,6 +278,16 @@ export async function runRefreshTokens(opts: RefreshOptions = {}): Promise<Refre
 
     let shouldExchange = isValid && !!creds;
 
+    // CRÍTICO: fb_exchange_token só funciona em USER tokens. Em PAGE tokens,
+    // o Facebook devolve um token short-lived (~1-2h) — DEGRADA o token original.
+    // Page tokens derivados de long-lived user tokens já são permanentes;
+    // não há "extensão" a fazer. Apenas valide via debug_token.
+    const tokenType = (outcome as any)._tokenType as string | null | undefined;
+    if (shouldExchange && tokenType === "PAGE") {
+      shouldExchange = false;
+      outcome.skipped = "fresh";
+    }
+
     // withinDays (filtro manual): só renova se está dentro da janela
     if (shouldExchange && withinDaysMs !== null) {
       if (msToExpiry === null || msToExpiry >= withinDaysMs) {
