@@ -329,10 +329,12 @@ export const reconnectAllWithUserToken = createServerFn({ method: "POST" })
     return {
       ok: true as const,
       updated,
+      skipped,
       notFound,
       totalRemote: allPages.length,
       extendedUserToken,
       updatedNames,
+      skippedNames,
       notFoundNames,
     };
   });
