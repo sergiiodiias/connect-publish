@@ -7,12 +7,25 @@ import { debugFacebookToken, normalizeFacebookExpiresAt, reconnectReasonFromDebu
 
 // Connect a page by pasting either a Page Access Token directly,
 // or a User Access Token containing pages — we'll list and pick the matching one.
+// Considera um token "ainda válido" e portanto preservável quando:
+// - a página está ativa, não está marcada para reconectar
+// - e não tem expiração conhecida OU expira em mais de 7 dias
+function isStoredTokenStillValid(row: any): boolean {
+  if (!row) return false;
+  if (row.is_active === false) return false;
+  if (row.needs_reconnect === true) return false;
+  if (!row.token_expires_at) return true; // sem expiry = permanente / desconhecido válido
+  const ms = new Date(row.token_expires_at).getTime() - Date.now();
+  return ms > 7 * 24 * 3600 * 1000;
+}
+
 export const connectPage = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((d) =>
     z.object({
       accessToken: z.string().min(20),
       pageId: z.string().optional(),
+      overwriteExisting: z.boolean().optional(), // default false: preserva token já validado
     }).parse(d),
   )
   .handler(async ({ data, context }) => {
