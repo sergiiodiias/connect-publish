@@ -34,18 +34,48 @@ export async function runRefreshTokens(opts: { force?: boolean } = {}): Promise<
     .select("id, user_id, fb_page_id, name, access_token");
   if (error) throw new Error(error.message);
 
-  // Per-user FB App credentials (fallback to global env vars).
+  // Per-user FB App credentials (com rotação entre App #1 e App #2 conforme uso).
+  const USAGE_THRESHOLD = 80;
   const userIds = Array.from(new Set((rows ?? []).map((r) => r.user_id)));
   const { data: profiles } = userIds.length
-    ? await supabaseAdmin.from("profiles").select("id, fb_app_id, fb_app_secret").in("id", userIds)
+    ? await supabaseAdmin.from("profiles").select("id, fb_app_id, fb_app_secret, fb_app_id_2, fb_app_secret_2, fb_app_usage").in("id", userIds)
     : { data: [] as any[] };
-  const credsByUser = new Map<string, { appId?: string; appSecret?: string }>();
+
+  type UserApps = {
+    apps: { slot: 1 | 2; appId: string; appSecret: string; usage: number }[];
+    usageMap: Record<string, { pct: number; ts: number }>;
+  };
+  const appsByUser = new Map<string, UserApps>();
   for (const p of profiles ?? []) {
-    credsByUser.set(p.id, { appId: p.fb_app_id ?? undefined, appSecret: p.fb_app_secret ?? undefined });
+    const usageMap = (p.fb_app_usage ?? {}) as Record<string, { pct: number; ts: number }>;
+    const apps: UserApps["apps"] = [];
+    if (p.fb_app_id && p.fb_app_secret) apps.push({ slot: 1, appId: p.fb_app_id, appSecret: p.fb_app_secret, usage: usageMap.app1?.pct ?? 0 });
+    if (p.fb_app_id_2 && p.fb_app_secret_2) apps.push({ slot: 2, appId: p.fb_app_id_2, appSecret: p.fb_app_secret_2, usage: usageMap.app2?.pct ?? 0 });
+    appsByUser.set(p.id, { apps, usageMap });
   }
   const envAppId = process.env.FB_APP_ID;
   const envAppSecret = process.env.FB_APP_SECRET;
-  const canExtendAny = !!(envAppId && envAppSecret) || (profiles ?? []).some((p) => p.fb_app_id && p.fb_app_secret);
+  const canExtendAny = !!(envAppId && envAppSecret) || (profiles ?? []).some((p) => (p.fb_app_id && p.fb_app_secret) || (p.fb_app_id_2 && p.fb_app_secret_2));
+
+  function pickCreds(userId: string): { slot: 1 | 2; appId: string; appSecret: string } | null {
+    const u = appsByUser.get(userId);
+    if (!u || u.apps.length === 0) {
+      if (envAppId && envAppSecret) return { slot: 1, appId: envAppId, appSecret: envAppSecret };
+      return null;
+    }
+    const below = u.apps.filter((a) => a.usage < USAGE_THRESHOLD);
+    const pool = below.length ? below : u.apps;
+    pool.sort((a, b) => a.usage - b.usage);
+    return { slot: pool[0].slot, appId: pool[0].appId, appSecret: pool[0].appSecret };
+  }
+  function noteUsage(userId: string, slot: 1 | 2, pct: number) {
+    const u = appsByUser.get(userId);
+    if (!u) return;
+    const key = slot === 1 ? "app1" : "app2";
+    u.usageMap[key] = { pct, ts: Date.now() };
+    const a = u.apps.find((x) => x.slot === slot);
+    if (a) a.usage = pct;
+  }
 
 
   let debugged = 0;
