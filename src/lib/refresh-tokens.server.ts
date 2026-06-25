@@ -60,7 +60,7 @@ export async function runRefreshTokens(opts: RefreshOptions = {}): Promise<Refre
 
   const { data: rows, error } = await supabaseAdmin
     .from("fb_pages")
-    .select("id, user_id, fb_page_id, name, access_token, token_expires_at");
+    .select("id, user_id, fb_page_id, name, access_token, token_expires_at, token_last_debugged_at, token_scopes, token_data_access_expires_at, is_active");
   if (error) throw new Error(error.message);
 
   const userIds = Array.from(new Set((rows ?? []).map((r) => r.user_id)));
