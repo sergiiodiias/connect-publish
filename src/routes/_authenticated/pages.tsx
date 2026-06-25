@@ -57,6 +57,9 @@ function PagesPage() {
   const [pageId, setPageId] = useState("");
   const [revealed, setRevealed] = useState<Record<string, boolean>>({});
   const [updateFor, setUpdateFor] = useState<{ id: string; name: string } | null>(null);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const toggleSel = (id: string) => setSelected(s => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
+  const allSelected = pages.length > 0 && selected.size === pages.length;
   const [newToken, setNewToken] = useState("");
   const updateTokenFn = useServerFn(updatePageToken);
   const updateMut = useMutation({
