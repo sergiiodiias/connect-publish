@@ -174,7 +174,7 @@ function PagesPage() {
         </div>
         <div className="flex gap-2">
           <div className="flex">
-            <Button variant="outline" className="rounded-r-none" onClick={() => refreshAll.mutate(undefined)} disabled={refreshAll.isPending || pages.length === 0} title="Renova todos os tokens (full)">
+            <Button variant="outline" className="rounded-r-none" onClick={() => refreshAll.mutate(undefined)} disabled={refreshAll.isPending || pages.length === 0} title="Renova tokens, pulando os que ainda têm >30 dias de validade">
               <RefreshCw className={`size-4 mr-2 ${refreshAll.isPending ? "animate-spin" : ""}`} />
               {refreshAll.isPending ? "Renovando…" : "Renovar agora"}
             </Button>
@@ -190,9 +190,14 @@ function PagesPage() {
                 <DropdownMenuItem onClick={() => refreshAll.mutate({ withinDays: 15 })}>menos de 15 dias</DropdownMenuItem>
                 <DropdownMenuItem onClick={() => refreshAll.mutate({ withinDays: 30 })}>menos de 30 dias</DropdownMenuItem>
                 <DropdownMenuSeparator />
+                <DropdownMenuItem onClick={() => refreshAll.mutate({ force: true })} title="Ignora o filtro de 30d e renova todos">
+                  <RefreshCw className="size-4 mr-2" />Forçar todas (ignorar filtros)
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
                 <DropdownMenuItem onClick={() => setHistoryOpen(true)}><History className="size-4 mr-2" />Ver histórico</DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
+
           </div>
           <Button variant="outline" onClick={() => refetchTokens()} disabled={tokenLoading || pages.length === 0}>
             <Clock className="size-4 mr-2" />{tokenLoading ? "Verificando…" : "Verificar validade"}
