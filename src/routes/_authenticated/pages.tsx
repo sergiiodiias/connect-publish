@@ -301,16 +301,17 @@ function PagesPage() {
                     {p.needs_reconnect ? <Badge variant="destructive" className="gap-1" title={p.reconnect_reason ?? "Token revogado pelo Facebook — atualize o Access Token"}><AlertTriangle className="size-3" />precisa reconectar</Badge>
                       : p.is_active ? <Badge variant="outline" className="gap-1"><CheckCircle2 className="size-3 text-success" />ativa</Badge>
                       : <Badge variant="destructive" className="gap-1"><AlertTriangle className="size-3" />inativa</Badge>}
-                    {exp && (
-                      <Badge variant="outline" className={`gap-1 ${toneClass}`} title={
-                        effectiveExpiresAt && effectiveExpiresAt > 0
-                          ? `Expira em ${new Date(effectiveExpiresAt * 1000).toLocaleString("pt-BR")}`
-                          : effectiveExpiresAt === 0 ? "Token de longa duração — não expira" : "Validade desconhecida"
-                      }>
-                        <Clock className="size-3" />
-                        {exp.tone === "never" ? "não expira" : `expira em ${exp.label}`}
-                      </Badge>
-                    )}
+                    <Badge variant="outline" className={`gap-1 ${toneClass}`} title={
+                      effectiveExpiresAt && effectiveExpiresAt > 0
+                        ? `Expira em ${new Date(effectiveExpiresAt * 1000).toLocaleString("pt-BR")}`
+                        : effectiveExpiresAt === 0 ? "Token de longa duração — não expira" : "Validade ainda não verificada — clique em Verificar validade"
+                    }>
+                      <Clock className="size-3" />
+                      {!exp ? "validade desconhecida"
+                        : exp.tone === "never" ? "não expira"
+                        : `expira em ${exp.label}`}
+                    </Badge>
+
                   </div>
                   <div className="text-xs text-muted-foreground">{p.category ?? "—"} · ID {p.fb_page_id}</div>
                 </div>

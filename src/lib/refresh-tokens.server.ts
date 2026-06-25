@@ -246,13 +246,17 @@ export async function runRefreshTokens(opts: RefreshOptions = {}): Promise<Refre
         if (r?.access_token && r.access_token !== row.access_token) {
           update.access_token = r.access_token;
           update.token_last_refreshed_at = new Date().toISOString();
-          update.token_expires_at =
-            typeof r.expires_in === "number" && r.expires_in > 0
-              ? new Date(Date.now() + r.expires_in * 1000).toISOString() : null;
+          // Só sobrescreve token_expires_at se o Facebook devolveu expires_in.
+          // Page tokens derivados de long-lived user tokens não retornam expires_in
+          // (não expiram) — nesse caso mantemos o valor que veio do debug_token.
+          if (typeof r.expires_in === "number" && r.expires_in > 0) {
+            update.token_expires_at = new Date(Date.now() + r.expires_in * 1000).toISOString();
+          }
           refreshed++;
           outcome.extended = true;
           outcome.newExpiresAt = update.token_expires_at ?? null;
         }
+
       } catch (e: any) {
         if (e?.usage) noteUsage(row.user_id, creds.slot, e.usage as AppUsage);
         console.warn(`[refresh-tokens] exchange failed for ${row.fb_page_id}:`, e?.message);
