@@ -391,6 +391,7 @@ export const inspectTokens = createServerFn({ method: "POST" })
     }
 
     return out;
+    });
   });
 
 
