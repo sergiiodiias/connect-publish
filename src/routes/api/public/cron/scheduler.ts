@@ -377,7 +377,7 @@ export const Route = createFileRoute("/api/public/cron/scheduler")({
               .eq("id", c.id);
             if (/limit|#4|#17|#32|#613/i.test(msg)) rateLimitHit = true;
           }
-        }
+        }); }
 
         for (const group of chunk(dueComments ?? [], CONCURRENCY)) {
           if (outOfTime() || rateLimitHit) break;
