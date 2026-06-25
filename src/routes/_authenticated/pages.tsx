@@ -141,6 +141,16 @@ function PagesPage() {
           <Button variant="outline" onClick={() => refetchTokens()} disabled={tokenLoading || pages.length === 0}>
             <Clock className="size-4 mr-2" />{tokenLoading ? "Verificando…" : "Verificar validade"}
           </Button>
+          {selected.size > 0 && (
+            <Button variant="destructive" onClick={() => { if (confirm(`Excluir ${selected.size} página(s) selecionada(s)?`)) removeMany.mutate({ ids: Array.from(selected) }); }} disabled={removeMany.isPending}>
+              <Trash2 className="size-4 mr-2" />Excluir selecionadas ({selected.size})
+            </Button>
+          )}
+          {pages.length > 0 && (
+            <Button variant="outline" onClick={() => { if (confirm(`Excluir TODAS as ${pages.length} páginas conectadas? Esta ação não pode ser desfeita.`)) removeMany.mutate({ all: true }); }} disabled={removeMany.isPending} title="Excluir todas as páginas">
+              <Trash2 className="size-4 mr-2 text-destructive" />Excluir todas
+            </Button>
+          )}
         <Dialog open={open} onOpenChange={setOpen}>
           <DialogTrigger asChild><Button><Plus className="size-4 mr-2" />Conectar página</Button></DialogTrigger>
           <DialogContent>
