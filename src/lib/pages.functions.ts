@@ -216,25 +216,17 @@ export const reconnectAllWithUserToken = createServerFn({ method: "POST" })
       }
     } catch { /* segue com o token original */ }
 
-    // 2) Lista todas as páginas do User Token (paginação)
+    // 2) Lista todas as páginas do User Token (paginação manual via fetch)
     type PageItem = { id: string; name: string; access_token: string; category?: string };
     const allPages: PageItem[] = [];
     try {
-      let next: string | null = null;
-      let firstUrl = true;
-      do {
-        const params: any = firstUrl
-          ? { access_token: userToken, fields: "id,name,category,access_token", limit: 200 }
-          : { __raw_url: next };
-        firstUrl = false;
-        // fbGet não suporta paginação direta; usa /me/accounts e paginação manual
-        const r: any = next
-          ? await (await fetch(next)).json()
-          : await fbGet<any>("/me/accounts", { access_token: userToken, fields: "id,name,category,access_token", limit: 200 });
+      let next: string | null = `https://graph.facebook.com/v21.0/me/accounts?fields=${encodeURIComponent("id,name,category,access_token")}&limit=200&access_token=${encodeURIComponent(userToken)}`;
+      while (next) {
+        const r: any = await (await fetch(next)).json();
         if (r?.error) throw new Error(r.error.message);
         if (Array.isArray(r?.data)) allPages.push(...r.data);
         next = r?.paging?.next ?? null;
-      } while (next);
+      }
     } catch (e: any) {
       return { ok: false as const, error: `Falha ao listar páginas do User Token: ${e?.message ?? "erro"}` };
     }
