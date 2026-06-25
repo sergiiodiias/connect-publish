@@ -2,7 +2,7 @@ import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import { fbGet, fbGetWithUsage, fbPost } from "@/lib/fb-graph";
-import { getAppCredsForUser, recordAppUsage } from "@/lib/fb-app-creds";
+import { recordAppUsage } from "@/lib/fb-app-creds";
 
 // Connect a page by pasting either a Page Access Token directly,
 // or a User Access Token containing pages — we'll list and pick the matching one.
