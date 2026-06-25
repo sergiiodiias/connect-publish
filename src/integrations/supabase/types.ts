@@ -113,6 +113,38 @@ export type Database = {
           },
         ]
       }
+      fb_api_calls: {
+        Row: {
+          count: number
+          day: string
+          endpoint: string
+          last_at: string
+          user_id: string
+        }
+        Insert: {
+          count?: number
+          day?: string
+          endpoint: string
+          last_at?: string
+          user_id: string
+        }
+        Update: {
+          count?: number
+          day?: string
+          endpoint?: string
+          last_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "fb_api_calls_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       fb_pages: {
         Row: {
           access_token: string
@@ -579,6 +611,10 @@ export type Database = {
     }
     Functions: {
       _fb_enc_key: { Args: never; Returns: string }
+      bump_fb_api_call: {
+        Args: { p_endpoint: string; p_inc: number; p_user_id: string }
+        Returns: undefined
+      }
       decrypt_fb_token: { Args: { enc: string }; Returns: string }
       encrypt_fb_token: { Args: { plain: string }; Returns: string }
       has_role: {
