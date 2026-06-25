@@ -267,15 +267,20 @@ export const reconnectAllWithUserToken = createServerFn({ method: "POST" })
     }
 
     // 3) Carrega páginas locais para fazer match por fb_page_id
-    let q = supabase.from("fb_pages").select("id, fb_page_id, name").eq("user_id", userId);
+    let q = supabase
+      .from("fb_pages")
+      .select("id, fb_page_id, name, is_active, needs_reconnect, token_expires_at")
+      .eq("user_id", userId);
     if (data.onlyNeedsReconnect) q = q.eq("needs_reconnect", true);
     const { data: localPages, error: lpErr } = await q;
     if (lpErr) throw new Error(lpErr.message);
 
     const byFbId = new Map(allPages.map((p) => [p.id, p]));
     let updated = 0;
+    let skipped = 0;
     let notFound = 0;
     const updatedNames: string[] = [];
+    const skippedNames: string[] = [];
     const notFoundNames: string[] = [];
 
     for (const lp of localPages ?? []) {
@@ -283,6 +288,12 @@ export const reconnectAllWithUserToken = createServerFn({ method: "POST" })
       if (!remote) {
         notFound++;
         notFoundNames.push(lp.name);
+        continue;
+      }
+      // Preserva token já validado a menos que o usuário peça para sobrescrever
+      if (!data.overwriteValid && isStoredTokenStillValid(lp)) {
+        skipped++;
+        skippedNames.push(lp.name);
         continue;
       }
       const { error: updErr } = await supabase
@@ -311,7 +322,7 @@ export const reconnectAllWithUserToken = createServerFn({ method: "POST" })
       action: "pages.bulk_reconnected",
       entity: "fb_page",
       entity_id: null,
-      metadata: { updated, notFound, extendedUserToken, totalRemote: allPages.length },
+      metadata: { updated, skipped, notFound, extendedUserToken, totalRemote: allPages.length },
       status: "ok",
     });
 
