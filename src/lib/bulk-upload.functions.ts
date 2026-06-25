@@ -1,6 +1,7 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
+import { scheduleTargetsNative } from "@/lib/fb-schedule";
 
 const SlotSchema = z.object({
   pageId: z.string().uuid(),
