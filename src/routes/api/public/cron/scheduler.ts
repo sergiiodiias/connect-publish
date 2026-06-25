@@ -639,7 +639,7 @@ export const Route = createFileRoute("/api/public/cron/scheduler")({
                   .eq("id", t.id);
               }
             }
-          }
+          }); }
 
           for (const group of chunk(candidateTargets, CONCURRENCY)) {
             if (outOfTime() || rateLimitHit) break;
