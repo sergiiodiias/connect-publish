@@ -231,6 +231,9 @@ export async function runRefreshTokens(opts: RefreshOptions = {}): Promise<Refre
         isValid = !!d.is_valid;
         expiresAt = normalizeFacebookExpiresAt(d);
         issuerAppId = r.appId ?? (d.app_id ? String(d.app_id) : null);
+        // Guarda o tipo do token (PAGE vs USER). Page tokens não devem ser
+        // passados por fb_exchange_token — isso os DEGRADA para short-lived.
+        (outcome as any)._tokenType = typeof d.type === "string" ? d.type : null;
         update.token_expires_at = expiresAt && expiresAt > 0 ? new Date(expiresAt * 1000).toISOString() : null;
         update.token_data_access_expires_at =
           typeof d.data_access_expires_at === "number" && d.data_access_expires_at > 0
