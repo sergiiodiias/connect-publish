@@ -108,6 +108,21 @@ export const deletePage = createServerFn({ method: "POST" })
     return { ok: true };
   });
 
+export const deletePages = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((d) => z.object({ pageIds: z.array(z.string().uuid()).optional(), all: z.boolean().optional() }).parse(d))
+  .handler(async ({ data, context }) => {
+    const { supabase, userId } = context;
+    let q = supabase.from("fb_pages").delete().eq("user_id", userId);
+    if (!data.all) {
+      if (!data.pageIds || data.pageIds.length === 0) return { ok: true, deleted: 0 };
+      q = q.in("id", data.pageIds);
+    }
+    const { error, count } = await q.select("id", { count: "exact" });
+    if (error) throw new Error(error.message);
+    return { ok: true, deleted: count ?? 0 };
+  });
+
 export const updatePageToken = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((d) =>
