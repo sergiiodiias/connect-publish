@@ -262,7 +262,7 @@ export const inspectTokens = createServerFn({ method: "POST" })
             client_secret: creds.appSecret,
             fb_exchange_token: row.access_token,
           });
-          if (usage !== null) maxUsage = Math.max(maxUsage ?? 0, usage);
+          mergeUsage(usage);
           if (r?.access_token) {
             base.longLivedToken = r.access_token;
             base.longLivedExpiresAt = typeof r.expires_in === "number"
@@ -270,7 +270,7 @@ export const inspectTokens = createServerFn({ method: "POST" })
               : 0;
           }
         } catch (e: any) {
-          if (typeof e?.usage === "number") maxUsage = Math.max(maxUsage ?? 0, e.usage);
+          if (e?.usage) mergeUsage(e.usage);
           base.extendError = e?.message ?? "falha ao estender";
         }
       } else {
