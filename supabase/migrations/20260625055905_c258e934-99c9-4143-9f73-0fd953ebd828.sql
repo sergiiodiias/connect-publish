@@ -1,0 +1,1 @@
+REVOKE EXECUTE ON FUNCTION public.trim_refresh_reports() FROM PUBLIC, anon, authenticated;
