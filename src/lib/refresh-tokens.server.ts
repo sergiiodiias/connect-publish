@@ -278,7 +278,9 @@ export async function runRefreshTokens(opts: RefreshOptions = {}): Promise<Refre
         outcome.exchangeError = e?.message ?? "erro";
       }
     } else if (!creds) {
-      outcome.exchangeError = "App ID/Secret não configurado em Ajustes";
+      outcome.exchangeError = issuerAppId
+        ? `Token emitido pelo App ${issuerAppId} — adicione esse App em Ajustes para poder renovar.`
+        : "App ID/Secret não configurado em Ajustes";
     }
 
     if (outcome.skipped) skippedCount++;
