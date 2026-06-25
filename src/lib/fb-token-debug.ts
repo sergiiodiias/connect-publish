@@ -50,24 +50,28 @@ export async function debugFacebookToken(inputToken: string, creds: FacebookDebu
       });
       const d = data?.data ?? {};
       const result = { data: d, appId: d.app_id ? String(d.app_id) : cred.appId, slot: cred.slot, usage, errors };
+      // Se o token é válido OU se este App é o emissor (app_id confere), paramos aqui.
+      // Evita gastar quota verificando em outros Apps que vão retornar "does not belong".
       if (d.is_valid) return result;
+      if (d.app_id && String(d.app_id) === cred.appId) return result;
       firstResult ??= result;
     } catch (e: any) {
       errors.push(`App ${cred.slot}: ${e?.message ?? "falha ao verificar"}`);
     }
   }
 
+  if (firstResult) return firstResult;
+
+  // Só faz fallback usando o próprio token quando NÃO há nenhum App configurado.
   try {
     const { data, usage } = await fbGetWithUsage<any>("/debug_token", {
       input_token: inputToken,
       access_token: inputToken,
     });
     const d = data?.data ?? {};
-    const fallbackResult = { data: d, appId: d.app_id ? String(d.app_id) : null, slot: null, usage, errors };
-    return d.is_valid || !firstResult ? fallbackResult : firstResult;
+    return { data: d, appId: d.app_id ? String(d.app_id) : null, slot: null, usage, errors };
   } catch (e: any) {
     errors.push(e?.message ?? "falha ao verificar");
-    if (firstResult) return firstResult;
     const err: any = new Error(errors.join(" | "));
     err.debugErrors = errors;
     throw err;
