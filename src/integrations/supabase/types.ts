@@ -124,7 +124,9 @@ export type Database = {
           is_active: boolean
           last_checked_at: string | null
           name: string
+          needs_reconnect: boolean
           picture_url: string | null
+          reconnect_reason: string | null
           token_data_access_expires_at: string | null
           token_debug_error: string | null
           token_expires_at: string | null
@@ -144,7 +146,9 @@ export type Database = {
           is_active?: boolean
           last_checked_at?: string | null
           name: string
+          needs_reconnect?: boolean
           picture_url?: string | null
+          reconnect_reason?: string | null
           token_data_access_expires_at?: string | null
           token_debug_error?: string | null
           token_expires_at?: string | null
@@ -164,7 +168,9 @@ export type Database = {
           is_active?: boolean
           last_checked_at?: string | null
           name?: string
+          needs_reconnect?: boolean
           picture_url?: string | null
+          reconnect_reason?: string | null
           token_data_access_expires_at?: string | null
           token_debug_error?: string | null
           token_expires_at?: string | null
