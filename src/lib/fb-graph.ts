@@ -19,6 +19,17 @@ function fmtErr(json: any, fallback: string): string {
   return tag ? `[${tag}] ${e.message ?? fallback}` : (e.message ?? fallback);
 }
 
+export function parseAppUsage(headers: Headers): number | null {
+  const raw = headers.get("x-app-usage");
+  if (!raw) return null;
+  try {
+    const u = JSON.parse(raw);
+    const vals = [u.call_count, u.total_cputime, u.total_time].filter((n) => typeof n === "number");
+    if (!vals.length) return null;
+    return Math.max(...vals);
+  } catch { return null; }
+}
+
 export async function fbGet<T = any>(path: string, params: Record<string, string>): Promise<T> {
   const url = new URL(FB_GRAPH + path);
   for (const [k, v] of Object.entries(params)) url.searchParams.set(k, v);
@@ -26,6 +37,20 @@ export async function fbGet<T = any>(path: string, params: Record<string, string
   const json: any = await res.json();
   if (!res.ok || json.error) throw new Error(fmtErr(json, `Graph GET ${path} ${res.status}`));
   return json;
+}
+
+export async function fbGetWithUsage<T = any>(path: string, params: Record<string, string>): Promise<{ data: T; usage: number | null }> {
+  const url = new URL(FB_GRAPH + path);
+  for (const [k, v] of Object.entries(params)) url.searchParams.set(k, v);
+  const res = await fetch(url.toString(), { signal: timeoutSignal() });
+  const json: any = await res.json();
+  const usage = parseAppUsage(res.headers);
+  if (!res.ok || json.error) {
+    const err: any = new Error(fmtErr(json, `Graph GET ${path} ${res.status}`));
+    err.usage = usage;
+    throw err;
+  }
+  return { data: json as T, usage };
 }
 
 export async function fbPost<T = any>(path: string, params: Record<string, string>): Promise<T> {
