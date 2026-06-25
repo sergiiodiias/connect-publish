@@ -122,6 +122,22 @@ function PagesPage() {
     onSuccess: (r) => { r.ok ? toast.success("Token válido") : toast.error(r.error ?? "Token inválido"); qc.invalidateQueries({ queryKey: ["pages"] }); },
     onError: (e: any) => toast.error(e.message),
   });
+  const refreshOneFn = useServerFn(refreshOnePage);
+  const refreshOne = useMutation({
+    mutationFn: (pageId: string) => refreshOneFn({ data: { pageId } }),
+    onSuccess: (r: any, pageId) => {
+      const res = (r?.results ?? [])[0];
+      if (res?.extended) toast.success(`Token estendido: ${res.name}`);
+      else if (res?.needsReconnect) toast.error(`${res.name}: ${res.reconnectReason ?? "precisa reconectar"}`);
+      else if (res?.exchangeError) toast.error(`${res.name}: ${res.exchangeError}`);
+      else if (res?.skipped) toast.message(`${res.name}: ${res.isValid ? "token válido — não precisa renovar" : "pulado"}`);
+      else if (res?.isValid) toast.success(`${res.name}: token válido`);
+      else toast.error(`${res?.name ?? "Página"}: falha ao verificar`);
+      qc.invalidateQueries({ queryKey: ["pages"] });
+      qc.invalidateQueries({ queryKey: ["pages-token-info"] });
+    },
+    onError: (e: any) => toast.error(e.message),
+  });
   const refreshFn = useServerFn(refreshTokensNow);
   const [refreshReport, setRefreshReport] = useState<any | null>(null);
   const [historyOpen, setHistoryOpen] = useState(false);
