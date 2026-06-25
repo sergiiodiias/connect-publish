@@ -1,0 +1,1 @@
+UPDATE public.fb_pages SET needs_reconnect = true, reconnect_reason = COALESCE(reconnect_reason, 'Token sem permissões (pages_manage_posts ausente)') WHERE (token_scopes IS NULL OR array_length(token_scopes, 1) IS NULL OR NOT ('pages_manage_posts' = ANY(token_scopes))) AND needs_reconnect IS DISTINCT FROM true;
