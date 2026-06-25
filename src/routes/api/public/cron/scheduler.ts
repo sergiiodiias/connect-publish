@@ -460,7 +460,7 @@ export const Route = createFileRoute("/api/public/cron/scheduler")({
           // Backoff between attempts (minutes): after attempt 1 -> 1m, after 2 -> 5m, after 3 -> 15m (unused, marked failed)
           const BACKOFF_MIN = [1, 5, 15];
 
-          async function publishTarget(t: { id: string; page_id: string; attempts: number }) {
+          async function publishTarget(t: { id: string; page_id: string; attempts: number }) { return withApiCallTracking(post.user_id, async () => {
             if (fallbackPublishedPages.has(t.page_id)) return;
             const nowStamp = new Date().toISOString();
             // Atomic claim — prevents another tick from re-publishing it.
