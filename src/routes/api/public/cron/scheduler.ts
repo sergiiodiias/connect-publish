@@ -13,6 +13,7 @@ export const Route = createFileRoute("/api/public/cron/scheduler")({
         const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
         const { fbGet, fbPost } = await import("@/lib/fb-graph");
         const { publishFacebookPost } = await import("@/lib/fb-publish");
+        const { withApiCallTracking } = await import("@/lib/fb-api-tracker.server");
 
         const nowIso = new Date().toISOString();
         // Give Facebook's native scheduler time to publish before using our fallback.
