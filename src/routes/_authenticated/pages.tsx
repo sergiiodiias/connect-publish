@@ -104,10 +104,19 @@ function PagesPage() {
     onError: (e: any) => toast.error(e.message),
   });
   const refreshFn = useServerFn(refreshTokensNow);
+  const [refreshReport, setRefreshReport] = useState<any | null>(null);
   const refreshAll = useMutation({
     mutationFn: () => refreshFn(),
     onSuccess: (r) => {
-      toast.success(`Depurados ${r.debugged}/${r.total} · ${r.refreshed} renovado(s)${r.invalidated ? ` · ${r.invalidated} inválido(s)` : ""}`);
+      const extendedNames = (r.results ?? []).filter((x: any) => x.extended).map((x: any) => x.name);
+      const failed = (r.results ?? []).filter((x: any) => x.exchangeError || x.debugError);
+      if (r.refreshed > 0) {
+        toast.success(`${r.refreshed} token(s) estendido(s)${extendedNames.length <= 3 ? `: ${extendedNames.join(", ")}` : ""}`);
+      } else {
+        toast.message("Nenhum token precisou ser estendido", { description: `${r.debugged}/${r.total} verificados` });
+      }
+      if (failed.length) toast.error(`${failed.length} página(s) com erro — veja o relatório`);
+      setRefreshReport(r);
       qc.invalidateQueries({ queryKey: ["pages"] });
       qc.invalidateQueries({ queryKey: ["pages-token-info"] });
     },
@@ -311,6 +320,57 @@ function PagesPage() {
             <Button disabled={!newToken.trim() || updateMut.isPending} onClick={() => updateMut.mutate()}>
               {updateMut.isPending ? "Salvando…" : "Salvar token"}
             </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!refreshReport} onOpenChange={(o) => !o && setRefreshReport(null)}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Relatório de renovação</DialogTitle>
+          </DialogHeader>
+          {refreshReport && (
+            <div className="space-y-3">
+              <div className="grid grid-cols-4 gap-2 text-center text-xs">
+                <div className="rounded border p-2"><div className="text-lg font-semibold">{refreshReport.total}</div><div className="text-muted-foreground">total</div></div>
+                <div className="rounded border p-2"><div className="text-lg font-semibold text-success">{refreshReport.refreshed}</div><div className="text-muted-foreground">estendidos</div></div>
+                <div className="rounded border p-2"><div className="text-lg font-semibold">{refreshReport.debugged}</div><div className="text-muted-foreground">verificados</div></div>
+                <div className="rounded border p-2"><div className="text-lg font-semibold text-destructive">{refreshReport.invalidated}</div><div className="text-muted-foreground">inválidos</div></div>
+              </div>
+              {!refreshReport.canExtend && (
+                <div className="rounded border border-warning/40 bg-warning/5 p-2 text-xs">
+                  Sem App ID/Secret configurado em Ajustes — só foi possível verificar, não estender.
+                </div>
+              )}
+              <div className="max-h-[50vh] overflow-auto rounded border divide-y">
+                {(refreshReport.results ?? []).map((r: any) => (
+                  <div key={r.pageId} className="p-2 flex items-center gap-2 text-sm">
+                    <div className="flex-1 min-w-0">
+                      <div className="font-medium truncate">{r.name}</div>
+                      <div className="text-xs text-muted-foreground">
+                        {r.newExpiresAt ? `expira ${new Date(r.newExpiresAt).toLocaleString("pt-BR")}` : r.isValid ? "não expira" : "—"}
+                        {r.appSlot ? ` · App #${r.appSlot}` : ""}
+                      </div>
+                      {(r.debugError || r.exchangeError) && (
+                        <div className="text-xs text-destructive truncate" title={r.debugError ?? r.exchangeError}>
+                          {r.debugError ?? r.exchangeError}
+                        </div>
+                      )}
+                    </div>
+                    {r.extended ? (
+                      <Badge variant="outline" className="border-success/40 text-success gap-1"><CheckCircle2 className="size-3" />estendido</Badge>
+                    ) : r.isValid ? (
+                      <Badge variant="outline">já válido</Badge>
+                    ) : (
+                      <Badge variant="destructive" className="gap-1"><AlertTriangle className="size-3" />inválido</Badge>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+          <DialogFooter>
+            <Button onClick={() => setRefreshReport(null)}>Fechar</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

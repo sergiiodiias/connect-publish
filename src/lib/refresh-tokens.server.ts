@@ -1,5 +1,18 @@
 import { fbGet, fbGetWithUsage } from "@/lib/fb-graph";
 
+export type PageRefreshOutcome = {
+  pageId: string;
+  fbPageId: string;
+  name: string;
+  isValid: boolean;
+  extended: boolean;
+  previousExpiresAt: string | null;
+  newExpiresAt: string | null;
+  appSlot: 1 | 2 | null;
+  debugError?: string;
+  exchangeError?: string;
+};
+
 export type RefreshResult = {
   ok: boolean;
   total: number;
@@ -8,6 +21,7 @@ export type RefreshResult = {
   invalidated: number;
   canExtend: boolean;
   errors: { pageId: string; error: string }[];
+  results: PageRefreshOutcome[];
 };
 
 // Limit concurrent Graph calls so we don't blow rate limits but stay well under the 60s gateway.
@@ -82,8 +96,25 @@ export async function runRefreshTokens(opts: { force?: boolean } = {}): Promise<
   let refreshed = 0;
   let invalidated = 0;
   const errors: { pageId: string; error: string }[] = [];
+  const results: PageRefreshOutcome[] = [];
 
   await mapWithConcurrency(rows ?? [], 6, async (row) => {
+    const outcome: PageRefreshOutcome = {
+      pageId: row.id,
+      fbPageId: row.fb_page_id,
+      name: row.name,
+      isValid: false,
+      extended: false,
+      previousExpiresAt: null,
+      newExpiresAt: null,
+      appSlot: null,
+    };
+    // load previous expiry for delta info
+    {
+      const { data: prev } = await supabaseAdmin.from("fb_pages").select("token_expires_at").eq("id", row.id).single();
+      outcome.previousExpiresAt = prev?.token_expires_at ?? null;
+    }
+
     const update: Record<string, any> = {
       token_last_debugged_at: new Date().toISOString(),
     };
@@ -108,22 +139,24 @@ export async function runRefreshTokens(opts: { force?: boolean } = {}): Promise<
       update.token_debug_error = d.error?.message ?? null;
       update.is_active = isValid;
       debugged++;
+      if (d.error?.message) outcome.debugError = d.error.message;
     } catch (e: any) {
       update.token_debug_error = e?.message ?? "erro";
       update.is_active = false;
       errors.push({ pageId: row.id, error: e?.message ?? "erro" });
+      outcome.debugError = e?.message ?? "erro";
     }
+    outcome.isValid = isValid;
+    outcome.newExpiresAt = update.token_expires_at ?? null;
 
     // Pick this user's credentials com rotação por uso.
     const creds = pickCreds(row.user_id);
     const canExtend = !!creds;
+    if (creds) outcome.appSlot = creds.slot;
 
-    // Manual "Renovar agora" → force exchange on every valid token.
-    // Cron monthly → only when expiry is within 20 days (avoids app-level rate quota).
-    const TWENTY_DAYS_MS = 20 * 24 * 60 * 60 * 1000;
-    const withinWindow =
-      expiresAt !== null && expiresAt > 0 && expiresAt * 1000 - Date.now() < TWENTY_DAYS_MS;
-    const needsExchange = isValid && canExtend && (force || withinWindow);
+    // Sempre tenta estender quando há credenciais e o token é válido
+    // (manual ou cron — o force é mantido por compatibilidade mas não é mais necessário).
+    const needsExchange = isValid && canExtend;
 
     if (needsExchange && creds) {
       try {
@@ -143,12 +176,17 @@ export async function runRefreshTokens(opts: { force?: boolean } = {}): Promise<
               ? new Date(Date.now() + r.expires_in * 1000).toISOString()
               : null;
           refreshed++;
+          outcome.extended = true;
+          outcome.newExpiresAt = update.token_expires_at ?? null;
         }
       } catch (e: any) {
         if (typeof e?.usage === "number") noteUsage(row.user_id, creds.slot, e.usage);
         console.warn(`[refresh-tokens] exchange failed for ${row.fb_page_id}:`, e?.message);
         errors.push({ pageId: row.id, error: `exchange: ${e?.message ?? "erro"}` });
+        outcome.exchangeError = e?.message ?? "erro";
       }
+    } else if (!canExtend) {
+      outcome.exchangeError = "App ID/Secret não configurado em Ajustes";
     }
 
     if (!isValid) invalidated++;
@@ -175,6 +213,8 @@ export async function runRefreshTokens(opts: { force?: boolean } = {}): Promise<
       },
       status: isValid ? "ok" : "error",
     });
+
+    results.push(outcome);
   });
 
   // Persiste o uso por app de cada usuário
@@ -182,5 +222,7 @@ export async function runRefreshTokens(opts: { force?: boolean } = {}): Promise<
     supabaseAdmin.from("profiles").update({ fb_app_usage: u.usageMap }).eq("id", userId),
   ));
 
-  return { ok: true, total: rows?.length ?? 0, debugged, refreshed, invalidated, canExtend: canExtendAny, errors };
+  results.sort((a, b) => a.name.localeCompare(b.name, "pt-BR"));
+  return { ok: true, total: rows?.length ?? 0, debugged, refreshed, invalidated, canExtend: canExtendAny, errors, results };
 }
+
