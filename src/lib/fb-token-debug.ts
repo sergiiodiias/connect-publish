@@ -57,17 +57,17 @@ export async function debugFacebookToken(inputToken: string, creds: FacebookDebu
     }
   }
 
-  if (firstResult) return firstResult;
-
   try {
     const { data, usage } = await fbGetWithUsage<any>("/debug_token", {
       input_token: inputToken,
       access_token: inputToken,
     });
     const d = data?.data ?? {};
-    return { data: d, appId: d.app_id ? String(d.app_id) : null, slot: null, usage, errors };
+    const fallbackResult = { data: d, appId: d.app_id ? String(d.app_id) : null, slot: null, usage, errors };
+    return d.is_valid || !firstResult ? fallbackResult : firstResult;
   } catch (e: any) {
     errors.push(e?.message ?? "falha ao verificar");
+    if (firstResult) return firstResult;
     const err: any = new Error(errors.join(" | "));
     err.debugErrors = errors;
     throw err;
