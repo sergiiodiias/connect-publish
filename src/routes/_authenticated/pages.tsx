@@ -417,17 +417,22 @@ function PagesPage() {
                     </div>
                     {r.extended ? (
                       <Badge variant="outline" className="border-success/40 text-success gap-1"><CheckCircle2 className="size-3" />estendido</Badge>
+                    ) : r.needsReconnect ? (
+                      <Badge variant="destructive" className="gap-1" title={r.reconnectReason}><AlertTriangle className="size-3" />reconectar</Badge>
                     ) : r.skipped === "quota_high" ? (
                       <Badge variant="outline" className="border-warning/40 text-warning">adiado (quota)</Badge>
                     ) : r.skipped === "outside_window" ? (
                       <Badge variant="outline">fora da janela</Badge>
+                    ) : r.skipped === "fresh" ? (
+                      <Badge variant="outline" className="text-muted-foreground">ainda fresco (&gt;30d)</Badge>
                     ) : r.isValid ? (
                       <Badge variant="outline">já válido</Badge>
                     ) : (
-                      <Badge variant="destructive" className="gap-1"><AlertTriangle className="size-3" />inválido</Badge>
+                      <Badge variant="destructive" className="gap-1"><AlertTriangle className="size-3" />falha temporária</Badge>
                     )}
                   </div>
                 ))}
+
               </div>
             </div>
           )}
