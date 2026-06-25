@@ -129,15 +129,17 @@ function PagesPage() {
 
     onSuccess: (r) => {
       const extendedNames = (r.results ?? []).filter((x: any) => x.extended).map((x: any) => x.name);
-      const failed = (r.results ?? []).filter((x: any) => x.exchangeError || x.debugError);
+      const failed = (r.results ?? []).filter((x: any) => (x.exchangeError || x.debugError) && !x.needsReconnect);
+      const reconnect = (r.results ?? []).filter((x: any) => x.needsReconnect).length;
       const skipped = (r.results ?? []).filter((x: any) => x.skipped).length;
       if (r.refreshed > 0) {
         toast.success(`${r.refreshed} token(s) estendido(s)${extendedNames.length <= 3 ? `: ${extendedNames.join(", ")}` : ""}`);
       } else {
         toast.message("Nenhum token precisou ser estendido", { description: `${r.debugged}/${r.total} verificados${skipped ? ` · ${skipped} adiados` : ""}` });
       }
+      if (reconnect > 0) toast.error(`${reconnect} página(s) precisam ser reconectadas (token revogado no Facebook)`);
       if (r.economyMode) toast.warning("Modo econômico ativo: quota dos Apps ≥ 80% — só os urgentes foram processados");
-      if (failed.length) toast.error(`${failed.length} página(s) com erro — veja o relatório`);
+      if (failed.length) toast.error(`${failed.length} página(s) com erro temporário — veja o relatório`);
       setRefreshReport(r);
       qc.invalidateQueries({ queryKey: ["pages"] });
       qc.invalidateQueries({ queryKey: ["pages-token-info"] });
