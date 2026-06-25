@@ -296,12 +296,17 @@ function PagesPage() {
             exp?.tone === "never" ? "border-success/40 text-success" :
             exp?.tone === "warn" ? "border-warning/40 text-warning" :
             exp?.tone === "bad" ? "border-destructive/40 text-destructive" : "";
+          const expiryDateStr = effectiveExpiresAt && effectiveExpiresAt > 0
+            ? new Date(effectiveExpiresAt * 1000).toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric" })
+            : null;
           const expiryLabel = p.needs_reconnect ? "precisa reconectar"
             : isKnownInvalid ? "token inválido"
             : hasVerificationError && !exp ? "erro ao verificar"
             : !exp ? "validade desconhecida"
-            : exp.tone === "never" ? "não expira"
-            : `expira em ${exp.label}`;
+            : exp.tone === "never" ? "longa duração · não expira"
+            : `expira ${expiryDateStr} (em ${exp.label})`;
+          const refreshedAt = p.token_last_refreshed_at ? new Date(p.token_last_refreshed_at) : null;
+          const debuggedAt = p.token_last_debugged_at ? new Date(p.token_last_debugged_at) : null;
           return (
             <div key={p.id} className="p-4 space-y-3">
               <div className="flex items-center gap-4">
@@ -326,10 +331,21 @@ function PagesPage() {
                       <Clock className="size-3" />
                       {expiryLabel}
                     </Badge>
-
                   </div>
-                  <div className="text-xs text-muted-foreground">{p.category ?? "—"} · ID {p.fb_page_id}</div>
+                  <div className="text-xs text-muted-foreground flex flex-wrap gap-x-3 gap-y-0.5 mt-0.5">
+                    <span>{p.category ?? "—"} · ID {p.fb_page_id}</span>
+                    {refreshedAt && (
+                      <span className="text-success">✓ renovado em {refreshedAt.toLocaleDateString("pt-BR")} {refreshedAt.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}</span>
+                    )}
+                    {!refreshedAt && debuggedAt && (
+                      <span>verificado em {debuggedAt.toLocaleDateString("pt-BR")} {debuggedAt.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}</span>
+                    )}
+                    {!refreshedAt && !debuggedAt && (
+                      <span className="text-warning">nunca verificado — clique em Verificar validade</span>
+                    )}
+                  </div>
                 </div>
+
                 <Button
                   variant="ghost"
                   size="icon"
