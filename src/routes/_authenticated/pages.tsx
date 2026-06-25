@@ -37,6 +37,23 @@ function formatExpiry(expiresAt: number | null): { label: string; tone: "ok" | "
   return { label, tone };
 }
 
+function daysUntil(iso: string | null): number | null {
+  if (!iso) return null;
+  const ms = new Date(iso).getTime() - Date.now();
+  if (ms <= 0) return 0;
+  return Math.round(ms / (24 * 60 * 60 * 1000));
+}
+
+function deltaLabel(prev: string | null, next: string | null): string {
+  const a = daysUntil(prev);
+  const b = daysUntil(next);
+  if (a === null && b === null) return "—";
+  if (a === null) return `agora ${b}d`;
+  if (b === null) return `${a}d → ?`;
+  if (a === b) return `${a}d (sem mudança)`;
+  return `${a}d → ${b}d`;
+}
+
 function PagesPage() {
   const qc = useQueryClient();
   const listFn = useServerFn(listPages);
