@@ -7,12 +7,28 @@ export type PageRefreshOutcome = {
   name: string;
   isValid: boolean;
   extended: boolean;
-  skipped?: "quota_high" | "outside_window" | null;
+  skipped?: "quota_high" | "outside_window" | "fresh" | null;
   previousExpiresAt: string | null;
   newExpiresAt: string | null;
   appSlot: 1 | 2 | null;
+  needsReconnect?: boolean;
+  reconnectReason?: string;
   debugError?: string;
   exchangeError?: string;
+};
+
+/** Subcódigos do Facebook (code=190) que indicam que o token foi revogado pelo usuário
+ *  e exige reconexão manual (não adianta tentar de novo). */
+const RECONNECT_SUBCODES: Record<number, string> = {
+  458: "App removido pelo usuário",
+  459: "Usuário fez checkpoint de segurança",
+  460: "Senha do usuário foi trocada",
+  463: "Token expirado",
+  464: "Usuário não confirmado",
+  466: "Token revogado pelo usuário",
+  467: "Token inválido",
+  490: "Sessão invalidada",
+  492: "Sessão inválida",
 };
 
 export type RefreshResult = {
@@ -160,6 +176,20 @@ export async function runRefreshTokens(opts: RefreshOptions = {}): Promise<Refre
       update.is_active = isValid;
       debugged++;
       if (d.error?.message) outcome.debugError = d.error.message;
+
+      // Detecta tokens revogados pelo usuário no Facebook (precisa reconectar)
+      const errCode = typeof d.error?.code === "number" ? d.error.code : null;
+      const errSub = typeof d.error?.subcode === "number" ? d.error.subcode : null;
+      if (!isValid && errCode === 190 && errSub && RECONNECT_SUBCODES[errSub]) {
+        update.needs_reconnect = true;
+        update.reconnect_reason = RECONNECT_SUBCODES[errSub];
+        outcome.needsReconnect = true;
+        outcome.reconnectReason = update.reconnect_reason;
+      } else if (isValid) {
+        // Token voltou a ser válido — limpa flag de reconexão
+        update.needs_reconnect = false;
+        update.reconnect_reason = null;
+      }
     } catch (e: any) {
       update.token_debug_error = e?.message ?? "erro";
       update.is_active = false;
@@ -168,6 +198,7 @@ export async function runRefreshTokens(opts: RefreshOptions = {}): Promise<Refre
     }
     outcome.isValid = isValid;
     outcome.newExpiresAt = update.token_expires_at ?? null;
+
 
     const creds = pickCreds(row.user_id);
     if (creds) outcome.appSlot = creds.slot;
@@ -188,11 +219,19 @@ export async function runRefreshTokens(opts: RefreshOptions = {}): Promise<Refre
         outcome.skipped = "outside_window";
       }
     }
+    // Inteligente: se o token ainda tem >30d de validade, pula para economizar quota.
+    // Só aplica quando o usuário NÃO pediu force e NÃO definiu uma janela manual.
+    const FRESH_MS = 30 * 24 * 60 * 60 * 1000;
+    if (shouldExchange && !force && withinDaysMs === null && msToExpiry !== null && msToExpiry >= FRESH_MS) {
+      shouldExchange = false;
+      outcome.skipped = "fresh";
+    }
     // Modo econômico: só renova urgentes
     if (shouldExchange && economy && !isUrgent && !force) {
       shouldExchange = false;
       outcome.skipped = "quota_high";
     }
+
 
     if (shouldExchange && creds) {
       try {

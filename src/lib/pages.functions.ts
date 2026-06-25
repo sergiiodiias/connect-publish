@@ -154,6 +154,9 @@ export const updatePageToken = createServerFn({ method: "POST" })
       .update({
         access_token: data.accessToken,
         is_active: true,
+        needs_reconnect: false,
+        reconnect_reason: null,
+        token_debug_error: null,
         last_checked_at: new Date().toISOString(),
       })
       .eq("id", data.pageId)
@@ -182,11 +185,17 @@ export const listPages = createServerFn({ method: "GET" })
 // Triggers the same monthly debug+refresh routine on demand.
 export const refreshTokensNow = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .inputValidator((d) => z.object({ withinDays: z.number().int().positive().max(365).optional() }).optional().parse(d) ?? {})
+  .inputValidator((d) => z.object({
+    withinDays: z.number().int().positive().max(365).optional(),
+    force: z.boolean().optional(),
+  }).optional().parse(d) ?? {})
   .handler(async ({ data }) => {
     const { runRefreshTokens } = await import("@/lib/refresh-tokens.server");
-    return runRefreshTokens({ force: true, withinDays: data?.withinDays });
+    // Por padrão (force=false): pula tokens com >30d de validade para economizar quota.
+    // Usuário pode forçar tudo passando force=true.
+    return runRefreshTokens({ force: data?.force ?? false, withinDays: data?.withinDays });
   });
+
 
 export const listRefreshReports = createServerFn({ method: "GET" })
   .middleware([requireSupabaseAuth])

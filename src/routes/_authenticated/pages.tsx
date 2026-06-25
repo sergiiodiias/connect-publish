@@ -125,18 +125,21 @@ function PagesPage() {
   const [refreshReport, setRefreshReport] = useState<any | null>(null);
   const [historyOpen, setHistoryOpen] = useState(false);
   const refreshAll = useMutation({
-    mutationFn: (vars?: { withinDays?: number }) => refreshFn({ data: vars ?? {} }),
+    mutationFn: (vars?: { withinDays?: number; force?: boolean }) => refreshFn({ data: vars ?? {} }),
+
     onSuccess: (r) => {
       const extendedNames = (r.results ?? []).filter((x: any) => x.extended).map((x: any) => x.name);
-      const failed = (r.results ?? []).filter((x: any) => x.exchangeError || x.debugError);
+      const failed = (r.results ?? []).filter((x: any) => (x.exchangeError || x.debugError) && !x.needsReconnect);
+      const reconnect = (r.results ?? []).filter((x: any) => x.needsReconnect).length;
       const skipped = (r.results ?? []).filter((x: any) => x.skipped).length;
       if (r.refreshed > 0) {
         toast.success(`${r.refreshed} token(s) estendido(s)${extendedNames.length <= 3 ? `: ${extendedNames.join(", ")}` : ""}`);
       } else {
         toast.message("Nenhum token precisou ser estendido", { description: `${r.debugged}/${r.total} verificados${skipped ? ` · ${skipped} adiados` : ""}` });
       }
+      if (reconnect > 0) toast.error(`${reconnect} página(s) precisam ser reconectadas (token revogado no Facebook)`);
       if (r.economyMode) toast.warning("Modo econômico ativo: quota dos Apps ≥ 80% — só os urgentes foram processados");
-      if (failed.length) toast.error(`${failed.length} página(s) com erro — veja o relatório`);
+      if (failed.length) toast.error(`${failed.length} página(s) com erro temporário — veja o relatório`);
       setRefreshReport(r);
       qc.invalidateQueries({ queryKey: ["pages"] });
       qc.invalidateQueries({ queryKey: ["pages-token-info"] });
@@ -173,7 +176,7 @@ function PagesPage() {
         </div>
         <div className="flex gap-2">
           <div className="flex">
-            <Button variant="outline" className="rounded-r-none" onClick={() => refreshAll.mutate(undefined)} disabled={refreshAll.isPending || pages.length === 0} title="Renova todos os tokens (full)">
+            <Button variant="outline" className="rounded-r-none" onClick={() => refreshAll.mutate(undefined)} disabled={refreshAll.isPending || pages.length === 0} title="Renova tokens, pulando os que ainda têm >30 dias de validade">
               <RefreshCw className={`size-4 mr-2 ${refreshAll.isPending ? "animate-spin" : ""}`} />
               {refreshAll.isPending ? "Renovando…" : "Renovar agora"}
             </Button>
@@ -189,9 +192,14 @@ function PagesPage() {
                 <DropdownMenuItem onClick={() => refreshAll.mutate({ withinDays: 15 })}>menos de 15 dias</DropdownMenuItem>
                 <DropdownMenuItem onClick={() => refreshAll.mutate({ withinDays: 30 })}>menos de 30 dias</DropdownMenuItem>
                 <DropdownMenuSeparator />
+                <DropdownMenuItem onClick={() => refreshAll.mutate({ force: true })} title="Ignora o filtro de 30d e renova todos">
+                  <RefreshCw className="size-4 mr-2" />Forçar todas (ignorar filtros)
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
                 <DropdownMenuItem onClick={() => setHistoryOpen(true)}><History className="size-4 mr-2" />Ver histórico</DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
+
           </div>
           <Button variant="outline" onClick={() => refetchTokens()} disabled={tokenLoading || pages.length === 0}>
             <Clock className="size-4 mr-2" />{tokenLoading ? "Verificando…" : "Verificar validade"}
@@ -290,7 +298,8 @@ function PagesPage() {
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 flex-wrap">
                     <span className="font-medium">{p.name}</span>
-                    {p.is_active ? <Badge variant="outline" className="gap-1"><CheckCircle2 className="size-3 text-success" />ativa</Badge>
+                    {p.needs_reconnect ? <Badge variant="destructive" className="gap-1" title={p.reconnect_reason ?? "Token revogado pelo Facebook — atualize o Access Token"}><AlertTriangle className="size-3" />precisa reconectar</Badge>
+                      : p.is_active ? <Badge variant="outline" className="gap-1"><CheckCircle2 className="size-3 text-success" />ativa</Badge>
                       : <Badge variant="destructive" className="gap-1"><AlertTriangle className="size-3" />inativa</Badge>}
                     {exp && (
                       <Badge variant="outline" className={`gap-1 ${toneClass}`} title={
@@ -411,17 +420,22 @@ function PagesPage() {
                     </div>
                     {r.extended ? (
                       <Badge variant="outline" className="border-success/40 text-success gap-1"><CheckCircle2 className="size-3" />estendido</Badge>
+                    ) : r.needsReconnect ? (
+                      <Badge variant="destructive" className="gap-1" title={r.reconnectReason}><AlertTriangle className="size-3" />reconectar</Badge>
                     ) : r.skipped === "quota_high" ? (
                       <Badge variant="outline" className="border-warning/40 text-warning">adiado (quota)</Badge>
                     ) : r.skipped === "outside_window" ? (
                       <Badge variant="outline">fora da janela</Badge>
+                    ) : r.skipped === "fresh" ? (
+                      <Badge variant="outline" className="text-muted-foreground">ainda fresco (&gt;30d)</Badge>
                     ) : r.isValid ? (
                       <Badge variant="outline">já válido</Badge>
                     ) : (
-                      <Badge variant="destructive" className="gap-1"><AlertTriangle className="size-3" />inválido</Badge>
+                      <Badge variant="destructive" className="gap-1"><AlertTriangle className="size-3" />falha temporária</Badge>
                     )}
                   </div>
                 ))}
+
               </div>
             </div>
           )}
