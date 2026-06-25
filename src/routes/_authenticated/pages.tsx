@@ -2,11 +2,12 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
-import { listPages, connectPage, deletePage, testPageToken, inspectTokens, updatePageToken, refreshTokensNow } from "@/lib/pages.functions";
+import { listPages, connectPage, deletePage, deletePages, testPageToken, inspectTokens, updatePageToken, refreshTokensNow } from "@/lib/pages.functions";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
 import { Plus, Trash2, CheckCircle2, AlertTriangle, RefreshCw, Clock, Copy, Eye, EyeOff, KeyRound } from "lucide-react";
@@ -40,6 +41,7 @@ function PagesPage() {
   const listFn = useServerFn(listPages);
   const connectFn = useServerFn(connectPage);
   const delFn = useServerFn(deletePage);
+  const delManyFn = useServerFn(deletePages);
   const testFn = useServerFn(testPageToken);
   const inspectFn = useServerFn(inspectTokens);
   const { data: pages = [], isLoading } = useQuery({ queryKey: ["pages"], queryFn: () => listFn() });
@@ -55,6 +57,9 @@ function PagesPage() {
   const [pageId, setPageId] = useState("");
   const [revealed, setRevealed] = useState<Record<string, boolean>>({});
   const [updateFor, setUpdateFor] = useState<{ id: string; name: string } | null>(null);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const toggleSel = (id: string) => setSelected(s => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
+  const allSelected = pages.length > 0 && selected.size === pages.length;
   const [newToken, setNewToken] = useState("");
   const updateTokenFn = useServerFn(updatePageToken);
   const updateMut = useMutation({
@@ -86,6 +91,11 @@ function PagesPage() {
   const remove = useMutation({
     mutationFn: (id: string) => delFn({ data: { pageId: id } }),
     onSuccess: () => { toast.success("Página removida"); qc.invalidateQueries({ queryKey: ["pages"] }); },
+    onError: (e: any) => toast.error(e.message),
+  });
+  const removeMany = useMutation({
+    mutationFn: (opts: { ids?: string[]; all?: boolean }) => delManyFn({ data: { pageIds: opts.ids, all: opts.all } }),
+    onSuccess: (r) => { toast.success(`${r.deleted} página(s) removida(s)`); setSelected(new Set()); qc.invalidateQueries({ queryKey: ["pages"] }); },
     onError: (e: any) => toast.error(e.message),
   });
   const test = useMutation({
@@ -131,6 +141,16 @@ function PagesPage() {
           <Button variant="outline" onClick={() => refetchTokens()} disabled={tokenLoading || pages.length === 0}>
             <Clock className="size-4 mr-2" />{tokenLoading ? "Verificando…" : "Verificar validade"}
           </Button>
+          {selected.size > 0 && (
+            <Button variant="destructive" onClick={() => { if (confirm(`Excluir ${selected.size} página(s) selecionada(s)?`)) removeMany.mutate({ ids: Array.from(selected) }); }} disabled={removeMany.isPending}>
+              <Trash2 className="size-4 mr-2" />Excluir selecionadas ({selected.size})
+            </Button>
+          )}
+          {pages.length > 0 && (
+            <Button variant="outline" onClick={() => { if (confirm(`Excluir TODAS as ${pages.length} páginas conectadas? Esta ação não pode ser desfeita.`)) removeMany.mutate({ all: true }); }} disabled={removeMany.isPending} title="Excluir todas as páginas">
+              <Trash2 className="size-4 mr-2 text-destructive" />Excluir todas
+            </Button>
+          )}
         <Dialog open={open} onOpenChange={setOpen}>
           <DialogTrigger asChild><Button><Plus className="size-4 mr-2" />Conectar página</Button></DialogTrigger>
           <DialogContent>
@@ -179,6 +199,17 @@ function PagesPage() {
             <p className="text-sm text-muted-foreground">Nenhuma página conectada ainda.</p>
           </div>
         )}
+        {pages.length > 0 && (
+          <div className="px-4 py-2 bg-muted/30 flex items-center gap-3 text-xs">
+            <Checkbox
+              checked={allSelected}
+              onCheckedChange={(v) => setSelected(v ? new Set(pages.map((p: any) => p.id)) : new Set())}
+            />
+            <span className="text-muted-foreground">
+              {selected.size > 0 ? `${selected.size} de ${pages.length} selecionada(s)` : "Selecionar todas"}
+            </span>
+          </div>
+        )}
         {pages.map((p: any) => {
           const info = tokenInfo[p.id];
           // Prefer fresh on-demand data; fall back to persisted token_expires_at from monthly cron.
@@ -197,6 +228,7 @@ function PagesPage() {
           return (
             <div key={p.id} className="p-4 space-y-3">
               <div className="flex items-center gap-4">
+                <Checkbox checked={selected.has(p.id)} onCheckedChange={() => toggleSel(p.id)} />
                 <div className="size-12 rounded-full bg-muted overflow-hidden grid place-items-center">
                   {p.picture_url ? <img src={p.picture_url} alt="" className="w-full h-full object-cover" /> : <span className="text-muted-foreground text-xs">FB</span>}
                 </div>
