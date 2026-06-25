@@ -1,111 +1,83 @@
-## Diagnóstico atual
+# Melhorias: Resiliência, UX e Segurança dos Tokens
 
-- **354 posts agendados** × ~23 páginas = ~8.000 publicações + 8.000 comentários na fila
-- **368 comentários pendentes**, **2.716 targets pending**
-- **0 de 23 páginas ativas** (todos os tokens ainda bloqueados pelo limite do FB)
-- Cron drena ~50 ações/min → ~5h para esvaziar a fila atual
-- 4 posts ainda travados em `publishing` (resíduo antes da trava atômica)
-- Arquivos grandes sem refatoração: `sheets.tsx` (455), `extract.tsx` (341), `pages.tsx` (310)
+## 1. Resiliência
 
-## Melhorias priorizadas
+### 1.1 Backoff exponencial para rate-limit
+- Em `src/lib/fb-graph.ts`, criar `fetchWithRetry` que detecta os códigos de rate-limit do Facebook (`1`, `2`, `4`, `17`, `32`, `613`, `368`) e refaz a chamada com espera **1s → 2s → 4s → 8s** (máx. 3 retentativas, com jitter aleatório de ±20%).
+- `fbGet`, `fbGetWithUsage`, `fbPost`, `fbDelete` passam a usar esse helper.
+- Erros que NÃO são rate-limit (token inválido, permissão, etc.) continuam falhando imediatamente.
 
-### P0 — Escalabilidade da fila (maior impacto)
+### 1.2 X-App-Usage granular
+- `parseAppUsage` passa a retornar `{ call_count, total_time, total_cputime, max }` em vez de só o máximo.
+- `fb_app_usage` no perfil guarda as três métricas por slot:
+  ```
+  { app1: { call:42, time:55, cpu:18, max:55, ts:... }, app2: {...} }
+  ```
+- A UI de Ajustes mostra três barrinhas (CPU / Tempo / Chamadas) por App.
 
-1. **Paralelizar publicação por página** (concorrência 4-6). Hoje processa 1 por vez com 800ms entre cada — limite do FB é por token, não global, então dá pra paralelizar com segurança.
-   - Tempo para 23 páginas cai de ~30s para ~6s por post.
-2. **Índices ausentes** (queries que rodam a cada minuto):
-   ```text
-   posts(status, scheduled_at)
-   post_targets(post_id, status)
-   post_targets(status) WHERE status='pending'
-   auto_comments(status, run_at) WHERE status='pending'
-   ```
-3. **Constraint UNIQUE `(post_id, page_id)` em `post_targets`** — defesa extra contra duplicação no banco.
-4. **Limpar resíduo**: resetar 4 posts em `publishing` órfãos.
+### 1.3 Modo econômico quando ambos Apps estão saturados
+- Em `refresh-tokens.server.ts`, se TODOS os apps disponíveis estão ≥ 80%:
+  - Pular tokens que ainda têm mais de **7 dias** de validade.
+  - Marcar essas páginas no relatório como `"adiado: quota alta"`.
+- Cron diário continua executando, mas processa só os urgentes nesse modo.
 
-### P1 — Confiabilidade
+## 2. UX no Relatório
 
-5. **Retry automático de targets `failed` transitórios** (5xx, timeout) com backoff exponencial — coluna `attempts` + `next_retry_at`. Erros permanentes (token inválido, conteúdo bloqueado) ficam em `failed` definitivo.
-6. **Health-check do cron**: tabela `cron_runs(started_at, ended_at, processed, failed, comments)` populada a cada execução. UI mostra "última execução há Xs" — alerta se >3 min.
-7. **Página inativa = pular target** já no SELECT do scheduler (hoje tenta publicar e falha). Reduz desperdício de chamadas.
+### 2.1 Delta de validade
+- `PageRefreshOutcome` ganha `previousExpiresAt`. O relatório mostra `"expirava em 5d → agora 60d"` (ou `"sem mudança"`).
 
-### P2 — UX
+### 2.2 Renovar só os que expiram em <N dias
+- Novo parâmetro opcional `withinDays` em `refreshTokensNow`.
+- Botão extra ao lado de "Renovar agora": **"Renovar prestes a expirar"** (dropdown com 7/15/30 dias).
 
-8. **Dashboard com métricas em tempo real**: posts/hora publicados, taxa de sucesso por página, comentários pendentes, próximo agendado.
-9. **Tela `/queue` com filtros e ações em lote**: cancelar, reagendar, duplicar. Hoje só lista.
-10. **Badge de saúde por página** (já discutido) + tooltip explicando estados.
-11. **Visualização do calendário** de agendamentos (mês/semana) — hoje só lista.
+### 2.3 Histórico de relatórios
+- Nova tabela `refresh_reports` (id, user_id, created_at, summary jsonb, results jsonb).
+- Após cada renovação (manual ou cron) salvamos o relatório.
+- Nova aba/seção em `/pages` com os **últimos 10 relatórios**, expansíveis para ver os detalhes.
 
-### P3 — Manutenibilidade
+## 3. Segurança: criptografar `access_token` no banco
 
-12. **Quebrar `sheets.tsx` (455 linhas)** em `SheetsList`, `SheetImport`, `SheetMapping`.
-13. **Quebrar `extract.tsx` (341 linhas)** em sub-componentes por etapa.
-14. **Centralizar tipos** de status (`PostStatus`, `TargetStatus`, `CommentStatus`) em `src/lib/types.ts` — hoje strings espalhadas.
+### Abordagem
+- Usar `pgcrypto` (`pgp_sym_encrypt`/`pgp_sym_decrypt`) com chave-mestra guardada no **Supabase Vault** (`vault.secrets`).
+- Nova coluna `fb_pages.access_token_enc bytea`.
+- Funções `SECURITY DEFINER`:
+  - `public.encrypt_fb_token(plain text) returns bytea`
+  - `public.decrypt_fb_token(enc bytea) returns text`
+  Ambas leem a chave do Vault — usuários comuns NÃO podem chamar `decrypt_fb_token`; só `service_role`.
+- Migração de dados: trigger `BEFORE INSERT/UPDATE` em `fb_pages` que criptografa automaticamente para `access_token_enc` e zera `access_token`. Backfill executa uma vez para registros existentes.
+- Server functions passam a obter o token via RPC (`select decrypt_fb_token(access_token_enc) ...`), nunca via SELECT direto.
+- Após o backfill rodar e o código novo estar publicado: nova migração que **dropa** a coluna `access_token` em texto puro.
 
-### P4 — Funcionalidades novas (oportunidades)
-
-15. **Preview real do post** antes de agendar (renderiza como FB).
-16. **Templates de mensagem** com variáveis (`{nome_pagina}`, `{data}`).
-17. **Agendamento recorrente** (todo dia às 9h, etc.).
-18. **A/B de copy** — duas mensagens, FB escolhe melhor.
-19. **Webhook de comentários recebidos** — responder automático ou notificar.
-20. **Análise de engajamento**: puxar likes/comentários/shares 24h depois e mostrar ranking de posts/páginas.
-21. **Billing/planos** (Stripe) — limite de páginas e posts/mês por plano.
+### Por que pgcrypto e não pgsodium puro
+- `pgsodium` está em "soft deprecation" no Supabase; o caminho recomendado hoje é Vault + pgcrypto.
+- Vault armazena UMA chave-mestra (não cada token), o que escala bem para milhares de páginas.
 
 ## Detalhes técnicos
 
-### Paralelização (P0.1) — esboço
+**Arquivos a editar:**
+- `src/lib/fb-graph.ts` — `fetchWithRetry`, `parseAppUsage` granular.
+- `src/lib/fb-app-creds.ts` — `recordAppUsage` aceita objeto granular; novo `allAppsSaturated()`.
+- `src/lib/refresh-tokens.server.ts` — usa modo econômico, `withinDays`, salva `previousExpiresAt`, persiste relatório.
+- `src/lib/pages.functions.ts` — `refreshTokensNow` aceita `{ withinDays? }`; novo `listRefreshReports`; helpers para ler token decifrado.
+- `src/lib/profile.functions.ts` — retorna usage granular.
+- `src/routes/_authenticated/pages.tsx` — botão dropdown, delta, aba "Histórico de renovação".
+- `src/routes/_authenticated/settings.tsx` — três barras por App.
 
-No scheduler, trocar o loop sequencial por:
-```typescript
-const CONCURRENCY = 5;
-const chunks = chunk(targets, CONCURRENCY);
-for (const group of chunks) {
-  if (outOfTime()) break;
-  await Promise.all(group.map(t => publishOne(t)));
-}
-```
-`publishOne` mantém o claim atômico já implementado.
+**Novas migrações (3):**
+1. `refresh_reports` (tabela + RLS + GRANT).
+2. `fb_pages.access_token_enc` + funções de criptografia + trigger + backfill.
+3. (após validação) `DROP COLUMN access_token`.
 
-### Índices (P0.2) — migration
+**Riscos / cuidados:**
+- O segredo no Vault precisa existir ANTES da migração das funções. Vou criar `FB_TOKEN_ENC_KEY` via `vault.create_secret` na própria migração (valor gerado aleatoriamente).
+- O backfill precisa ser idempotente (só criptografa se `access_token_enc IS NULL`).
+- A migração final que dropa a coluna em texto puro só roda depois que o usuário confirmar que tudo está funcionando — fica como passo separado.
 
-```sql
-CREATE INDEX IF NOT EXISTS idx_posts_status_sched ON posts(status, scheduled_at) WHERE status='scheduled';
-CREATE INDEX IF NOT EXISTS idx_targets_post_status ON post_targets(post_id, status);
-CREATE INDEX IF NOT EXISTS idx_targets_pending ON post_targets(status) WHERE status='pending';
-CREATE INDEX IF NOT EXISTS idx_comments_due ON auto_comments(status, run_at) WHERE status='pending';
-CREATE UNIQUE INDEX IF NOT EXISTS uniq_target_post_page ON post_targets(post_id, page_id);
-```
+## Ordem de execução proposta
+1. Backoff + parseUsage granular + modo econômico (1 levas de edits, sem migração).
+2. Tabela `refresh_reports` + persistência + histórico na UI.
+3. Delta de validade + botão "renovar próximos a expirar".
+4. Criptografia: migração 1 (encrypt coluna + funções + trigger + backfill), atualizar código pra ler via RPC.
+5. Após validação manual sua: migração 2 que dropa `access_token` em texto puro.
 
-### Retry com backoff (P1.5) — schema
-
-```sql
-ALTER TABLE post_targets ADD COLUMN attempts int DEFAULT 0;
-ALTER TABLE post_targets ADD COLUMN next_retry_at timestamptz;
-```
-Scheduler também seleciona `status='failed' AND next_retry_at<=now() AND attempts<5` com erros transitórios marcados.
-
-### Health-check (P1.6) — schema
-
-```sql
-CREATE TABLE cron_runs (
-  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  started_at timestamptz DEFAULT now(),
-  ended_at timestamptz,
-  processed int DEFAULT 0,
-  failed int DEFAULT 0,
-  comments int DEFAULT 0
-);
-GRANT SELECT ON cron_runs TO authenticated;
-GRANT ALL ON cron_runs TO service_role;
-```
-
-## Sugestão de execução
-
-Recomendo começar por **P0 (1-4) em um único ciclo** — é o que destrava a fila atual e evita duplicação definitivamente. Em seguida P1 conforme prioridade que você der. P2-P4 podem ser por demanda.
-
-**Qual escopo você quer aprovar agora?**
-- (A) Só P0 (paralelização + índices + UNIQUE + limpeza)
-- (B) P0 + P1 (adiciona retry, health-check, skip inativas)
-- (C) Tudo (P0 → P4, escopo grande)
-- (D) Quero escolher itens específicos — me diga quais
+Confirma que posso seguir nessa ordem? Se quiser pular algum passo (ex.: deixar a criptografia pra depois) me diz antes de eu começar.
