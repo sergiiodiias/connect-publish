@@ -377,12 +377,18 @@ function PagesPage() {
           </DialogHeader>
           {refreshReport && (
             <div className="space-y-3">
-              <div className="grid grid-cols-4 gap-2 text-center text-xs">
+              <div className="grid grid-cols-5 gap-2 text-center text-xs">
                 <div className="rounded border p-2"><div className="text-lg font-semibold">{refreshReport.total}</div><div className="text-muted-foreground">total</div></div>
                 <div className="rounded border p-2"><div className="text-lg font-semibold text-success">{refreshReport.refreshed}</div><div className="text-muted-foreground">estendidos</div></div>
                 <div className="rounded border p-2"><div className="text-lg font-semibold">{refreshReport.debugged}</div><div className="text-muted-foreground">verificados</div></div>
+                <div className="rounded border p-2"><div className="text-lg font-semibold text-warning">{refreshReport.skipped ?? 0}</div><div className="text-muted-foreground">adiados</div></div>
                 <div className="rounded border p-2"><div className="text-lg font-semibold text-destructive">{refreshReport.invalidated}</div><div className="text-muted-foreground">inválidos</div></div>
               </div>
+              {refreshReport.economyMode && (
+                <div className="rounded border border-warning/40 bg-warning/5 p-2 text-xs">
+                  ⚠️ Modo econômico: a quota dos Apps configurados está ≥ 80%. Só foram renovados tokens que expiram em menos de 7 dias.
+                </div>
+              )}
               {!refreshReport.canExtend && (
                 <div className="rounded border border-warning/40 bg-warning/5 p-2 text-xs">
                   Sem App ID/Secret configurado em Ajustes — só foi possível verificar, não estender.
@@ -394,7 +400,7 @@ function PagesPage() {
                     <div className="flex-1 min-w-0">
                       <div className="font-medium truncate">{r.name}</div>
                       <div className="text-xs text-muted-foreground">
-                        {r.newExpiresAt ? `expira ${new Date(r.newExpiresAt).toLocaleString("pt-BR")}` : r.isValid ? "não expira" : "—"}
+                        {deltaLabel(r.previousExpiresAt, r.newExpiresAt)}
                         {r.appSlot ? ` · App #${r.appSlot}` : ""}
                       </div>
                       {(r.debugError || r.exchangeError) && (
@@ -405,6 +411,10 @@ function PagesPage() {
                     </div>
                     {r.extended ? (
                       <Badge variant="outline" className="border-success/40 text-success gap-1"><CheckCircle2 className="size-3" />estendido</Badge>
+                    ) : r.skipped === "quota_high" ? (
+                      <Badge variant="outline" className="border-warning/40 text-warning">adiado (quota)</Badge>
+                    ) : r.skipped === "outside_window" ? (
+                      <Badge variant="outline">fora da janela</Badge>
                     ) : r.isValid ? (
                       <Badge variant="outline">já válido</Badge>
                     ) : (
@@ -416,8 +426,47 @@ function PagesPage() {
             </div>
           )}
           <DialogFooter>
+            <Button variant="outline" onClick={() => { setRefreshReport(null); setHistoryOpen(true); }}><History className="size-4 mr-2" />Ver histórico</Button>
             <Button onClick={() => setRefreshReport(null)}>Fechar</Button>
           </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={historyOpen} onOpenChange={setHistoryOpen}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Histórico de renovações</DialogTitle>
+          </DialogHeader>
+          <div className="max-h-[60vh] overflow-auto space-y-2">
+            {reports.length === 0 && <p className="text-sm text-muted-foreground text-center py-8">Nenhum relatório ainda.</p>}
+            {reports.map((rep: any) => (
+              <details key={rep.id} className="rounded border p-2 text-sm">
+                <summary className="cursor-pointer flex items-center justify-between gap-2">
+                  <span>
+                    <span className="text-xs text-muted-foreground">{new Date(rep.created_at).toLocaleString("pt-BR")}</span>
+                    {" "}<Badge variant="outline" className="text-[10px]">{rep.source}</Badge>
+                  </span>
+                  <span className="text-xs text-muted-foreground">
+                    {rep.summary?.refreshed ?? 0} estendidos · {rep.summary?.total ?? 0} páginas
+                    {rep.summary?.economyMode ? " · econômico" : ""}
+                  </span>
+                </summary>
+                <div className="mt-2 divide-y border-t">
+                  {(rep.results ?? []).map((r: any) => (
+                    <div key={r.pageId} className="py-1.5 flex items-center gap-2 text-xs">
+                      <span className="flex-1 truncate">{r.name}</span>
+                      <span className="text-muted-foreground">{deltaLabel(r.previousExpiresAt, r.newExpiresAt)}</span>
+                      {r.extended ? <Badge variant="outline" className="border-success/40 text-success text-[10px]">estendido</Badge>
+                        : r.skipped ? <Badge variant="outline" className="text-[10px]">adiado</Badge>
+                        : r.isValid ? <Badge variant="outline" className="text-[10px]">válido</Badge>
+                        : <Badge variant="destructive" className="text-[10px]">inválido</Badge>}
+                    </div>
+                  ))}
+                </div>
+              </details>
+            ))}
+          </div>
+          <DialogFooter><Button onClick={() => setHistoryOpen(false)}>Fechar</Button></DialogFooter>
         </DialogContent>
       </Dialog>
     </div>
