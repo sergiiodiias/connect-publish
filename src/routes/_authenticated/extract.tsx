@@ -126,9 +126,10 @@ function ExtractPage() {
   const [raw, setRaw] = useState("");
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [busy, setBusy] = useState(false);
-  const [results, setResults] = useState<{ id: string; ok: boolean; error?: string; name: string }[]>([]);
+  const [results, setResults] = useState<{ id: string; ok: boolean; error?: string; name: string; skipped?: boolean }[]>([]);
   const [groupChoice, setGroupChoice] = useState<string>("none"); // "none" | "new" | <uuid>
   const [newGroupName, setNewGroupName] = useState("");
+  const [overwriteExisting, setOverwriteExisting] = useState(false);
   const connectFn = useServerFn(connectPage);
 
   const { data: groups = [] } = useQuery({
