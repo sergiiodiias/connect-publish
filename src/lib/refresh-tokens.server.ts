@@ -283,7 +283,7 @@ export async function runRefreshTokens(opts: RefreshOptions = {}): Promise<Refre
         invalidated: userResults.filter((r) => !r.isValid).length,
         skipped: userResults.filter((r) => r.skipped).length,
       };
-      return supabaseAdmin.from("refresh_reports").insert({
+      return (supabaseAdmin as any).from("refresh_reports").insert({
         user_id: userId, summary: userSummary, results: userResults,
         source: opts.fromCron ? "cron" : "manual",
       });
