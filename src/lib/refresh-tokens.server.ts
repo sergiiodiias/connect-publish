@@ -1,5 +1,6 @@
-import { fbGet, fbGetWithUsage, type AppUsage } from "@/lib/fb-graph";
+import { fbGetWithUsage, type AppUsage } from "@/lib/fb-graph";
 import { USAGE_THRESHOLD, buildUsageEntry, type UsageMap } from "@/lib/fb-app-creds";
+import { debugFacebookToken, normalizeFacebookExpiresAt, reconnectReasonFromDebugError } from "@/lib/fb-token-debug";
 
 export type PageRefreshOutcome = {
   pageId: string;
@@ -15,20 +16,6 @@ export type PageRefreshOutcome = {
   reconnectReason?: string;
   debugError?: string;
   exchangeError?: string;
-};
-
-/** Subcódigos do Facebook (code=190) que indicam que o token foi revogado pelo usuário
- *  e exige reconexão manual (não adianta tentar de novo). */
-const RECONNECT_SUBCODES: Record<number, string> = {
-  458: "App removido pelo usuário",
-  459: "Usuário fez checkpoint de segurança",
-  460: "Senha do usuário foi trocada",
-  463: "Token expirado",
-  464: "Usuário não confirmado",
-  466: "Token revogado pelo usuário",
-  467: "Token inválido",
-  490: "Sessão invalidada",
-  492: "Sessão inválida",
 };
 
 export type RefreshResult = {
@@ -133,6 +120,12 @@ export async function runRefreshTokens(opts: RefreshOptions = {}): Promise<Refre
     return { slot: pool[0].slot, appId: pool[0].appId, appSecret: pool[0].appSecret };
   }
 
+  function debugCredsForUser(userId: string): { slot: 1 | 2; appId: string; appSecret: string }[] {
+    const creds = [...(appsByUser.get(userId)?.apps ?? []).map((a) => ({ slot: a.slot, appId: a.appId, appSecret: a.appSecret }))];
+    if (envAppId && envAppSecret && !creds.some((a) => a.appId === envAppId)) creds.push({ slot: 1, appId: envAppId, appSecret: envAppSecret });
+    return creds;
+  }
+
   function noteUsage(userId: string, slot: 1 | 2, usage: AppUsage | null) {
     const entry = buildUsageEntry(usage);
     if (!entry) return;
@@ -175,11 +168,12 @@ export async function runRefreshTokens(opts: RefreshOptions = {}): Promise<Refre
 
     let issuerAppId: string | null = null;
     try {
-      const r = await fbGet<any>("/debug_token", { input_token: row.access_token, access_token: row.access_token });
-      const d = r?.data ?? {};
+      const r = await debugFacebookToken(row.access_token, debugCredsForUser(row.user_id));
+      if (r.slot) noteUsage(row.user_id, r.slot, r.usage);
+      const d = r.data ?? {};
       isValid = !!d.is_valid;
-      expiresAt = typeof d.expires_at === "number" ? d.expires_at : null;
-      issuerAppId = d.app_id ? String(d.app_id) : null;
+      expiresAt = normalizeFacebookExpiresAt(d);
+      issuerAppId = r.appId ?? (d.app_id ? String(d.app_id) : null);
       update.token_expires_at = expiresAt && expiresAt > 0 ? new Date(expiresAt * 1000).toISOString() : null;
       update.token_data_access_expires_at =
         typeof d.data_access_expires_at === "number" && d.data_access_expires_at > 0
@@ -191,11 +185,10 @@ export async function runRefreshTokens(opts: RefreshOptions = {}): Promise<Refre
       if (d.error?.message) outcome.debugError = d.error.message;
 
       // Detecta tokens revogados pelo usuário no Facebook (precisa reconectar)
-      const errCode = typeof d.error?.code === "number" ? d.error.code : null;
-      const errSub = typeof d.error?.subcode === "number" ? d.error.subcode : null;
-      if (!isValid && errCode === 190 && errSub && RECONNECT_SUBCODES[errSub]) {
+      const reconnectReason = reconnectReasonFromDebugError(d.error);
+      if (!isValid && reconnectReason) {
         update.needs_reconnect = true;
-        update.reconnect_reason = RECONNECT_SUBCODES[errSub];
+        update.reconnect_reason = reconnectReason;
         outcome.needsReconnect = true;
         outcome.reconnectReason = update.reconnect_reason;
       } else if (isValid) {

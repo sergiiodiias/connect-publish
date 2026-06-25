@@ -66,7 +66,7 @@ function PagesPage() {
   const { data: tokenInfo = {}, isFetching: tokenLoading, refetch: refetchTokens } = useQuery({
     queryKey: ["pages-token-info"],
     queryFn: () => inspectFn(),
-    enabled: pages.length > 0,
+    enabled: false,
     staleTime: 60_000,
   });
 
@@ -201,7 +201,7 @@ function PagesPage() {
             </DropdownMenu>
 
           </div>
-          <Button variant="outline" onClick={async () => { await refetchTokens(); qc.invalidateQueries({ queryKey: ["pages"] }); }} disabled={tokenLoading || pages.length === 0}>
+          <Button variant="outline" onClick={async () => { await refetchTokens(); await qc.invalidateQueries({ queryKey: ["pages"] }); }} disabled={tokenLoading || pages.length === 0}>
             <Clock className="size-4 mr-2" />{tokenLoading ? "Verificando…" : "Verificar validade"}
           </Button>
           {selected.size > 0 && (
@@ -280,14 +280,23 @@ function PagesPage() {
             ? Math.floor(new Date(p.token_expires_at).getTime() / 1000)
             : (p.token_last_debugged_at && p.is_active ? 0 : null);
           const effectiveExpiresAt = info?.expiresAt ?? persistedSeconds;
+          const hasVerificationError = !!(info?.error || p.token_debug_error);
+          const isKnownInvalid = info?.isValid === false || (p.token_last_debugged_at && !p.is_active);
           const exp = effectiveExpiresAt !== undefined && effectiveExpiresAt !== null
             ? formatExpiry(effectiveExpiresAt)
             : null;
           const toneClass =
+            p.needs_reconnect || isKnownInvalid ? "border-destructive/40 text-destructive" :
             exp?.tone === "ok" ? "border-success/40 text-success" :
             exp?.tone === "never" ? "border-success/40 text-success" :
             exp?.tone === "warn" ? "border-warning/40 text-warning" :
             exp?.tone === "bad" ? "border-destructive/40 text-destructive" : "";
+          const expiryLabel = p.needs_reconnect ? "precisa reconectar"
+            : isKnownInvalid ? "token inválido"
+            : hasVerificationError && !exp ? "erro ao verificar"
+            : !exp ? "validade desconhecida"
+            : exp.tone === "never" ? "não expira"
+            : `expira em ${exp.label}`;
           return (
             <div key={p.id} className="p-4 space-y-3">
               <div className="flex items-center gap-4">
@@ -302,14 +311,15 @@ function PagesPage() {
                       : p.is_active ? <Badge variant="outline" className="gap-1"><CheckCircle2 className="size-3 text-success" />ativa</Badge>
                       : <Badge variant="destructive" className="gap-1"><AlertTriangle className="size-3" />inativa</Badge>}
                     <Badge variant="outline" className={`gap-1 ${toneClass}`} title={
+                      p.needs_reconnect ? (p.reconnect_reason ?? "Token revogado pelo Facebook — atualize o Access Token") :
+                      isKnownInvalid ? (info?.error ?? p.token_debug_error ?? "Token inválido ou expirado") :
+                      hasVerificationError && !exp ? (info?.error ?? p.token_debug_error) :
                       effectiveExpiresAt && effectiveExpiresAt > 0
                         ? `Expira em ${new Date(effectiveExpiresAt * 1000).toLocaleString("pt-BR")}`
                         : effectiveExpiresAt === 0 ? "Token de longa duração — não expira" : "Validade ainda não verificada — clique em Verificar validade"
                     }>
                       <Clock className="size-3" />
-                      {!exp ? "validade desconhecida"
-                        : exp.tone === "never" ? "não expira"
-                        : `expira em ${exp.label}`}
+                      {expiryLabel}
                     </Badge>
 
                   </div>
