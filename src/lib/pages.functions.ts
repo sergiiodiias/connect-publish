@@ -282,6 +282,7 @@ export const inspectTokens = createServerFn({ method: "POST" })
         longLivedExpiresAt: null as number | null,
         extendError: undefined as string | undefined,
         error: undefined as string | undefined,
+        debugError: null as any,
       };
 
       let issuerAppId: string | null = null;
@@ -294,6 +295,7 @@ export const inspectTokens = createServerFn({ method: "POST" })
         base.dataAccessExpiresAt = typeof d.data_access_expires_at === "number" ? d.data_access_expires_at : null;
         base.scopes = Array.isArray(d.scopes) ? d.scopes : [];
         base.error = d.error?.message;
+        base.debugError = d.error ?? null;
         issuerAppId = r.appId ?? (d.app_id ? String(d.app_id) : null);
       } catch (e: any) {
         base.error = e?.message ?? "erro";
@@ -342,7 +344,7 @@ export const inspectTokens = createServerFn({ method: "POST" })
         token_debug_error: base.error ?? null,
         token_scopes: base.scopes,
       };
-      const reconnectReason = reconnectReasonFromDebugError((base as any).debugError);
+      const reconnectReason = reconnectReasonFromDebugError(base.debugError);
       if (reconnectReason) {
         upd.needs_reconnect = true;
         upd.reconnect_reason = reconnectReason;
