@@ -120,14 +120,43 @@ export const createBulkJob = createServerFn({ method: "POST" })
       }
     }
 
+
+    // Publica direto no agendador nativo do Facebook em lotes, sem depender do cron.
+    let fbScheduled = 0, fbFailed = 0;
+    const fbErrors: string[] = [];
+    try {
+      const startedAt = Date.now();
+      const MAX_MS = 50_000; // tempo máximo dentro deste request
+      let remaining = [...insertedTargetIds];
+      while (remaining.length && Date.now() - startedAt < MAX_MS) {
+        const slice = remaining.slice(0, 50);
+        const res = await scheduleTargetsNative({
+          supabase, userId, targetIds: slice, batchSize: slice.length, concurrency: 5,
+        });
+        fbScheduled += res.scheduled;
+        fbFailed += res.failed;
+        fbErrors.push(...res.errors);
+        if (!res.processed) break; // nada elegível neste lote
+        remaining = remaining.slice(slice.length);
+      }
+    } catch (e: any) {
+      fbErrors.push(`fb schedule: ${e?.message ?? String(e)}`);
+    }
+
     await supabase.from("upload_jobs").update({
       status: errors.length && success === 0 ? "failed" : "completed",
       processed_count: data.slots.length,
       success_count: success,
       error_count: data.slots.length - success,
-      errors: errors as any,
+      errors: [...errors, ...fbErrors] as any,
       completed_at: new Date().toISOString(),
     }).eq("id", job.id);
 
-    return { jobId: job.id, success, failed: data.slots.length - success, errors: errors.slice(0, 5) };
+    return {
+      jobId: job.id,
+      success,
+      failed: data.slots.length - success,
+      errors: [...errors, ...fbErrors].slice(0, 8),
+      fb: { scheduled: fbScheduled, failed: fbFailed, pendingCron: Math.max(0, insertedTargetIds.length - fbScheduled - fbFailed) },
+    };
   });
