@@ -173,11 +173,13 @@ export async function runRefreshTokens(opts: RefreshOptions = {}): Promise<Refre
     let isValid = false;
     let expiresAt: number | null = null;
 
+    let issuerAppId: string | null = null;
     try {
       const r = await fbGet<any>("/debug_token", { input_token: row.access_token, access_token: row.access_token });
       const d = r?.data ?? {};
       isValid = !!d.is_valid;
       expiresAt = typeof d.expires_at === "number" ? d.expires_at : null;
+      issuerAppId = d.app_id ? String(d.app_id) : null;
       update.token_expires_at = expiresAt && expiresAt > 0 ? new Date(expiresAt * 1000).toISOString() : null;
       update.token_data_access_expires_at =
         typeof d.data_access_expires_at === "number" && d.data_access_expires_at > 0
@@ -211,8 +213,9 @@ export async function runRefreshTokens(opts: RefreshOptions = {}): Promise<Refre
     outcome.newExpiresAt = update.token_expires_at ?? null;
 
 
-    const creds = pickCreds(row.user_id);
+    const creds = pickCreds(row.user_id, issuerAppId);
     if (creds) outcome.appSlot = creds.slot;
+
 
     // Decidir se deve tentar estender
     const economy = isEconomy(row.user_id);
