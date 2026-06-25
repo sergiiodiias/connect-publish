@@ -219,11 +219,19 @@ export async function runRefreshTokens(opts: RefreshOptions = {}): Promise<Refre
         outcome.skipped = "outside_window";
       }
     }
+    // Inteligente: se o token ainda tem >30d de validade, pula para economizar quota.
+    // Só aplica quando o usuário NÃO pediu force e NÃO definiu uma janela manual.
+    const FRESH_MS = 30 * 24 * 60 * 60 * 1000;
+    if (shouldExchange && !force && withinDaysMs === null && msToExpiry !== null && msToExpiry >= FRESH_MS) {
+      shouldExchange = false;
+      outcome.skipped = "fresh";
+    }
     // Modo econômico: só renova urgentes
     if (shouldExchange && economy && !isUrgent && !force) {
       shouldExchange = false;
       outcome.skipped = "quota_high";
     }
+
 
     if (shouldExchange && creds) {
       try {
