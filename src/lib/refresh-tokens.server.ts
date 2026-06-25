@@ -177,5 +177,10 @@ export async function runRefreshTokens(opts: { force?: boolean } = {}): Promise<
     });
   });
 
+  // Persiste o uso por app de cada usuário
+  await Promise.all(Array.from(appsByUser.entries()).map(([userId, u]) =>
+    supabaseAdmin.from("profiles").update({ fb_app_usage: u.usageMap }).eq("id", userId),
+  ));
+
   return { ok: true, total: rows?.length ?? 0, debugged, refreshed, invalidated, canExtend: canExtendAny, errors };
 }
