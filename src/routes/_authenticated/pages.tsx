@@ -2,7 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
-import { listPages, connectPage, deletePage, deletePages, testPageToken, inspectTokens, updatePageToken, refreshTokensNow, listRefreshReports, refreshOnePage } from "@/lib/pages.functions";
+import { listPages, connectPage, deletePage, deletePages, testPageToken, inspectTokens, updatePageToken, refreshTokensNow, listRefreshReports, refreshOnePage, reconnectAllWithUserToken } from "@/lib/pages.functions";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -165,6 +165,28 @@ function PagesPage() {
     onError: (e: any) => toast.error(e.message),
   });
 
+  // Reconectar em lote via User Token
+  const reconnectFn = useServerFn(reconnectAllWithUserToken);
+  const [reconnectOpen, setReconnectOpen] = useState(false);
+  const [userToken, setUserToken] = useState("");
+  const [onlyNeedsReconnect, setOnlyNeedsReconnect] = useState(true);
+  const reconnectMut = useMutation({
+    mutationFn: async () => {
+      const r = await reconnectFn({ data: { userAccessToken: userToken.trim(), onlyNeedsReconnect } });
+      if (!r.ok) throw new Error(r.error);
+      return r;
+    },
+    onSuccess: (r) => {
+      toast.success(`${r.updated} página(s) reconectada(s)${r.extendedUserToken ? " · User Token estendido" : ""}`);
+      if (r.notFound > 0) toast.message(`${r.notFound} página(s) locais sem correspondência no User Token`);
+      setReconnectOpen(false);
+      setUserToken("");
+      qc.invalidateQueries({ queryKey: ["pages"] });
+      qc.invalidateQueries({ queryKey: ["pages-token-info"] });
+    },
+    onError: (e: any) => toast.error(e.message),
+  });
+
   const listReportsFn = useServerFn(listRefreshReports);
   const { data: reports = [] } = useQuery({
     queryKey: ["refresh-reports"],
@@ -221,6 +243,9 @@ function PagesPage() {
           <Button variant="outline" onClick={async () => { await refetchTokens(); await qc.invalidateQueries({ queryKey: ["pages"] }); }} disabled={tokenLoading || pages.length === 0}>
             <Clock className="size-4 mr-2" />{tokenLoading ? "Verificando…" : "Verificar validade"}
           </Button>
+          <Button variant="outline" onClick={() => setReconnectOpen(true)} title="Reconectar páginas em lote usando um User Access Token">
+            <KeyRound className="size-4 mr-2" />Reconectar via User Token
+          </Button>
           {selected.size > 0 && (
             <Button variant="destructive" onClick={() => { if (confirm(`Excluir ${selected.size} página(s) selecionada(s)?`)) removeMany.mutate({ ids: Array.from(selected) }); }} disabled={removeMany.isPending}>
               <Trash2 className="size-4 mr-2" />Excluir selecionadas ({selected.size})
@@ -254,6 +279,30 @@ function PagesPage() {
         </Dialog>
         </div>
       </div>
+        <Dialog open={reconnectOpen} onOpenChange={setReconnectOpen}>
+          <DialogContent>
+            <DialogHeader><DialogTitle>Reconectar páginas via User Token</DialogTitle></DialogHeader>
+            <div className="space-y-4">
+              <p className="text-sm text-muted-foreground">
+                Gere um <strong>User Access Token</strong> no Graph API Explorer com os scopes <code>pages_show_list</code>, <code>pages_manage_posts</code>, <code>pages_read_engagement</code>, <code>pages_manage_metadata</code>. Cole abaixo — o sistema vai buscar todas as suas páginas e regravar o Page Token correto de cada uma automaticamente.
+              </p>
+              <div className="space-y-2">
+                <Label>User Access Token</Label>
+                <Textarea rows={4} value={userToken} onChange={e => setUserToken(e.target.value)} placeholder="EAAB..." />
+              </div>
+              <label className="flex items-center gap-2 text-sm">
+                <Checkbox checked={onlyNeedsReconnect} onCheckedChange={(v) => setOnlyNeedsReconnect(!!v)} />
+                Atualizar somente páginas marcadas como "precisa reconectar"
+              </label>
+            </div>
+            <DialogFooter>
+              <Button variant="ghost" onClick={() => setReconnectOpen(false)}>Cancelar</Button>
+              <Button disabled={!userToken || reconnectMut.isPending} onClick={() => reconnectMut.mutate()}>
+                {reconnectMut.isPending ? "Reconectando…" : "Reconectar páginas"}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
 
       
 

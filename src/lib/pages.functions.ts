@@ -172,6 +172,129 @@ export const updatePageToken = createServerFn({ method: "POST" })
     return { ok: true as const };
   });
 
+// Reconecta páginas em lote usando um User Access Token (long-lived ou short-lived).
+// Chama /me/accounts paginando, e atualiza o access_token de cada página correspondente.
+// Resolve o problema dos tokens de página degradados sem precisar atualizar uma por uma.
+export const reconnectAllWithUserToken = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((d) =>
+    z.object({
+      userAccessToken: z.string().min(20),
+      onlyNeedsReconnect: z.boolean().optional(),
+    }).parse(d),
+  )
+  .handler(async ({ data, context }) => {
+    const { supabase, userId } = context;
+
+    // 1) Tenta estender o User Token para long-lived (se houver app configurado)
+    let userToken = data.userAccessToken;
+    let extendedUserToken = false;
+    try {
+      const { data: profile } = await supabase
+        .from("profiles")
+        .select("fb_app_id, fb_app_secret, fb_app_id_2, fb_app_secret_2")
+        .eq("id", userId)
+        .single();
+      const creds: Array<{ id: string; secret: string }> = [];
+      if (profile?.fb_app_id && profile.fb_app_secret) creds.push({ id: profile.fb_app_id, secret: profile.fb_app_secret });
+      if (profile?.fb_app_id_2 && profile.fb_app_secret_2) creds.push({ id: profile.fb_app_id_2, secret: profile.fb_app_secret_2 });
+      if (process.env.FB_APP_ID && process.env.FB_APP_SECRET) creds.push({ id: process.env.FB_APP_ID, secret: process.env.FB_APP_SECRET });
+      for (const c of creds) {
+        try {
+          const r = await fbGet<{ access_token: string }>("/oauth/access_token", {
+            grant_type: "fb_exchange_token",
+            client_id: c.id,
+            client_secret: c.secret,
+            fb_exchange_token: userToken,
+          });
+          if (r?.access_token) {
+            userToken = r.access_token;
+            extendedUserToken = true;
+            break;
+          }
+        } catch { /* tenta próximo app */ }
+      }
+    } catch { /* segue com o token original */ }
+
+    // 2) Lista todas as páginas do User Token (paginação manual via fetch)
+    type PageItem = { id: string; name: string; access_token: string; category?: string };
+    const allPages: PageItem[] = [];
+    try {
+      let next: string | null = `https://graph.facebook.com/v21.0/me/accounts?fields=${encodeURIComponent("id,name,category,access_token")}&limit=200&access_token=${encodeURIComponent(userToken)}`;
+      while (next) {
+        const r: any = await (await fetch(next)).json();
+        if (r?.error) throw new Error(r.error.message);
+        if (Array.isArray(r?.data)) allPages.push(...r.data);
+        next = r?.paging?.next ?? null;
+      }
+    } catch (e: any) {
+      return { ok: false as const, error: `Falha ao listar páginas do User Token: ${e?.message ?? "erro"}` };
+    }
+
+    if (allPages.length === 0) {
+      return { ok: false as const, error: "Nenhuma página encontrada para este User Token. Verifique se os scopes pages_show_list e pages_manage_posts foram concedidos." };
+    }
+
+    // 3) Carrega páginas locais para fazer match por fb_page_id
+    let q = supabase.from("fb_pages").select("id, fb_page_id, name").eq("user_id", userId);
+    if (data.onlyNeedsReconnect) q = q.eq("needs_reconnect", true);
+    const { data: localPages, error: lpErr } = await q;
+    if (lpErr) throw new Error(lpErr.message);
+
+    const byFbId = new Map(allPages.map((p) => [p.id, p]));
+    let updated = 0;
+    let notFound = 0;
+    const updatedNames: string[] = [];
+    const notFoundNames: string[] = [];
+
+    for (const lp of localPages ?? []) {
+      const remote = byFbId.get(lp.fb_page_id);
+      if (!remote) {
+        notFound++;
+        notFoundNames.push(lp.name);
+        continue;
+      }
+      const { error: updErr } = await supabase
+        .from("fb_pages")
+        .update({
+          access_token: remote.access_token,
+          is_active: true,
+          needs_reconnect: false,
+          reconnect_reason: null,
+          token_debug_error: null,
+          token_last_refreshed_at: new Date().toISOString(),
+          last_checked_at: new Date().toISOString(),
+          // Limpa expiry para forçar redebug na próxima verificação
+          token_last_debugged_at: null,
+        })
+        .eq("id", lp.id)
+        .eq("user_id", userId);
+      if (!updErr) {
+        updated++;
+        updatedNames.push(lp.name);
+      }
+    }
+
+    await supabase.from("activity_logs").insert({
+      user_id: userId,
+      action: "pages.bulk_reconnected",
+      entity: "fb_page",
+      entity_id: null,
+      metadata: { updated, notFound, extendedUserToken, totalRemote: allPages.length },
+      status: "ok",
+    });
+
+    return {
+      ok: true as const,
+      updated,
+      notFound,
+      totalRemote: allPages.length,
+      extendedUserToken,
+      updatedNames,
+      notFoundNames,
+    };
+  });
+
 export const listPages = createServerFn({ method: "GET" })
   .middleware([requireSupabaseAuth])
   .handler(async ({ context }) => {
