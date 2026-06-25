@@ -111,8 +111,18 @@ export async function runRefreshTokens(opts: RefreshOptions = {}): Promise<Refre
     return !!u && u.saturated;
   }
 
-  function pickCreds(userId: string): { slot: 1 | 2; appId: string; appSecret: string } | null {
+  function pickCreds(userId: string, issuerAppId: string | null): { slot: 1 | 2; appId: string; appSecret: string } | null {
     const u = appsByUser.get(userId);
+    // Se sabemos qual App emitiu o token, USAR esse App. Tokens só podem ser estendidos
+    // pelo App que os emitiu — rotacionar para outro retorna "does not belong to application".
+    if (issuerAppId) {
+      const match = u?.apps.find((a) => a.appId === issuerAppId);
+      if (match) return { slot: match.slot, appId: match.appId, appSecret: match.appSecret };
+      if (envAppId && envAppId === issuerAppId && envAppSecret) return { slot: 1, appId: envAppId, appSecret: envAppSecret };
+      // Não temos creds do App que emitiu — não dá pra estender.
+      return null;
+    }
+    // Fallback: nenhum app_id detectado → escolhe pelo menor uso
     if (!u || u.apps.length === 0) {
       if (envAppId && envAppSecret) return { slot: 1, appId: envAppId, appSecret: envAppSecret };
       return null;
@@ -122,6 +132,7 @@ export async function runRefreshTokens(opts: RefreshOptions = {}): Promise<Refre
     pool.sort((a, b) => a.usage - b.usage);
     return { slot: pool[0].slot, appId: pool[0].appId, appSecret: pool[0].appSecret };
   }
+
   function noteUsage(userId: string, slot: 1 | 2, usage: AppUsage | null) {
     const entry = buildUsageEntry(usage);
     if (!entry) return;
@@ -162,11 +173,13 @@ export async function runRefreshTokens(opts: RefreshOptions = {}): Promise<Refre
     let isValid = false;
     let expiresAt: number | null = null;
 
+    let issuerAppId: string | null = null;
     try {
       const r = await fbGet<any>("/debug_token", { input_token: row.access_token, access_token: row.access_token });
       const d = r?.data ?? {};
       isValid = !!d.is_valid;
       expiresAt = typeof d.expires_at === "number" ? d.expires_at : null;
+      issuerAppId = d.app_id ? String(d.app_id) : null;
       update.token_expires_at = expiresAt && expiresAt > 0 ? new Date(expiresAt * 1000).toISOString() : null;
       update.token_data_access_expires_at =
         typeof d.data_access_expires_at === "number" && d.data_access_expires_at > 0
@@ -200,8 +213,9 @@ export async function runRefreshTokens(opts: RefreshOptions = {}): Promise<Refre
     outcome.newExpiresAt = update.token_expires_at ?? null;
 
 
-    const creds = pickCreds(row.user_id);
+    const creds = pickCreds(row.user_id, issuerAppId);
     if (creds) outcome.appSlot = creds.slot;
+
 
     // Decidir se deve tentar estender
     const economy = isEconomy(row.user_id);
@@ -264,7 +278,9 @@ export async function runRefreshTokens(opts: RefreshOptions = {}): Promise<Refre
         outcome.exchangeError = e?.message ?? "erro";
       }
     } else if (!creds) {
-      outcome.exchangeError = "App ID/Secret não configurado em Ajustes";
+      outcome.exchangeError = issuerAppId
+        ? `Token emitido pelo App ${issuerAppId} — adicione esse App em Ajustes para poder renovar.`
+        : "App ID/Secret não configurado em Ajustes";
     }
 
     if (outcome.skipped) skippedCount++;

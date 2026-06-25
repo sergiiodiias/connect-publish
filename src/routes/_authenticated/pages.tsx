@@ -278,7 +278,7 @@ function PagesPage() {
           // Prefer fresh on-demand data; fall back to persisted token_expires_at from monthly cron.
           const persistedSeconds = p.token_expires_at
             ? Math.floor(new Date(p.token_expires_at).getTime() / 1000)
-            : p.token_last_debugged_at ? 0 : null;
+            : (p.token_last_debugged_at && p.is_active ? 0 : null);
           const effectiveExpiresAt = info?.expiresAt ?? persistedSeconds;
           const exp = effectiveExpiresAt !== undefined && effectiveExpiresAt !== null
             ? formatExpiry(effectiveExpiresAt)

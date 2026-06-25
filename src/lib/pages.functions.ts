@@ -2,7 +2,7 @@ import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import { fbGet, fbGetWithUsage, fbPost } from "@/lib/fb-graph";
-import { getAppCredsForUser, recordAppUsage } from "@/lib/fb-app-creds";
+import { recordAppUsage } from "@/lib/fb-app-creds";
 
 // Connect a page by pasting either a Page Access Token directly,
 // or a User Access Token containing pages — we'll list and pick the matching one.
@@ -222,19 +222,36 @@ export const inspectTokens = createServerFn({ method: "POST" })
       .eq("user_id", userId);
     if (error) throw new Error(error.message);
 
-    const creds = await getAppCredsForUser(supabase, userId);
-    const canExtend = !!creds;
-    let maxUsage: import("@/lib/fb-graph").AppUsage | null = null;
-    const mergeUsage = (u: import("@/lib/fb-graph").AppUsage | null) => {
+    // Carrega TODAS as creds configuradas e indexa por app_id.
+    // Exchange só funciona com o App que EMITIU o token — não dá pra rotacionar.
+    const { data: profile } = await supabase
+      .from("profiles")
+      .select("fb_app_id, fb_app_secret, fb_app_id_2, fb_app_secret_2")
+      .eq("id", userId)
+      .single();
+    type Slot = { slot: 1 | 2; appId: string; appSecret: string };
+    const credsByAppId = new Map<string, Slot>();
+    if (profile?.fb_app_id && profile.fb_app_secret) credsByAppId.set(profile.fb_app_id, { slot: 1, appId: profile.fb_app_id, appSecret: profile.fb_app_secret });
+    if (profile?.fb_app_id_2 && profile.fb_app_secret_2) credsByAppId.set(profile.fb_app_id_2, { slot: 2, appId: profile.fb_app_id_2, appSecret: profile.fb_app_secret_2 });
+    const envAppId = process.env.FB_APP_ID;
+    const envAppSecret = process.env.FB_APP_SECRET;
+    if (envAppId && envAppSecret && !credsByAppId.has(envAppId)) {
+      credsByAppId.set(envAppId, { slot: 1, appId: envAppId, appSecret: envAppSecret });
+    }
+    const canExtendAny = credsByAppId.size > 0;
+    const usageBySlot = new Map<1 | 2, import("@/lib/fb-graph").AppUsage>();
+    const mergeUsageForSlot = (slot: 1 | 2, u: import("@/lib/fb-graph").AppUsage | null) => {
       if (!u) return;
-      if (!maxUsage) { maxUsage = u; return; }
-      maxUsage = {
-        call_count: Math.max(maxUsage.call_count, u.call_count),
-        total_time: Math.max(maxUsage.total_time, u.total_time),
-        total_cputime: Math.max(maxUsage.total_cputime, u.total_cputime),
-        max: Math.max(maxUsage.max, u.max),
-      };
+      const cur = usageBySlot.get(slot);
+      if (!cur) { usageBySlot.set(slot, u); return; }
+      usageBySlot.set(slot, {
+        call_count: Math.max(cur.call_count, u.call_count),
+        total_time: Math.max(cur.total_time, u.total_time),
+        total_cputime: Math.max(cur.total_cputime, u.total_cputime),
+        max: Math.max(cur.max, u.max),
+      });
     };
+
 
     const out: Record<string, {
       isValid: boolean;
@@ -261,6 +278,7 @@ export const inspectTokens = createServerFn({ method: "POST" })
         error: undefined as string | undefined,
       };
 
+      let issuerAppId: string | null = null;
       try {
         const r = await fbGet<any>("/debug_token", {
           input_token: row.access_token,
@@ -272,22 +290,26 @@ export const inspectTokens = createServerFn({ method: "POST" })
         base.dataAccessExpiresAt = typeof d.data_access_expires_at === "number" ? d.data_access_expires_at : null;
         base.scopes = Array.isArray(d.scopes) ? d.scopes : [];
         base.error = d.error?.message;
+        issuerAppId = d.app_id ? String(d.app_id) : null;
       } catch (e: any) {
         base.error = e?.message ?? "erro";
       }
 
+      // Escolhe o App que EMITIU o token. Não dá pra rotacionar entre apps no exchange.
+      const matchedCreds = issuerAppId ? credsByAppId.get(issuerAppId) ?? null : null;
+
       if (base.expiresAt === 0) {
         base.longLivedToken = row.access_token;
         base.longLivedExpiresAt = 0;
-      } else if (canExtend && creds) {
+      } else if (matchedCreds) {
         try {
           const { data: r, usage } = await fbGetWithUsage<any>("/oauth/access_token", {
             grant_type: "fb_exchange_token",
-            client_id: creds.appId,
-            client_secret: creds.appSecret,
+            client_id: matchedCreds.appId,
+            client_secret: matchedCreds.appSecret,
             fb_exchange_token: row.access_token,
           });
-          mergeUsage(usage);
+          mergeUsageForSlot(matchedCreds.slot, usage);
           if (r?.access_token) {
             base.longLivedToken = r.access_token;
             base.longLivedExpiresAt = typeof r.expires_in === "number"
@@ -295,9 +317,13 @@ export const inspectTokens = createServerFn({ method: "POST" })
               : 0;
           }
         } catch (e: any) {
-          if (e?.usage) mergeUsage(e.usage);
+          if (e?.usage) mergeUsageForSlot(matchedCreds.slot, e.usage);
           base.extendError = e?.message ?? "falha ao estender";
         }
+      } else if (canExtendAny && issuerAppId) {
+        base.longLivedToken = row.access_token;
+        base.longLivedExpiresAt = base.expiresAt;
+        base.extendError = `Token emitido pelo App ${issuerAppId}, não configurado em Ajustes.`;
       } else {
         base.longLivedToken = row.access_token;
         base.longLivedExpiresAt = base.expiresAt;
@@ -305,16 +331,13 @@ export const inspectTokens = createServerFn({ method: "POST" })
 
       out[row.id] = base;
 
-      // Persiste o resultado do debug_token no banco para que a listagem mostre
-      // a expiração sem precisar reabrir a página.
+      // Persiste o resultado do debug_token no banco.
       const upd: Record<string, any> = {
         token_last_debugged_at: new Date().toISOString(),
         is_active: base.isValid,
         token_debug_error: base.error ?? null,
         token_scopes: base.scopes,
       };
-      // expires_at = 0 (Facebook) significa "não expira" — gravamos NULL e
-      // tratamos no UI via token_last_debugged_at.
       upd.token_expires_at = base.expiresAt && base.expiresAt > 0
         ? new Date(base.expiresAt * 1000).toISOString()
         : null;
@@ -324,8 +347,11 @@ export const inspectTokens = createServerFn({ method: "POST" })
       await supabase.from("fb_pages").update(upd as any).eq("id", row.id).eq("user_id", userId);
     }));
 
-
-    if (creds) await recordAppUsage(supabase, userId, creds.slot, maxUsage);
+    // Persiste uso de cada slot que foi efetivamente chamado.
+    for (const [slot, usage] of usageBySlot.entries()) {
+      await recordAppUsage(supabase, userId, slot, usage);
+    }
 
     return out;
   });
+
