@@ -60,7 +60,7 @@ export async function runRefreshTokens(opts: RefreshOptions = {}): Promise<Refre
 
   const { data: rows, error } = await supabaseAdmin
     .from("fb_pages")
-    .select("id, user_id, fb_page_id, name, access_token, token_expires_at, token_last_debugged_at, token_scopes, token_data_access_expires_at, is_active");
+    .select("id, user_id, fb_page_id, name, access_token, token_expires_at, token_last_debugged_at, token_last_refreshed_at, token_scopes, token_data_access_expires_at, is_active, needs_reconnect");
   if (error) throw new Error(error.message);
 
   const userIds = Array.from(new Set((rows ?? []).map((r) => r.user_id)));
@@ -163,6 +163,16 @@ export async function runRefreshTokens(opts: RefreshOptions = {}): Promise<Refre
       appSlot: null,
     };
 
+    // Skip total para páginas marcadas como "precisa reconectar" — não gasta quota
+    // até o usuário enviar um novo token válido. Force ignora esse atalho.
+    if (row.needs_reconnect && !force) {
+      outcome.skipped = "fresh"; // reusa o tipo existente
+      outcome.debugError = "precisa reconectar (skip)";
+      skippedCount++;
+      results.push(outcome);
+      return;
+    }
+
     const update: Record<string, any> = { token_last_debugged_at: new Date().toISOString() };
     let isValid = false;
     let expiresAt: number | null = null;
@@ -242,12 +252,22 @@ export async function runRefreshTokens(opts: RefreshOptions = {}): Promise<Refre
         outcome.skipped = "outside_window";
       }
     }
-    // Inteligente: se o token ainda tem >30d de validade, pula para economizar quota.
-    // Só aplica quando o usuário NÃO pediu force e NÃO definiu uma janela manual.
+    // Inteligente: pula exchange se já renovamos recentemente.
+    // - Se há expiry conhecida >30d: pula (regra original).
+    // - Se NÃO há expiry (token longa-duração) E foi renovado nos últimos 7 dias: pula.
+    //   Sem isso, 122 páginas sem expiry batem exchange a cada cron.
     const FRESH_MS = 30 * 24 * 60 * 60 * 1000;
-    if (shouldExchange && !force && withinDaysMs === null && msToExpiry !== null && msToExpiry >= FRESH_MS) {
-      shouldExchange = false;
-      outcome.skipped = "fresh";
+    const RECENT_REFRESH_MS = 7 * 24 * 60 * 60 * 1000;
+    const lastRefreshMs = row.token_last_refreshed_at ? new Date(row.token_last_refreshed_at).getTime() : 0;
+    const recentlyRefreshed = lastRefreshMs && (Date.now() - lastRefreshMs < RECENT_REFRESH_MS);
+    if (shouldExchange && !force && withinDaysMs === null) {
+      if (msToExpiry !== null && msToExpiry >= FRESH_MS) {
+        shouldExchange = false;
+        outcome.skipped = "fresh";
+      } else if (msToExpiry === null && recentlyRefreshed) {
+        shouldExchange = false;
+        outcome.skipped = "fresh";
+      }
     }
     // Modo econômico: só renova urgentes
     if (shouldExchange && economy && !isUrgent && !force) {
