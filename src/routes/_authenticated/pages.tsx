@@ -243,6 +243,9 @@ function PagesPage() {
           <Button variant="outline" onClick={async () => { await refetchTokens(); await qc.invalidateQueries({ queryKey: ["pages"] }); }} disabled={tokenLoading || pages.length === 0}>
             <Clock className="size-4 mr-2" />{tokenLoading ? "Verificando…" : "Verificar validade"}
           </Button>
+          <Button variant="outline" onClick={() => setReconnectOpen(true)} title="Reconectar páginas em lote usando um User Access Token">
+            <KeyRound className="size-4 mr-2" />Reconectar via User Token
+          </Button>
           {selected.size > 0 && (
             <Button variant="destructive" onClick={() => { if (confirm(`Excluir ${selected.size} página(s) selecionada(s)?`)) removeMany.mutate({ ids: Array.from(selected) }); }} disabled={removeMany.isPending}>
               <Trash2 className="size-4 mr-2" />Excluir selecionadas ({selected.size})
