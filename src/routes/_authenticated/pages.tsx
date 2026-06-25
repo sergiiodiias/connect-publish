@@ -165,6 +165,28 @@ function PagesPage() {
     onError: (e: any) => toast.error(e.message),
   });
 
+  // Reconectar em lote via User Token
+  const reconnectFn = useServerFn(reconnectAllWithUserToken);
+  const [reconnectOpen, setReconnectOpen] = useState(false);
+  const [userToken, setUserToken] = useState("");
+  const [onlyNeedsReconnect, setOnlyNeedsReconnect] = useState(true);
+  const reconnectMut = useMutation({
+    mutationFn: async () => {
+      const r = await reconnectFn({ data: { userAccessToken: userToken.trim(), onlyNeedsReconnect } });
+      if (!r.ok) throw new Error(r.error);
+      return r;
+    },
+    onSuccess: (r) => {
+      toast.success(`${r.updated} página(s) reconectada(s)${r.extendedUserToken ? " · User Token estendido" : ""}`);
+      if (r.notFound > 0) toast.message(`${r.notFound} página(s) locais sem correspondência no User Token`);
+      setReconnectOpen(false);
+      setUserToken("");
+      qc.invalidateQueries({ queryKey: ["pages"] });
+      qc.invalidateQueries({ queryKey: ["pages-token-info"] });
+    },
+    onError: (e: any) => toast.error(e.message),
+  });
+
   const listReportsFn = useServerFn(listRefreshReports);
   const { data: reports = [] } = useQuery({
     queryKey: ["refresh-reports"],
