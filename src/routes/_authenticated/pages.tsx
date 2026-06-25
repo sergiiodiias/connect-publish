@@ -2,7 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
-import { listPages, connectPage, deletePage, deletePages, testPageToken, inspectTokens, updatePageToken, refreshTokensNow, listRefreshReports } from "@/lib/pages.functions";
+import { listPages, connectPage, deletePage, deletePages, testPageToken, inspectTokens, updatePageToken, refreshTokensNow, listRefreshReports, refreshOnePage } from "@/lib/pages.functions";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -120,6 +120,22 @@ function PagesPage() {
   const test = useMutation({
     mutationFn: (id: string) => testFn({ data: { pageId: id } }),
     onSuccess: (r) => { r.ok ? toast.success("Token válido") : toast.error(r.error ?? "Token inválido"); qc.invalidateQueries({ queryKey: ["pages"] }); },
+    onError: (e: any) => toast.error(e.message),
+  });
+  const refreshOneFn = useServerFn(refreshOnePage);
+  const refreshOne = useMutation({
+    mutationFn: (pageId: string) => refreshOneFn({ data: { pageId } }),
+    onSuccess: (r: any, pageId) => {
+      const res = (r?.results ?? [])[0];
+      if (res?.extended) toast.success(`Token estendido: ${res.name}`);
+      else if (res?.needsReconnect) toast.error(`${res.name}: ${res.reconnectReason ?? "precisa reconectar"}`);
+      else if (res?.exchangeError) toast.error(`${res.name}: ${res.exchangeError}`);
+      else if (res?.skipped) toast.message(`${res.name}: ${res.isValid ? "token válido — não precisa renovar" : "pulado"}`);
+      else if (res?.isValid) toast.success(`${res.name}: token válido`);
+      else toast.error(`${res?.name ?? "Página"}: falha ao verificar`);
+      qc.invalidateQueries({ queryKey: ["pages"] });
+      qc.invalidateQueries({ queryKey: ["pages-token-info"] });
+    },
     onError: (e: any) => toast.error(e.message),
   });
   const refreshFn = useServerFn(refreshTokensNow);
@@ -359,8 +375,12 @@ function PagesPage() {
                   <Copy className="size-4" />
                 </Button>
                 <Button variant="ghost" size="icon" onClick={() => { setUpdateFor({ id: p.id, name: p.name }); setNewToken(""); }} title="Atualizar token"><KeyRound className="size-4" /></Button>
-                <Button variant="ghost" size="icon" onClick={() => test.mutate(p.id)} title="Testar token"><RefreshCw className="size-4" /></Button>
+                <Button variant="ghost" size="icon" onClick={() => refreshOne.mutate(p.id)} disabled={refreshOne.isPending && refreshOne.variables === p.id} title="Renovar só esta página (sem estourar a API)">
+                  <RefreshCw className={`size-4 ${refreshOne.isPending && refreshOne.variables === p.id ? "animate-spin" : ""}`} />
+                </Button>
+                <Button variant="ghost" size="icon" onClick={() => test.mutate(p.id)} title="Testar token (rápido)"><CheckCircle2 className="size-4" /></Button>
                 <Button variant="ghost" size="icon" onClick={() => { if (confirm("Remover esta página?")) remove.mutate(p.id); }}><Trash2 className="size-4 text-destructive" /></Button>
+
               </div>
               {info && (
                 <div className="ml-16 space-y-2">

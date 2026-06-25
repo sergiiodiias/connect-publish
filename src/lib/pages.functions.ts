@@ -197,6 +197,20 @@ export const refreshTokensNow = createServerFn({ method: "POST" })
     return runRefreshTokens({ force: data?.force ?? false, withinDays: data?.withinDays });
   });
 
+// Renovação 1-a-1: processa apenas uma página. Usa a mesma rotina,
+// com filtro por pageId + userId — só 1-2 chamadas de Graph API por clique.
+export const refreshOnePage = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((d) => z.object({ pageId: z.string().uuid(), force: z.boolean().optional() }).parse(d))
+  .handler(async ({ data, context }) => {
+    const { runRefreshTokens } = await import("@/lib/refresh-tokens.server");
+    return runRefreshTokens({
+      pageIds: [data.pageId],
+      userId: context.userId,
+      force: data.force ?? true, // botão individual: sempre força
+    });
+  });
+
 
 export const listRefreshReports = createServerFn({ method: "GET" })
   .middleware([requireSupabaseAuth])
