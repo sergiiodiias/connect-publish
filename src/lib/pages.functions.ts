@@ -211,6 +211,7 @@ export const reconnectAllWithUserToken = createServerFn({ method: "POST" })
     z.object({
       userAccessToken: z.string().min(20),
       onlyNeedsReconnect: z.boolean().optional(),
+      overwriteValid: z.boolean().optional(), // default false: preserva tokens ainda válidos
     }).parse(d),
   )
   .handler(async ({ data, context }) => {
