@@ -148,7 +148,8 @@ export async function runRefreshTokens(opts: RefreshOptions = {}): Promise<Refre
   const results: PageRefreshOutcome[] = [];
   let economyTriggered = false;
 
-  await mapWithConcurrency(rows ?? [], 3, async (row) => {
+  const { withApiCallTracking } = await import("@/lib/fb-api-tracker.server");
+  await mapWithConcurrency(rows ?? [], 3, async (row) => withApiCallTracking(row.user_id, async () => {
     const previousExpiresAt = row.token_expires_at ?? null;
     const outcome: PageRefreshOutcome = {
       pageId: row.id,
