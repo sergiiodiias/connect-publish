@@ -154,6 +154,9 @@ export const updatePageToken = createServerFn({ method: "POST" })
       .update({
         access_token: data.accessToken,
         is_active: true,
+        needs_reconnect: false,
+        reconnect_reason: null,
+        token_debug_error: null,
         last_checked_at: new Date().toISOString(),
       })
       .eq("id", data.pageId)
