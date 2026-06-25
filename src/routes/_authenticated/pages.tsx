@@ -123,22 +123,33 @@ function PagesPage() {
   });
   const refreshFn = useServerFn(refreshTokensNow);
   const [refreshReport, setRefreshReport] = useState<any | null>(null);
+  const [historyOpen, setHistoryOpen] = useState(false);
   const refreshAll = useMutation({
-    mutationFn: () => refreshFn(),
+    mutationFn: (vars?: { withinDays?: number }) => refreshFn({ data: vars ?? {} }),
     onSuccess: (r) => {
       const extendedNames = (r.results ?? []).filter((x: any) => x.extended).map((x: any) => x.name);
       const failed = (r.results ?? []).filter((x: any) => x.exchangeError || x.debugError);
+      const skipped = (r.results ?? []).filter((x: any) => x.skipped).length;
       if (r.refreshed > 0) {
         toast.success(`${r.refreshed} token(s) estendido(s)${extendedNames.length <= 3 ? `: ${extendedNames.join(", ")}` : ""}`);
       } else {
-        toast.message("Nenhum token precisou ser estendido", { description: `${r.debugged}/${r.total} verificados` });
+        toast.message("Nenhum token precisou ser estendido", { description: `${r.debugged}/${r.total} verificados${skipped ? ` · ${skipped} adiados` : ""}` });
       }
+      if (r.economyMode) toast.warning("Modo econômico ativo: quota dos Apps ≥ 80% — só os urgentes foram processados");
       if (failed.length) toast.error(`${failed.length} página(s) com erro — veja o relatório`);
       setRefreshReport(r);
       qc.invalidateQueries({ queryKey: ["pages"] });
       qc.invalidateQueries({ queryKey: ["pages-token-info"] });
+      qc.invalidateQueries({ queryKey: ["refresh-reports"] });
     },
     onError: (e: any) => toast.error(e.message),
+  });
+
+  const listReportsFn = useServerFn(listRefreshReports);
+  const { data: reports = [] } = useQuery({
+    queryKey: ["refresh-reports"],
+    queryFn: () => listReportsFn(),
+    enabled: historyOpen,
   });
 
   // Alerts derived from persisted token_expires_at
