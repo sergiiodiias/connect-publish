@@ -321,7 +321,7 @@ export const inspectTokens = createServerFn({ method: "POST" })
       upd.token_data_access_expires_at = base.dataAccessExpiresAt && base.dataAccessExpiresAt > 0
         ? new Date(base.dataAccessExpiresAt * 1000).toISOString()
         : null;
-      await supabase.from("fb_pages").update(upd).eq("id", row.id).eq("user_id", userId);
+      await supabase.from("fb_pages").update(upd as any).eq("id", row.id).eq("user_id", userId);
     }));
 
 
