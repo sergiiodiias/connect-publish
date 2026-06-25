@@ -10,7 +10,8 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from "@/components/ui/dialog";
-import { Plus, Trash2 } from "lucide-react";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Plus, Trash2, UserPlus } from "lucide-react";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/_authenticated/groups")({
@@ -36,6 +37,8 @@ function GroupsPage() {
   const [name, setName] = useState("");
   const [desc, setDesc] = useState("");
   const [sel, setSel] = useState<string[]>([]);
+  const [ungroupedSel, setUngroupedSel] = useState<string[]>([]);
+  const [targetGroup, setTargetGroup] = useState<string>("");
 
   const create = useMutation({
     mutationFn: async () => {
@@ -56,6 +59,23 @@ function GroupsPage() {
   const remove = useMutation({
     mutationFn: async (id: string) => { const { error } = await supabase.from("page_groups").delete().eq("id", id); if (error) throw error; },
     onSuccess: () => { toast.success("Removido"); qc.invalidateQueries({ queryKey: ["groups"] }); },
+  });
+
+  const addToGroup = useMutation({
+    mutationFn: async ({ pageIds, groupId }: { pageIds: string[]; groupId: string }) => {
+      const { data: u } = await supabase.auth.getUser();
+      const userId = u.user!.id;
+      const rows = pageIds.map(pid => ({ group_id: groupId, page_id: pid, user_id: userId }));
+      const { error } = await supabase.from("page_group_members").insert(rows);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      toast.success("Páginas adicionadas ao grupo");
+      setUngroupedSel([]);
+      setTargetGroup("");
+      qc.invalidateQueries({ queryKey: ["groups"] });
+    },
+    onError: (e: any) => toast.error(e.message),
   });
 
   return (
@@ -117,6 +137,7 @@ function GroupsPage() {
         const grouped = new Set<string>();
         groups.forEach((g: any) => g.page_group_members?.forEach((m: any) => grouped.add(m.page_id)));
         const ungrouped = pages.filter(p => !grouped.has(p.id));
+        const allSelected = ungrouped.length > 0 && ungroupedSel.length === ungrouped.length;
         return (
           <div className="rounded-xl border border-border bg-card p-5">
             <div className="flex items-center justify-between mb-3">
@@ -129,11 +150,49 @@ function GroupsPage() {
             {ungrouped.length === 0 ? (
               <p className="text-sm text-muted-foreground">Todas as páginas estão em pelo menos um grupo.</p>
             ) : (
-              <div className="flex flex-wrap gap-2 max-h-72 overflow-y-auto">
-                {ungrouped.map(p => (
-                  <span key={p.id} className="text-xs px-2 py-1 rounded-md border border-border bg-muted/30">{p.name}</span>
-                ))}
-              </div>
+              <>
+                <div className="flex flex-wrap items-center gap-3 mb-3">
+                  <label className="flex items-center gap-2 text-xs cursor-pointer select-none">
+                    <Checkbox
+                      checked={allSelected}
+                      onCheckedChange={v => setUngroupedSel(v ? ungrouped.map(p => p.id) : [])}
+                    />
+                    Selecionar todas
+                  </label>
+                  <div className="flex items-center gap-2">
+                    <Select value={targetGroup} onValueChange={setTargetGroup}>
+                      <SelectTrigger className="w-56 text-xs">
+                        <SelectValue placeholder="Escolher grupo…" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {groups.map((g: any) => (
+                          <SelectItem key={g.id} value={g.id} className="text-xs">{g.name}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <Button
+                      size="sm"
+                      disabled={!targetGroup || ungroupedSel.length === 0 || addToGroup.isPending}
+                      onClick={() => addToGroup.mutate({ pageIds: ungroupedSel, groupId: targetGroup })}
+                    >
+                      <UserPlus className="size-3.5 mr-1" />
+                      Adicionar ao grupo
+                    </Button>
+                  </div>
+                </div>
+                <div className="flex flex-wrap gap-2 max-h-72 overflow-y-auto">
+                  {ungrouped.map(p => (
+                    <label key={p.id} className={`flex items-center gap-2 text-xs px-2 py-1 rounded-md border cursor-pointer select-none transition-colors ${ungroupedSel.includes(p.id) ? "border-primary bg-primary/10" : "border-border bg-muted/30 hover:bg-muted/50"}`}>
+                      <Checkbox
+                        className="size-3"
+                        checked={ungroupedSel.includes(p.id)}
+                        onCheckedChange={v => setUngroupedSel(v ? [...ungroupedSel, p.id] : ungroupedSel.filter(x => x !== p.id))}
+                      />
+                      {p.name}
+                    </label>
+                  ))}
+                </div>
+              </>
             )}
           </div>
         );
