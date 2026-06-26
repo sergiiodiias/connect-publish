@@ -32,11 +32,15 @@ export const Route = createFileRoute("/api/public/cron/scheduler")({
         const outOfTime = () => Date.now() - startedAt > MAX_RUN_MS;
 
         const CONCURRENCY = 5;
-        const COMMENT_CONCURRENCY = 3;
-        const COMMENT_BATCH_LIMIT = 180;
-        // Comentários precisam ser mais lentos por página: o erro #368 é limite da própria página,
-        // não do app inteiro. Se martelar a mesma página, algumas nunca conseguem comentar.
-        const COMMENT_PAGE_COOLDOWN_MS = 5 * 60_000;
+        // Comentários: o erro #368 é por PÁGINA. Para nunca estourar, processamos
+        // no máximo 1 comentário por página por execução do cron, com concorrência
+        // baixa entre páginas distintas e jitter entre cada chamada.
+        const COMMENT_CONCURRENCY = 2;
+        const COMMENT_BATCH_LIMIT = 240;
+        const COMMENT_PAGE_COOLDOWN_MS = 10 * 60_000;
+        const COMMENT_INTER_DELAY_MS = 800; // pausa mínima entre comentários
+        const COMMENT_INTER_JITTER_MS = 1700; // + jitter aleatório
+        const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
         const chunk = <T>(arr: T[], size: number): T[][] => {
           const out: T[][] = [];
           for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size));
@@ -230,15 +234,34 @@ export const Route = createFileRoute("/api/public/cron/scheduler")({
         }
 
         // 1) Auto-comments due — process FIRST so they don't starve behind the publish loop.
-        const { data: dueComments } = await supabaseAdmin
+        const { data: dueCommentsRaw } = await supabaseAdmin
           .from("auto_comments")
-          .select("*")
+          .select("*, post_targets!inner(page_id)")
           .eq("status", "pending")
           .not("target_id", "is", null)
           .is("fb_comment_id", null)
           .lte("run_at", nowIso)
           .order("run_at", { ascending: true, nullsFirst: false })
           .limit(COMMENT_BATCH_LIMIT);
+
+        // Round-robin por página: garante que páginas diferentes alternem entre si,
+        // de forma que nenhuma página receba 2 comentários seguidos na mesma execução.
+        const byPage = new Map<string, any[]>();
+        for (const c of (dueCommentsRaw ?? []) as any[]) {
+          const pid = c.post_targets?.page_id ?? "_unknown";
+          const arr = byPage.get(pid) ?? [];
+          arr.push(c);
+          byPage.set(pid, arr);
+        }
+        const dueComments: any[] = [];
+        const queues = Array.from(byPage.values());
+        let qIdx = 0;
+        while (queues.some((q) => q.length)) {
+          const q = queues[qIdx % queues.length];
+          if (q.length) dueComments.push(q.shift());
+          qIdx++;
+          if (qIdx > 100000) break;
+        }
 
         async function deferComment(c: any, delayMs: number, reason: string) {
           await supabaseAdmin
@@ -472,11 +495,11 @@ export const Route = createFileRoute("/api/public/cron/scheduler")({
             const msg = e?.message ?? "";
             // Rate-limit por página (#368): reagendar com cooldown ao invés de falhar permanente.
             if (/#368\b|Limitamos a frequência|frequency limit/i.test(msg)) {
-              const cooldownMin = 60 + Math.floor(Math.random() * 31);
+              const cooldownMin = 90 + Math.floor(Math.random() * 61); // 90–150min
               await deferPendingCommentsForPage(
                 target.page_id,
                 cooldownMin * 60_000,
-                `rate-limit da página (#368) — todos os comentários da página pausados por ${cooldownMin}min`,
+                `rate-limit da página (#368) — comentários da página pausados por ${cooldownMin}min`,
               );
               return;
             }
@@ -492,6 +515,8 @@ export const Route = createFileRoute("/api/public/cron/scheduler")({
         for (const group of chunk(dueComments ?? [], COMMENT_CONCURRENCY)) {
           if (outOfTime() || rateLimitHit) break;
           await Promise.all(group.map(postComment));
+          // pausa entre lotes para suavizar a curva de chamadas
+          await sleep(COMMENT_INTER_DELAY_MS + Math.floor(Math.random() * COMMENT_INTER_JITTER_MS));
         }
 
         // 1.5) Empurrar targets futuros para o agendador NATIVO do Facebook.
