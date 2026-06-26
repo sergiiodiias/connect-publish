@@ -4,6 +4,7 @@ import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import { fbGet, fbPost } from "@/lib/fb-graph";
 import { recordAppUsage } from "@/lib/fb-app-creds";
 import { debugFacebookToken, normalizeFacebookExpiresAt, reconnectReasonFromDebugError } from "@/lib/fb-token-debug";
+import { tryExtendToken, loadAppCredsForExtend } from "@/lib/fb-extend-token";
 
 // Connect a page by pasting either a Page Access Token directly,
 // or a User Access Token containing pages — we'll list and pick the matching one.
