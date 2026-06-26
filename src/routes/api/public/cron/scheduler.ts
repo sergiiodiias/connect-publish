@@ -32,11 +32,15 @@ export const Route = createFileRoute("/api/public/cron/scheduler")({
         const outOfTime = () => Date.now() - startedAt > MAX_RUN_MS;
 
         const CONCURRENCY = 5;
-        const COMMENT_CONCURRENCY = 3;
-        const COMMENT_BATCH_LIMIT = 180;
-        // Comentários precisam ser mais lentos por página: o erro #368 é limite da própria página,
-        // não do app inteiro. Se martelar a mesma página, algumas nunca conseguem comentar.
-        const COMMENT_PAGE_COOLDOWN_MS = 5 * 60_000;
+        // Comentários: o erro #368 é por PÁGINA. Para nunca estourar, processamos
+        // no máximo 1 comentário por página por execução do cron, com concorrência
+        // baixa entre páginas distintas e jitter entre cada chamada.
+        const COMMENT_CONCURRENCY = 2;
+        const COMMENT_BATCH_LIMIT = 240;
+        const COMMENT_PAGE_COOLDOWN_MS = 10 * 60_000;
+        const COMMENT_INTER_DELAY_MS = 800; // pausa mínima entre comentários
+        const COMMENT_INTER_JITTER_MS = 1700; // + jitter aleatório
+        const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
         const chunk = <T>(arr: T[], size: number): T[][] => {
           const out: T[][] = [];
           for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size));
