@@ -495,11 +495,11 @@ export const Route = createFileRoute("/api/public/cron/scheduler")({
             const msg = e?.message ?? "";
             // Rate-limit por página (#368): reagendar com cooldown ao invés de falhar permanente.
             if (/#368\b|Limitamos a frequência|frequency limit/i.test(msg)) {
-              const cooldownMin = 60 + Math.floor(Math.random() * 31);
+              const cooldownMin = 90 + Math.floor(Math.random() * 61); // 90–150min
               await deferPendingCommentsForPage(
                 target.page_id,
                 cooldownMin * 60_000,
-                `rate-limit da página (#368) — todos os comentários da página pausados por ${cooldownMin}min`,
+                `rate-limit da página (#368) — comentários da página pausados por ${cooldownMin}min`,
               );
               return;
             }
