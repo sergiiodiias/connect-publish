@@ -331,42 +331,69 @@ function PagesPage() {
 
 
 
-      {(expiringSoon.length > 0 || expired.length > 0) && (
-        <div className="rounded-lg border border-warning/40 bg-warning/5 p-4 text-sm">
+      {(expiringSoon.length > 0 || expired.length > 0 || needsExtend.length > 0) && (
+        <div className="rounded-lg border border-warning/40 bg-warning/5 p-4 text-sm space-y-1">
           <div className="flex items-start gap-2">
             <AlertTriangle className="size-4 text-warning mt-0.5 shrink-0" />
-            <div className="space-y-1">
+            <div className="space-y-1 flex-1">
               {expired.length > 0 && (
                 <div><strong>{expired.length}</strong> página(s) com token expirado: {expired.map((p: any) => p.name).join(", ")}</div>
               )}
               {expiringSoon.length > 0 && (
-                <div><strong>{expiringSoon.length}</strong> página(s) expirando em menos de 7 dias: {expiringSoon.map((p: any) => p.name).join(", ")}</div>
+                <div><strong>{expiringSoon.length}</strong> página(s) expirando em menos de 7 dias</div>
               )}
-              <div className="text-xs text-muted-foreground">A depuração automática roda todo dia 1 do mês. Clique em "Renovar agora" para forçar.</div>
+              {needsExtend.length > 0 && (
+                <div><strong>{needsExtend.length}</strong> página(s) com token que precisa ser estendido (não permanente).</div>
+              )}
+              <div className="text-xs text-muted-foreground">Use "Renovar agora" ou "Reconectar via User Token" para gerar Page Tokens permanentes.</div>
             </div>
           </div>
         </div>
       )}
 
+      {/* Filtros */}
+      <div className="flex flex-wrap items-center gap-2 text-xs">
+        <span className="text-muted-foreground">Filtrar:</span>
+        {([
+          { id: "all", label: `Todas (${pages.length})` },
+          { id: "needs_extend", label: `Precisam estender (${needsExtend.length})` },
+          { id: "expiring", label: `Expirando ≤7d (${expiringSoon.length})` },
+          { id: "expired", label: `Expiradas (${expired.length})` },
+          { id: "permanent", label: `Permanentes (${pages.filter((p: any) => !p.token_expires_at && !p.needs_reconnect && p.is_active).length})` },
+        ] as const).map((f) => (
+          <Button
+            key={f.id}
+            size="sm"
+            variant={filterMode === f.id ? "default" : "outline"}
+            onClick={() => setFilterMode(f.id as any)}
+            className="h-7 text-xs"
+          >
+            {f.label}
+          </Button>
+        ))}
+      </div>
+
       <div className="rounded-xl border border-border bg-card divide-y divide-border">
         {isLoading && <div className="p-8 text-sm text-muted-foreground text-center">Carregando…</div>}
-        {!isLoading && pages.length === 0 && (
+        {!isLoading && filteredPages.length === 0 && (
           <div className="p-12 text-center">
-            <p className="text-sm text-muted-foreground">Nenhuma página conectada ainda.</p>
+            <p className="text-sm text-muted-foreground">
+              {pages.length === 0 ? "Nenhuma página conectada ainda." : "Nenhuma página corresponde a este filtro."}
+            </p>
           </div>
         )}
-        {pages.length > 0 && (
+        {filteredPages.length > 0 && (
           <div className="px-4 py-2 bg-muted/30 flex items-center gap-3 text-xs">
             <Checkbox
               checked={allSelected}
               onCheckedChange={(v) => setSelected(v ? new Set(pages.map((p: any) => p.id)) : new Set())}
             />
             <span className="text-muted-foreground">
-              {selected.size > 0 ? `${selected.size} de ${pages.length} selecionada(s)` : "Selecionar todas"}
+              {selected.size > 0 ? `${selected.size} de ${pages.length} selecionada(s)` : `${filteredPages.length} mostrada(s)`}
             </span>
           </div>
         )}
-        {pages.map((p: any) => {
+        {filteredPages.map((p: any) => {
           const info = tokenInfo[p.id];
           // Prefer fresh on-demand data; fall back to persisted token_expires_at from monthly cron.
           const persistedSeconds = p.token_expires_at
