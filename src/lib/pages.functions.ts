@@ -32,9 +32,14 @@ export const connectPage = createServerFn({ method: "POST" })
   .handler(async ({ data, context }) => {
     const { supabase, userId } = context;
 
+    // Carrega creds (para estender tokens automaticamente)
+    const creds = await loadAppCredsForExtend(supabase, userId);
+
     // First try as a page token: /me returns the Page object if so
     let pageId = data.pageId;
     let pageToken = data.accessToken;
+    let tokenExpiresAt: number | null = null; // epoch seconds; 0 = não expira
+    let extendedNow = false;
     let me: any;
     try {
       me = await fbGet("/me", { access_token: data.accessToken, fields: "id,name,category" });
@@ -49,13 +54,23 @@ export const connectPage = createServerFn({ method: "POST" })
     }
 
     if (me.category) {
-      // It IS a page token
+      // It IS a page token — tenta estender direto
       pageId = me.id;
+      const ex = await tryExtendToken(data.accessToken, creds);
+      if (ex.extended) {
+        pageToken = ex.token;
+        tokenExpiresAt = ex.expiresAt;
+        extendedNow = true;
+      }
     } else {
-      // It's a user token — try to find pages
+      // It's a user token — estende primeiro para garantir Page Tokens permanentes
+      let userToken = data.accessToken;
+      const exUser = await tryExtendToken(userToken, creds);
+      if (exUser.extended) { userToken = exUser.token; extendedNow = true; }
+
       let pages: { data: any[] };
       try {
-        pages = await fbGet<{ data: any[] }>("/me/accounts", { access_token: data.accessToken, fields: "id,name,category,access_token" });
+        pages = await fbGet<{ data: any[] }>("/me/accounts", { access_token: userToken, fields: "id,name,category,access_token" });
       } catch (e: any) {
         return { ok: false, error: `Não consegui listar páginas com esse token: ${e?.message ?? "erro desconhecido"}` };
       }
@@ -63,6 +78,7 @@ export const connectPage = createServerFn({ method: "POST" })
       if (!chosen) return { ok: false, error: "Nenhuma página encontrada para esse token" };
       pageId = chosen.id;
       pageToken = chosen.access_token;
+      tokenExpiresAt = 0; // Page Tokens derivados de User Token long-lived são permanentes
       me = chosen;
     }
 
