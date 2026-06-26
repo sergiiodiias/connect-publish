@@ -55,6 +55,15 @@ function deltaLabel(prev: string | null, next: string | null): string {
   return `${a}d → ${b}d`;
 }
 
+const LONG_DURATION_DAYS = 30;
+
+function isLongDurationExpirySeconds(expiresAt: number | null | undefined): boolean {
+  if (expiresAt === 0) return true;
+  if (!expiresAt) return false;
+  const days = Math.floor((expiresAt - Math.floor(Date.now() / 1000)) / 86400);
+  return days >= LONG_DURATION_DAYS;
+}
+
 function PagesPage() {
   const qc = useQueryClient();
   const listFn = useServerFn(listPages);
@@ -216,13 +225,17 @@ function PagesPage() {
   const needsExtend = pages.filter((p: any) => {
     if (p.needs_reconnect) return true;
     if (!p.token_expires_at) return false; // null = permanente / não verificado
-    return true; // qualquer token com data de expiração precisa ser estendido eventualmente
+    const seconds = Math.floor(new Date(p.token_expires_at).getTime() / 1000);
+    return !isLongDurationExpirySeconds(seconds);
   });
   const [filterMode, setFilterMode] = useState<"all" | "needs_extend" | "expiring" | "expired" | "permanent">("all");
   const filteredPages = filterMode === "needs_extend" ? needsExtend
     : filterMode === "expiring" ? expiringSoon
     : filterMode === "expired" ? expired
-    : filterMode === "permanent" ? pages.filter((p: any) => !p.token_expires_at && !p.needs_reconnect && p.is_active)
+    : filterMode === "permanent" ? pages.filter((p: any) => {
+      const seconds = p.token_expires_at ? Math.floor(new Date(p.token_expires_at).getTime() / 1000) : (p.token_last_debugged_at && p.is_active ? 0 : null);
+      return !p.needs_reconnect && p.is_active && isLongDurationExpirySeconds(seconds);
+    })
     : pages;
 
   return (
@@ -359,7 +372,10 @@ function PagesPage() {
           { id: "needs_extend", label: `Precisam estender (${needsExtend.length})` },
           { id: "expiring", label: `Expirando ≤7d (${expiringSoon.length})` },
           { id: "expired", label: `Expiradas (${expired.length})` },
-          { id: "permanent", label: `Permanentes (${pages.filter((p: any) => !p.token_expires_at && !p.needs_reconnect && p.is_active).length})` },
+          { id: "permanent", label: `Longa duração (${pages.filter((p: any) => {
+            const seconds = p.token_expires_at ? Math.floor(new Date(p.token_expires_at).getTime() / 1000) : (p.token_last_debugged_at && p.is_active ? 0 : null);
+            return !p.needs_reconnect && p.is_active && isLongDurationExpirySeconds(seconds);
+          }).length})` },
         ] as const).map((f) => (
           <Button
             key={f.id}
@@ -405,8 +421,10 @@ function PagesPage() {
           const exp = effectiveExpiresAt !== undefined && effectiveExpiresAt !== null
             ? formatExpiry(effectiveExpiresAt)
             : null;
+          const isLongDuration = isLongDurationExpirySeconds(effectiveExpiresAt);
           const toneClass =
             p.needs_reconnect || isKnownInvalid ? "border-destructive/40 text-destructive" :
+            isLongDuration ? "border-success/40 text-success" :
             exp?.tone === "ok" ? "border-success/40 text-success" :
             exp?.tone === "never" ? "border-success/40 text-success" :
             exp?.tone === "warn" ? "border-warning/40 text-warning" :
@@ -419,6 +437,7 @@ function PagesPage() {
             : hasVerificationError && !exp ? "erro ao verificar"
             : !exp ? "validade desconhecida"
             : exp.tone === "never" ? "longa duração · não expira"
+            : isLongDuration ? `longa duração · expira ${expiryDateStr}`
             : `expira ${expiryDateStr} (em ${exp.label})`;
           const refreshedAt = p.token_last_refreshed_at ? new Date(p.token_last_refreshed_at) : null;
           const debuggedAt = p.token_last_debugged_at ? new Date(p.token_last_debugged_at) : null;
@@ -440,7 +459,9 @@ function PagesPage() {
                       isKnownInvalid ? (info?.error ?? p.token_debug_error ?? "Token inválido ou expirado") :
                       hasVerificationError && !exp ? (info?.error ?? p.token_debug_error) :
                       effectiveExpiresAt && effectiveExpiresAt > 0
-                        ? `Expira em ${new Date(effectiveExpiresAt * 1000).toLocaleString("pt-BR")}`
+                        ? isLongDuration
+                          ? `Token de longa duração — expira em ${new Date(effectiveExpiresAt * 1000).toLocaleString("pt-BR")}`
+                          : `Expira em ${new Date(effectiveExpiresAt * 1000).toLocaleString("pt-BR")}`
                         : effectiveExpiresAt === 0 ? "Token de longa duração — não expira" : "Validade ainda não verificada — clique em Verificar validade"
                     }>
                       <Clock className="size-3" />

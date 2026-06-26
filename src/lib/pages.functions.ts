@@ -136,7 +136,7 @@ export const connectPage = createServerFn({ method: "POST" })
       ? debugExpiresAtIso
       : tokenExpiresAt !== null
         ? expiresSecondsToIso(tokenExpiresAt)
-        : null;
+        : undefined;
     const longDuration = extendedNow || isLongDurationExpiry(expiresAtIso);
 
     // Picture
