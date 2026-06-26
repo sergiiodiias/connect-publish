@@ -231,14 +231,45 @@ function PagesPage() {
     return !isLongDurationExpirySeconds(seconds);
   });
   const [filterMode, setFilterMode] = useState<"all" | "needs_extend" | "expiring" | "expired" | "permanent">("all");
-  const filteredPages = filterMode === "needs_extend" ? needsExtend
-    : filterMode === "expiring" ? expiringSoon
-    : filterMode === "expired" ? expired
-    : filterMode === "permanent" ? pages.filter((p: any) => {
+  const [groupFilter, setGroupFilter] = useState<string>("all"); // "all" | "none" | <groupId>
+
+  const { data: groupsData = [] } = useQuery({
+    queryKey: ["page-groups-with-members"],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("page_groups")
+        .select("id, name, color, page_group_members(page_id)")
+        .order("name", { ascending: true });
+      if (error) throw error;
+      return data ?? [];
+    },
+  });
+
+  // pageId -> [{id, name}]
+  const pageGroupMap = new Map<string, Array<{ id: string; name: string; color: string | null }>>();
+  groupsData.forEach((g: any) => {
+    g.page_group_members?.forEach((m: any) => {
+      const arr = pageGroupMap.get(m.page_id) ?? [];
+      arr.push({ id: g.id, name: g.name, color: g.color });
+      pageGroupMap.set(m.page_id, arr);
+    });
+  });
+
+  const groupFilteredPages = groupFilter === "all"
+    ? pages
+    : groupFilter === "none"
+      ? pages.filter((p: any) => !pageGroupMap.has(p.id))
+      : pages.filter((p: any) => (pageGroupMap.get(p.id) ?? []).some(g => g.id === groupFilter));
+
+  const baseFiltered = filterMode === "needs_extend" ? groupFilteredPages.filter((p: any) => needsExtend.includes(p))
+    : filterMode === "expiring" ? groupFilteredPages.filter((p: any) => expiringSoon.includes(p))
+    : filterMode === "expired" ? groupFilteredPages.filter((p: any) => expired.includes(p))
+    : filterMode === "permanent" ? groupFilteredPages.filter((p: any) => {
       const seconds = p.token_expires_at ? Math.floor(new Date(p.token_expires_at).getTime() / 1000) : (p.token_last_debugged_at && p.is_active ? 0 : null);
       return !p.needs_reconnect && p.is_active && isLongDurationExpirySeconds(seconds);
     })
-    : pages;
+    : groupFilteredPages;
+  const filteredPages = baseFiltered;
 
   return (
     <div className="p-8 space-y-6">
