@@ -11,8 +11,10 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from "@/components/ui/dialog";
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator } from "@/components/ui/dropdown-menu";
 import { Badge } from "@/components/ui/badge";
-import { Plus, Trash2, CheckCircle2, AlertTriangle, RefreshCw, Clock, Copy, Eye, EyeOff, KeyRound, History, ChevronDown } from "lucide-react";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Plus, Trash2, CheckCircle2, AlertTriangle, RefreshCw, Clock, Copy, Eye, EyeOff, KeyRound, History, ChevronDown, FolderOpen } from "lucide-react";
 import { toast } from "sonner";
+import { supabase } from "@/integrations/supabase/client";
 
 
 export const Route = createFileRoute("/_authenticated/pages")({
@@ -229,14 +231,45 @@ function PagesPage() {
     return !isLongDurationExpirySeconds(seconds);
   });
   const [filterMode, setFilterMode] = useState<"all" | "needs_extend" | "expiring" | "expired" | "permanent">("all");
-  const filteredPages = filterMode === "needs_extend" ? needsExtend
-    : filterMode === "expiring" ? expiringSoon
-    : filterMode === "expired" ? expired
-    : filterMode === "permanent" ? pages.filter((p: any) => {
+  const [groupFilter, setGroupFilter] = useState<string>("all"); // "all" | "none" | <groupId>
+
+  const { data: groupsData = [] } = useQuery({
+    queryKey: ["page-groups-with-members"],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("page_groups")
+        .select("id, name, color, page_group_members(page_id)")
+        .order("name", { ascending: true });
+      if (error) throw error;
+      return data ?? [];
+    },
+  });
+
+  // pageId -> [{id, name}]
+  const pageGroupMap = new Map<string, Array<{ id: string; name: string; color: string | null }>>();
+  groupsData.forEach((g: any) => {
+    g.page_group_members?.forEach((m: any) => {
+      const arr = pageGroupMap.get(m.page_id) ?? [];
+      arr.push({ id: g.id, name: g.name, color: g.color });
+      pageGroupMap.set(m.page_id, arr);
+    });
+  });
+
+  const groupFilteredPages = groupFilter === "all"
+    ? pages
+    : groupFilter === "none"
+      ? pages.filter((p: any) => !pageGroupMap.has(p.id))
+      : pages.filter((p: any) => (pageGroupMap.get(p.id) ?? []).some(g => g.id === groupFilter));
+
+  const baseFiltered = filterMode === "needs_extend" ? groupFilteredPages.filter((p: any) => needsExtend.includes(p))
+    : filterMode === "expiring" ? groupFilteredPages.filter((p: any) => expiringSoon.includes(p))
+    : filterMode === "expired" ? groupFilteredPages.filter((p: any) => expired.includes(p))
+    : filterMode === "permanent" ? groupFilteredPages.filter((p: any) => {
       const seconds = p.token_expires_at ? Math.floor(new Date(p.token_expires_at).getTime() / 1000) : (p.token_last_debugged_at && p.is_active ? 0 : null);
       return !p.needs_reconnect && p.is_active && isLongDurationExpirySeconds(seconds);
     })
-    : pages;
+    : groupFilteredPages;
+  const filteredPages = baseFiltered;
 
   return (
     <div className="p-8 space-y-6">
@@ -366,13 +399,30 @@ function PagesPage() {
 
       {/* Filtros */}
       <div className="flex flex-wrap items-center gap-2 text-xs">
-        <span className="text-muted-foreground">Filtrar:</span>
+        <span className="text-muted-foreground flex items-center gap-1"><FolderOpen className="size-3.5" />Grupo:</span>
+        <Select value={groupFilter} onValueChange={setGroupFilter}>
+          <SelectTrigger className="h-7 w-52 text-xs">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all" className="text-xs">Todos os grupos ({pages.length})</SelectItem>
+            <SelectItem value="none" className="text-xs">
+              Sem grupo ({pages.filter((p: any) => !pageGroupMap.has(p.id)).length})
+            </SelectItem>
+            {groupsData.map((g: any) => (
+              <SelectItem key={g.id} value={g.id} className="text-xs">
+                {g.name} ({g.page_group_members?.length ?? 0})
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <span className="text-muted-foreground ml-2">Status:</span>
         {([
-          { id: "all", label: `Todas (${pages.length})` },
-          { id: "needs_extend", label: `Precisam estender (${needsExtend.length})` },
-          { id: "expiring", label: `Expirando ≤7d (${expiringSoon.length})` },
-          { id: "expired", label: `Expiradas (${expired.length})` },
-          { id: "permanent", label: `Longa duração (${pages.filter((p: any) => {
+          { id: "all", label: `Todas (${groupFilteredPages.length})` },
+          { id: "needs_extend", label: `Precisam estender (${groupFilteredPages.filter((p: any) => needsExtend.includes(p)).length})` },
+          { id: "expiring", label: `Expirando ≤7d (${groupFilteredPages.filter((p: any) => expiringSoon.includes(p)).length})` },
+          { id: "expired", label: `Expiradas (${groupFilteredPages.filter((p: any) => expired.includes(p)).length})` },
+          { id: "permanent", label: `Longa duração (${groupFilteredPages.filter((p: any) => {
             const seconds = p.token_expires_at ? Math.floor(new Date(p.token_expires_at).getTime() / 1000) : (p.token_last_debugged_at && p.is_active ? 0 : null);
             return !p.needs_reconnect && p.is_active && isLongDurationExpirySeconds(seconds);
           }).length})` },
@@ -451,6 +501,11 @@ function PagesPage() {
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 flex-wrap">
                     <span className="font-medium">{p.name}</span>
+                    {(pageGroupMap.get(p.id) ?? []).map(g => (
+                      <Badge key={g.id} variant="outline" className="text-[10px] gap-1 cursor-pointer hover:bg-muted" onClick={() => setGroupFilter(g.id)} title={`Filtrar por grupo "${g.name}"`}>
+                        <FolderOpen className="size-2.5" />{g.name}
+                      </Badge>
+                    ))}
                     {p.needs_reconnect ? <Badge variant="destructive" className="gap-1" title={p.reconnect_reason ?? "Token revogado pelo Facebook — atualize o Access Token"}><AlertTriangle className="size-3" />precisa reconectar</Badge>
                       : p.is_active ? <Badge variant="outline" className="gap-1"><CheckCircle2 className="size-3 text-success" />ativa</Badge>
                       : <Badge variant="destructive" className="gap-1"><AlertTriangle className="size-3" />inativa</Badge>}
