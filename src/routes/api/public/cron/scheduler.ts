@@ -311,38 +311,45 @@ export const Route = createFileRoute("/api/public/cron/scheduler")({
               commentObjectIds.push(`${pg.fb_page_id}_${target.fb_post_id}`);
             }
             let lastCommentError = "";
+            let alreadyPosted = false;
+
+            // Helper: scan known object ids for an existing matching comment from this page.
+            const findExistingComment = async (): Promise<string | null> => {
+              for (const oid of commentObjectIds) {
+                try {
+                  const existing: any = await fbGet(`/${oid}/comments`, {
+                    access_token: pg.access_token,
+                    fields: "id,message,from{name,id}",
+                    limit: "25",
+                    order: "reverse_chronological",
+                  });
+                  const hit = (existing?.data ?? []).find(
+                    (item: any) =>
+                      normalizeComment(item?.message ?? "") === wanted &&
+                      (!item?.from?.id || item.from.id === pg.fb_page_id),
+                  );
+                  if (hit?.id) return hit.id;
+                } catch {}
+              }
+              return null;
+            };
 
             for (const objectId of commentObjectIds) {
-              try {
-                const existing: any = await fbGet(`/${objectId}/comments`, {
-                  access_token: pg.access_token,
-                  fields: "id,message,from{name,id}",
-                  limit: "25",
-                  order: "reverse_chronological",
-                });
-                const alreadyThere = (existing?.data ?? []).find(
-                  (item: any) =>
-                    normalizeComment(item?.message ?? "") === wanted &&
-                    (!item?.from?.id || item.from.id === pg.fb_page_id),
-                );
-                if (alreadyThere?.id) {
-                  await supabaseAdmin
-                    .from("auto_comments")
-                    .update({
-                      status: "posted",
-                      fb_comment_id: alreadyThere.id,
-                      posted_at: new Date().toISOString(),
-                      error: "comentário já existia no Facebook; não repostado",
-                    })
-                    .eq("id", c.id);
-                  comments++;
-                  return;
-                }
-              } catch (e: any) {
-                lastCommentError = e?.message ?? String(e);
-                if (/limit|#4\b|#17\b|#32\b|#613/i.test(lastCommentError)) throw e;
-                // Some video/photo objects do not allow reading comments, but still accept comment creation.
-                // Permission/read glitches can also block duplicate-check reads while POST still works.
+              // Always check first to avoid duplicating after a previous timeout.
+              const existingId = await findExistingComment();
+              if (existingId) {
+                await supabaseAdmin
+                  .from("auto_comments")
+                  .update({
+                    status: "posted",
+                    fb_comment_id: existingId,
+                    posted_at: new Date().toISOString(),
+                    error: "comentário já existia no Facebook; não repostado",
+                  })
+                  .eq("id", c.id);
+                comments++;
+                alreadyPosted = true;
+                break;
               }
 
               try {
@@ -360,17 +367,51 @@ export const Route = createFileRoute("/api/public/cron/scheduler")({
                   })
                   .eq("id", c.id);
                 comments++;
-                return;
+                alreadyPosted = true;
+                break;
               } catch (e: any) {
                 lastCommentError = e?.message ?? String(e);
-                if (/limit|#4\b|#17\b|#32\b|#613/i.test(lastCommentError)) throw e;
+                if (/limit|#4\b|#17\b|#32\b|#368\b|#613/i.test(lastCommentError)) throw e;
+                // On timeout/network error, FB may still have accepted — re-check before next id.
+                if (/timeout|network|fetch failed|socket|ETIMEDOUT|ECONNRESET/i.test(lastCommentError)) {
+                  await new Promise((r) => setTimeout(r, 1500));
+                  const recoveredId = await findExistingComment();
+                  if (recoveredId) {
+                    await supabaseAdmin
+                      .from("auto_comments")
+                      .update({
+                        status: "posted",
+                        fb_comment_id: recoveredId,
+                        posted_at: new Date().toISOString(),
+                        error: "comentário confirmado após timeout; não duplicado",
+                      })
+                      .eq("id", c.id);
+                    comments++;
+                    alreadyPosted = true;
+                    break;
+                  }
+                }
                 if (!/does not exist|missing permissions|does not support|nonexisting field \(comments\)|Tried accessing nonexisting field \(comments\)|#100\b/i.test(lastCommentError)) break;
               }
             }
 
-            throw new Error(lastCommentError || "não foi possível comentar no post");
+            if (!alreadyPosted) throw new Error(lastCommentError || "não foi possível comentar no post");
           } catch (e: any) {
             const msg = e?.message ?? "";
+            // Rate-limit por página (#368): reagendar com cooldown ao invés de falhar permanente.
+            if (/#368\b|Limitamos a frequência|frequency limit/i.test(msg)) {
+              const cooldownMin = 30 + Math.floor(Math.random() * 15);
+              await supabaseAdmin
+                .from("auto_comments")
+                .update({
+                  status: "pending",
+                  error: `rate-limit da página (#368) — reagendado em ${cooldownMin}min`,
+                  run_at: new Date(Date.now() + cooldownMin * 60_000).toISOString(),
+                } as any)
+                .eq("id", c.id);
+              rateLimitHit = true;
+              return;
+            }
             await supabaseAdmin
               .from("auto_comments")
               .update({ status: "failed", error: msg })
@@ -378,6 +419,7 @@ export const Route = createFileRoute("/api/public/cron/scheduler")({
             if (/limit|#4|#17|#32|#613/i.test(msg)) rateLimitHit = true;
           }
         }); }
+
 
         for (const group of chunk(dueComments ?? [], CONCURRENCY)) {
           if (outOfTime() || rateLimitHit) break;
