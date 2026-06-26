@@ -117,6 +117,11 @@ export const connectPage = createServerFn({ method: "POST" })
         token_debug_error: null,
         token_last_refreshed_at: new Date().toISOString(),
         last_checked_at: new Date().toISOString(),
+        token_expires_at: tokenExpiresAt && tokenExpiresAt > 0
+          ? new Date(tokenExpiresAt * 1000).toISOString()
+          : tokenExpiresAt === 0 ? null : undefined,
+        // Limpa cache de debug pra forçar reverificação no próximo "Verificar validade"
+        token_last_debugged_at: null,
       }, { onConflict: "user_id,fb_page_id" })
       .select()
       .single();
@@ -124,10 +129,10 @@ export const connectPage = createServerFn({ method: "POST" })
 
     await supabase.from("activity_logs").insert({
       user_id: userId, action: "page.connected", entity: "fb_page", entity_id: upserted.id,
-      metadata: { name: me.name }, status: "ok",
+      metadata: { name: me.name, extended: extendedNow }, status: "ok",
     });
 
-    return { ok: true, page: upserted, skipped: false as const };
+    return { ok: true, page: upserted, skipped: false as const, extended: extendedNow };
   });
 
 export const testPageToken = createServerFn({ method: "POST" })
