@@ -11,8 +11,10 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from "@/components/ui/dialog";
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator } from "@/components/ui/dropdown-menu";
 import { Badge } from "@/components/ui/badge";
-import { Plus, Trash2, CheckCircle2, AlertTriangle, RefreshCw, Clock, Copy, Eye, EyeOff, KeyRound, History, ChevronDown } from "lucide-react";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Plus, Trash2, CheckCircle2, AlertTriangle, RefreshCw, Clock, Copy, Eye, EyeOff, KeyRound, History, ChevronDown, FolderOpen } from "lucide-react";
 import { toast } from "sonner";
+import { supabase } from "@/integrations/supabase/client";
 
 
 export const Route = createFileRoute("/_authenticated/pages")({
