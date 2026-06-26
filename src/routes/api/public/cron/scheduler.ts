@@ -32,6 +32,11 @@ export const Route = createFileRoute("/api/public/cron/scheduler")({
         const outOfTime = () => Date.now() - startedAt > MAX_RUN_MS;
 
         const CONCURRENCY = 5;
+        const COMMENT_CONCURRENCY = 3;
+        const COMMENT_BATCH_LIMIT = 180;
+        // Comentários precisam ser mais lentos por página: o erro #368 é limite da própria página,
+        // não do app inteiro. Se martelar a mesma página, algumas nunca conseguem comentar.
+        const COMMENT_PAGE_COOLDOWN_MS = 5 * 60_000;
         const chunk = <T>(arr: T[], size: number): T[][] => {
           const out: T[][] = [];
           for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size));
@@ -40,6 +45,7 @@ export const Route = createFileRoute("/api/public/cron/scheduler")({
         const normalizeComment = (value: string) => value.trim().replace(/\s+/g, " ").toLowerCase();
         let rateLimitHit = false;
         const fallbackPublishedPages = new Set<string>();
+        const commentTouchedPages = new Set<string>();
 
         async function findMatchingFacebookPost(
           pg: { fb_page_id: string; access_token: string },
@@ -231,7 +237,53 @@ export const Route = createFileRoute("/api/public/cron/scheduler")({
           .not("target_id", "is", null)
           .is("fb_comment_id", null)
           .lte("run_at", nowIso)
-          .limit(60);
+          .order("run_at", { ascending: true, nullsFirst: false })
+          .limit(COMMENT_BATCH_LIMIT);
+
+        async function deferComment(c: any, delayMs: number, reason: string) {
+          await supabaseAdmin
+            .from("auto_comments")
+            .update({
+              status: "pending",
+              error: reason,
+              run_at: new Date(Date.now() + delayMs).toISOString(),
+            } as any)
+            .eq("id", c.id);
+        }
+
+        async function hasRecentPageCommentActivity(pageId: string, currentCommentId: string) {
+          const cutoff = new Date(Date.now() - COMMENT_PAGE_COOLDOWN_MS).toISOString();
+          const { data: recent } = await supabaseAdmin
+            .from("auto_comments")
+            .select("id, post_targets!inner(page_id)")
+            .neq("id", currentCommentId)
+            .not("target_id", "is", null)
+            .in("status", ["posted", "publishing"] as any)
+            .or(`posted_at.gte.${cutoff},updated_at.gte.${cutoff}`)
+            .eq("post_targets.page_id", pageId)
+            .limit(1);
+          return !!recent?.length;
+        }
+
+        async function deferPendingCommentsForPage(pageId: string, delayMs: number, reason: string) {
+          const { data: pageTargets } = await supabaseAdmin
+            .from("post_targets")
+            .select("id")
+            .eq("page_id", pageId)
+            .limit(5000);
+          const targetIds = (pageTargets ?? []).map((t: any) => t.id).filter(Boolean);
+          if (!targetIds.length) return;
+          await supabaseAdmin
+            .from("auto_comments")
+            .update({
+              status: "pending",
+              error: reason,
+              run_at: new Date(Date.now() + delayMs).toISOString(),
+            } as any)
+            .in("target_id", targetIds)
+            .in("status", ["pending", "publishing"] as any)
+            .is("fb_comment_id", null);
+        }
 
         async function postComment(c: any) { return withApiCallTracking(c.user_id, async () => {
           if (c.fb_comment_id) {
@@ -241,16 +293,6 @@ export const Route = createFileRoute("/api/public/cron/scheduler")({
               .eq("id", c.id);
             return;
           }
-          // Atomic claim: only one cron tick can flip pending -> publishing.
-          const { data: claimed } = await supabaseAdmin
-            .from("auto_comments")
-            .update({ status: "publishing" } as any)
-            .eq("id", c.id)
-            .eq("status", "pending")
-            .is("fb_comment_id", null)
-            .select("id")
-            .maybeSingle();
-          if (!claimed) return;
           const { data: target } = await supabaseAdmin
             .from("post_targets")
             .select("fb_post_id, page_id")
@@ -263,6 +305,36 @@ export const Route = createFileRoute("/api/public/cron/scheduler")({
               .eq("id", c.id);
             return;
           }
+
+          const pageJitterMs = (60 + Math.floor(Math.random() * 180)) * 1000;
+          if (commentTouchedPages.has(target.page_id)) {
+            await deferComment(
+              c,
+              COMMENT_PAGE_COOLDOWN_MS + pageJitterMs,
+              "aguardando intervalo da página para evitar limite de comentários",
+            );
+            return;
+          }
+          if (await hasRecentPageCommentActivity(target.page_id, c.id)) {
+            await deferComment(
+              c,
+              COMMENT_PAGE_COOLDOWN_MS + pageJitterMs,
+              "aguardando intervalo da página para evitar limite de comentários",
+            );
+            return;
+          }
+          commentTouchedPages.add(target.page_id);
+
+          // Atomic claim: only one cron tick can flip pending -> publishing.
+          const { data: claimed } = await supabaseAdmin
+            .from("auto_comments")
+            .update({ status: "publishing" } as any)
+            .eq("id", c.id)
+            .eq("status", "pending")
+            .is("fb_comment_id", null)
+            .select("id")
+            .maybeSingle();
+          if (!claimed) return;
           const { data: pg } = await supabaseAdmin
             .from("fb_pages")
             .select("access_token, fb_page_id")
@@ -400,16 +472,12 @@ export const Route = createFileRoute("/api/public/cron/scheduler")({
             const msg = e?.message ?? "";
             // Rate-limit por página (#368): reagendar com cooldown ao invés de falhar permanente.
             if (/#368\b|Limitamos a frequência|frequency limit/i.test(msg)) {
-              const cooldownMin = 30 + Math.floor(Math.random() * 15);
-              await supabaseAdmin
-                .from("auto_comments")
-                .update({
-                  status: "pending",
-                  error: `rate-limit da página (#368) — reagendado em ${cooldownMin}min`,
-                  run_at: new Date(Date.now() + cooldownMin * 60_000).toISOString(),
-                } as any)
-                .eq("id", c.id);
-              rateLimitHit = true;
+              const cooldownMin = 60 + Math.floor(Math.random() * 31);
+              await deferPendingCommentsForPage(
+                target.page_id,
+                cooldownMin * 60_000,
+                `rate-limit da página (#368) — todos os comentários da página pausados por ${cooldownMin}min`,
+              );
               return;
             }
             await supabaseAdmin
@@ -421,7 +489,7 @@ export const Route = createFileRoute("/api/public/cron/scheduler")({
         }); }
 
 
-        for (const group of chunk(dueComments ?? [], CONCURRENCY)) {
+        for (const group of chunk(dueComments ?? [], COMMENT_CONCURRENCY)) {
           if (outOfTime() || rateLimitHit) break;
           await Promise.all(group.map(postComment));
         }
