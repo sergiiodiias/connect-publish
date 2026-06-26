@@ -202,15 +202,26 @@ export const updatePageToken = createServerFn({ method: "POST" })
       };
     }
 
+    // Tenta estender automaticamente o token antes de salvar
+    const creds = await loadAppCredsForExtend(supabase, userId);
+    const ex = await tryExtendToken(data.accessToken, creds);
+    const finalToken = ex.extended ? ex.token : data.accessToken;
+    const expiresAtIso = ex.extended
+      ? (ex.expiresAt && ex.expiresAt > 0 ? new Date(ex.expiresAt * 1000).toISOString() : null)
+      : undefined;
+
     const { error } = await supabase
       .from("fb_pages")
       .update({
-        access_token: data.accessToken,
+        access_token: finalToken,
         is_active: true,
         needs_reconnect: false,
         reconnect_reason: null,
         token_debug_error: null,
+        token_last_refreshed_at: new Date().toISOString(),
         last_checked_at: new Date().toISOString(),
+        ...(expiresAtIso !== undefined ? { token_expires_at: expiresAtIso } : {}),
+        token_last_debugged_at: null,
       })
       .eq("id", data.pageId)
       .eq("user_id", userId);
@@ -218,10 +229,10 @@ export const updatePageToken = createServerFn({ method: "POST" })
 
     await supabase.from("activity_logs").insert({
       user_id: userId, action: "page.token_updated", entity: "fb_page", entity_id: data.pageId,
-      metadata: { name: me.name }, status: "ok",
+      metadata: { name: me.name, extended: ex.extended }, status: "ok",
     });
 
-    return { ok: true as const };
+    return { ok: true as const, extended: ex.extended, extendError: ex.extended ? null : ex.error ?? null };
   });
 
 // Reconecta páginas em lote usando um User Access Token (long-lived ou short-lived).
