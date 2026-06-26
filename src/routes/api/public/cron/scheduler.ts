@@ -515,6 +515,8 @@ export const Route = createFileRoute("/api/public/cron/scheduler")({
         for (const group of chunk(dueComments ?? [], COMMENT_CONCURRENCY)) {
           if (outOfTime() || rateLimitHit) break;
           await Promise.all(group.map(postComment));
+          // pausa entre lotes para suavizar a curva de chamadas
+          await sleep(COMMENT_INTER_DELAY_MS + Math.floor(Math.random() * COMMENT_INTER_JITTER_MS));
         }
 
         // 1.5) Empurrar targets futuros para o agendador NATIVO do Facebook.
