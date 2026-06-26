@@ -4,6 +4,7 @@ import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import { fbGet, fbPost } from "@/lib/fb-graph";
 import { recordAppUsage } from "@/lib/fb-app-creds";
 import { debugFacebookToken, normalizeFacebookExpiresAt, reconnectReasonFromDebugError } from "@/lib/fb-token-debug";
+import { tryExtendToken, loadAppCredsForExtend } from "@/lib/fb-extend-token";
 
 // Connect a page by pasting either a Page Access Token directly,
 // or a User Access Token containing pages — we'll list and pick the matching one.
@@ -31,9 +32,14 @@ export const connectPage = createServerFn({ method: "POST" })
   .handler(async ({ data, context }) => {
     const { supabase, userId } = context;
 
+    // Carrega creds (para estender tokens automaticamente)
+    const creds = await loadAppCredsForExtend(supabase, userId);
+
     // First try as a page token: /me returns the Page object if so
     let pageId = data.pageId;
     let pageToken = data.accessToken;
+    let tokenExpiresAt: number | null = null; // epoch seconds; 0 = não expira
+    let extendedNow = false;
     let me: any;
     try {
       me = await fbGet("/me", { access_token: data.accessToken, fields: "id,name,category" });
@@ -48,13 +54,23 @@ export const connectPage = createServerFn({ method: "POST" })
     }
 
     if (me.category) {
-      // It IS a page token
+      // It IS a page token — tenta estender direto
       pageId = me.id;
+      const ex = await tryExtendToken(data.accessToken, creds);
+      if (ex.extended) {
+        pageToken = ex.token;
+        tokenExpiresAt = ex.expiresAt;
+        extendedNow = true;
+      }
     } else {
-      // It's a user token — try to find pages
+      // It's a user token — estende primeiro para garantir Page Tokens permanentes
+      let userToken = data.accessToken;
+      const exUser = await tryExtendToken(userToken, creds);
+      if (exUser.extended) { userToken = exUser.token; extendedNow = true; }
+
       let pages: { data: any[] };
       try {
-        pages = await fbGet<{ data: any[] }>("/me/accounts", { access_token: data.accessToken, fields: "id,name,category,access_token" });
+        pages = await fbGet<{ data: any[] }>("/me/accounts", { access_token: userToken, fields: "id,name,category,access_token" });
       } catch (e: any) {
         return { ok: false, error: `Não consegui listar páginas com esse token: ${e?.message ?? "erro desconhecido"}` };
       }
@@ -62,6 +78,7 @@ export const connectPage = createServerFn({ method: "POST" })
       if (!chosen) return { ok: false, error: "Nenhuma página encontrada para esse token" };
       pageId = chosen.id;
       pageToken = chosen.access_token;
+      tokenExpiresAt = 0; // Page Tokens derivados de User Token long-lived são permanentes
       me = chosen;
     }
 
@@ -100,6 +117,11 @@ export const connectPage = createServerFn({ method: "POST" })
         token_debug_error: null,
         token_last_refreshed_at: new Date().toISOString(),
         last_checked_at: new Date().toISOString(),
+        token_expires_at: tokenExpiresAt && tokenExpiresAt > 0
+          ? new Date(tokenExpiresAt * 1000).toISOString()
+          : tokenExpiresAt === 0 ? null : undefined,
+        // Limpa cache de debug pra forçar reverificação no próximo "Verificar validade"
+        token_last_debugged_at: null,
       }, { onConflict: "user_id,fb_page_id" })
       .select()
       .single();
@@ -107,10 +129,10 @@ export const connectPage = createServerFn({ method: "POST" })
 
     await supabase.from("activity_logs").insert({
       user_id: userId, action: "page.connected", entity: "fb_page", entity_id: upserted.id,
-      metadata: { name: me.name }, status: "ok",
+      metadata: { name: me.name, extended: extendedNow }, status: "ok",
     });
 
-    return { ok: true, page: upserted, skipped: false as const };
+    return { ok: true, page: upserted, skipped: false as const, extended: extendedNow };
   });
 
 export const testPageToken = createServerFn({ method: "POST" })
@@ -180,15 +202,26 @@ export const updatePageToken = createServerFn({ method: "POST" })
       };
     }
 
+    // Tenta estender automaticamente o token antes de salvar
+    const creds = await loadAppCredsForExtend(supabase, userId);
+    const ex = await tryExtendToken(data.accessToken, creds);
+    const finalToken = ex.extended ? ex.token : data.accessToken;
+    const expiresAtIso = ex.extended
+      ? (ex.expiresAt && ex.expiresAt > 0 ? new Date(ex.expiresAt * 1000).toISOString() : null)
+      : undefined;
+
     const { error } = await supabase
       .from("fb_pages")
       .update({
-        access_token: data.accessToken,
+        access_token: finalToken,
         is_active: true,
         needs_reconnect: false,
         reconnect_reason: null,
         token_debug_error: null,
+        token_last_refreshed_at: new Date().toISOString(),
         last_checked_at: new Date().toISOString(),
+        ...(expiresAtIso !== undefined ? { token_expires_at: expiresAtIso } : {}),
+        token_last_debugged_at: null,
       })
       .eq("id", data.pageId)
       .eq("user_id", userId);
@@ -196,10 +229,10 @@ export const updatePageToken = createServerFn({ method: "POST" })
 
     await supabase.from("activity_logs").insert({
       user_id: userId, action: "page.token_updated", entity: "fb_page", entity_id: data.pageId,
-      metadata: { name: me.name }, status: "ok",
+      metadata: { name: me.name, extended: ex.extended }, status: "ok",
     });
 
-    return { ok: true as const };
+    return { ok: true as const, extended: ex.extended, extendError: ex.extended ? null : ex.error ?? null };
   });
 
 // Reconecta páginas em lote usando um User Access Token (long-lived ou short-lived).
