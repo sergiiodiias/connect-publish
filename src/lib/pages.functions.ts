@@ -206,9 +206,34 @@ export const updatePageToken = createServerFn({ method: "POST" })
     const creds = await loadAppCredsForExtend(supabase, userId);
     const ex = await tryExtendToken(data.accessToken, creds);
     const finalToken = ex.extended ? ex.token : data.accessToken;
-    const expiresAtIso = ex.extended
-      ? (ex.expiresAt && ex.expiresAt > 0 ? new Date(ex.expiresAt * 1000).toISOString() : null)
-      : undefined;
+
+    // Sempre roda debug_token para descobrir a expiração REAL e os scopes
+    // do token final, mesmo quando o extend falhou (ex: token já é long-lived
+    // de outro App, ou é Page Token permanente vindo de fora).
+    const debugCreds = creds.map((c, i) => ({ slot: (i === 0 ? 1 : 2) as 1 | 2, appId: c.id, appSecret: c.secret }));
+    let debugExpiresAtIso: string | null | undefined = undefined;
+    let debugScopes: string[] | null = null;
+    let debugError: string | null = null;
+    try {
+      const dbg = await debugFacebookToken(finalToken, debugCreds);
+      const expSec = normalizeFacebookExpiresAt(dbg.data);
+      if (expSec !== null) {
+        debugExpiresAtIso = expSec > 0 ? new Date(expSec * 1000).toISOString() : null;
+      }
+      if (Array.isArray(dbg.data?.scopes)) debugScopes = dbg.data.scopes;
+      const reason = reconnectReasonFromDebugError(dbg.data?.error);
+      if (reason) debugError = reason;
+    } catch (e: any) {
+      debugError = e?.message ?? "falha ao verificar";
+    }
+
+    // Prioridade: debug_token (verdade absoluta) > extend (expires_in) > não mexer
+    const expiresAtIso: string | null | undefined =
+      debugExpiresAtIso !== undefined
+        ? debugExpiresAtIso
+        : ex.extended
+          ? (ex.expiresAt && ex.expiresAt > 0 ? new Date(ex.expiresAt * 1000).toISOString() : null)
+          : undefined;
 
     const { error } = await supabase
       .from("fb_pages")
@@ -217,23 +242,33 @@ export const updatePageToken = createServerFn({ method: "POST" })
         is_active: true,
         needs_reconnect: false,
         reconnect_reason: null,
-        token_debug_error: null,
+        token_debug_error: debugError,
         token_last_refreshed_at: new Date().toISOString(),
+        token_last_debugged_at: new Date().toISOString(),
         last_checked_at: new Date().toISOString(),
         ...(expiresAtIso !== undefined ? { token_expires_at: expiresAtIso } : {}),
-        token_last_debugged_at: null,
+        ...(debugScopes ? { token_scopes: debugScopes } : {}),
       })
       .eq("id", data.pageId)
       .eq("user_id", userId);
     if (error) throw new Error(error.message);
 
+    const isPermanent = expiresAtIso === null;
+    const wasExtended = ex.extended || isPermanent;
     await supabase.from("activity_logs").insert({
       user_id: userId, action: "page.token_updated", entity: "fb_page", entity_id: data.pageId,
-      metadata: { name: me.name, extended: ex.extended }, status: "ok",
+      metadata: { name: me.name, extended: wasExtended, permanent: isPermanent, expires_at: expiresAtIso ?? null }, status: "ok",
     });
 
-    return { ok: true as const, extended: ex.extended, extendError: ex.extended ? null : ex.error ?? null };
+    return {
+      ok: true as const,
+      extended: wasExtended,
+      permanent: isPermanent,
+      expiresAt: expiresAtIso ?? null,
+      extendError: ex.extended ? null : ex.error ?? null,
+    };
   });
+
 
 // Reconecta páginas em lote usando um User Access Token (long-lived ou short-lived).
 // Chama /me/accounts paginando, e atualiza o access_token de cada página correspondente.
