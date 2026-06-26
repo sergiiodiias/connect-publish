@@ -201,7 +201,7 @@ function PagesPage() {
     enabled: historyOpen,
   });
 
-  // Alerts derived from persisted token_expires_at
+  // Filtros derivados de token_expires_at + needs_reconnect
   const now = Date.now();
   const expiringSoon = pages.filter((p: any) => {
     if (!p.token_expires_at) return false;
@@ -212,6 +212,18 @@ function PagesPage() {
     if (!p.token_expires_at) return false;
     return new Date(p.token_expires_at).getTime() <= now;
   });
+  // "Precisa estender": token com expiração conhecida (≠ permanente) OU marcada como needs_reconnect.
+  const needsExtend = pages.filter((p: any) => {
+    if (p.needs_reconnect) return true;
+    if (!p.token_expires_at) return false; // null = permanente / não verificado
+    return true; // qualquer token com data de expiração precisa ser estendido eventualmente
+  });
+  const [filterMode, setFilterMode] = useState<"all" | "needs_extend" | "expiring" | "expired" | "permanent">("all");
+  const filteredPages = filterMode === "needs_extend" ? needsExtend
+    : filterMode === "expiring" ? expiringSoon
+    : filterMode === "expired" ? expired
+    : filterMode === "permanent" ? pages.filter((p: any) => !p.token_expires_at && !p.needs_reconnect && p.is_active)
+    : pages;
 
   return (
     <div className="p-8 space-y-6">
