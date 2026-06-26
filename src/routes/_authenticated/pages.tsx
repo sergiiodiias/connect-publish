@@ -399,13 +399,30 @@ function PagesPage() {
 
       {/* Filtros */}
       <div className="flex flex-wrap items-center gap-2 text-xs">
-        <span className="text-muted-foreground">Filtrar:</span>
+        <span className="text-muted-foreground flex items-center gap-1"><FolderOpen className="size-3.5" />Grupo:</span>
+        <Select value={groupFilter} onValueChange={setGroupFilter}>
+          <SelectTrigger className="h-7 w-52 text-xs">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all" className="text-xs">Todos os grupos ({pages.length})</SelectItem>
+            <SelectItem value="none" className="text-xs">
+              Sem grupo ({pages.filter((p: any) => !pageGroupMap.has(p.id)).length})
+            </SelectItem>
+            {groupsData.map((g: any) => (
+              <SelectItem key={g.id} value={g.id} className="text-xs">
+                {g.name} ({g.page_group_members?.length ?? 0})
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <span className="text-muted-foreground ml-2">Status:</span>
         {([
-          { id: "all", label: `Todas (${pages.length})` },
-          { id: "needs_extend", label: `Precisam estender (${needsExtend.length})` },
-          { id: "expiring", label: `Expirando ≤7d (${expiringSoon.length})` },
-          { id: "expired", label: `Expiradas (${expired.length})` },
-          { id: "permanent", label: `Longa duração (${pages.filter((p: any) => {
+          { id: "all", label: `Todas (${groupFilteredPages.length})` },
+          { id: "needs_extend", label: `Precisam estender (${groupFilteredPages.filter((p: any) => needsExtend.includes(p)).length})` },
+          { id: "expiring", label: `Expirando ≤7d (${groupFilteredPages.filter((p: any) => expiringSoon.includes(p)).length})` },
+          { id: "expired", label: `Expiradas (${groupFilteredPages.filter((p: any) => expired.includes(p)).length})` },
+          { id: "permanent", label: `Longa duração (${groupFilteredPages.filter((p: any) => {
             const seconds = p.token_expires_at ? Math.floor(new Date(p.token_expires_at).getTime() / 1000) : (p.token_last_debugged_at && p.is_active ? 0 : null);
             return !p.needs_reconnect && p.is_active && isLongDurationExpirySeconds(seconds);
           }).length})` },
