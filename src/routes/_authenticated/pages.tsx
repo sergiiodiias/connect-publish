@@ -501,6 +501,11 @@ function PagesPage() {
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 flex-wrap">
                     <span className="font-medium">{p.name}</span>
+                    {(pageGroupMap.get(p.id) ?? []).map(g => (
+                      <Badge key={g.id} variant="outline" className="text-[10px] gap-1 cursor-pointer hover:bg-muted" onClick={() => setGroupFilter(g.id)} title={`Filtrar por grupo "${g.name}"`}>
+                        <FolderOpen className="size-2.5" />{g.name}
+                      </Badge>
+                    ))}
                     {p.needs_reconnect ? <Badge variant="destructive" className="gap-1" title={p.reconnect_reason ?? "Token revogado pelo Facebook — atualize o Access Token"}><AlertTriangle className="size-3" />precisa reconectar</Badge>
                       : p.is_active ? <Badge variant="outline" className="gap-1"><CheckCircle2 className="size-3 text-success" />ativa</Badge>
                       : <Badge variant="destructive" className="gap-1"><AlertTriangle className="size-3" />inativa</Badge>}
