@@ -88,8 +88,9 @@ function PagesPage() {
       if (!r.ok) throw new Error(r.error);
       return r;
     },
-    onSuccess: () => {
-      toast.success("Token atualizado");
+    onSuccess: (r: any) => {
+      if (r?.extended) toast.success("Token atualizado e estendido (longa duração)");
+      else toast.success(`Token atualizado${r?.extendError ? ` — não foi possível estender: ${r.extendError}` : ""}`);
       setUpdateFor(null);
       setNewToken("");
       qc.invalidateQueries({ queryKey: ["pages"] });
