@@ -20,6 +20,23 @@ function isStoredTokenStillValid(row: any): boolean {
   return ms > 7 * 24 * 3600 * 1000;
 }
 
+const LONG_DURATION_SECONDS = 30 * 24 * 3600;
+
+function appCredsToDebugCreds(creds: Array<{ id: string; secret: string }>) {
+  return creds.map((c, i) => ({ slot: (i === 0 ? 1 : 2) as 1 | 2, appId: c.id, appSecret: c.secret }));
+}
+
+function expiresSecondsToIso(expSec: number | null): string | null | undefined {
+  if (expSec === null) return undefined;
+  return expSec > 0 ? new Date(expSec * 1000).toISOString() : null;
+}
+
+function isLongDurationExpiry(expiresAtIso: string | null | undefined): boolean {
+  if (expiresAtIso === undefined) return false;
+  if (expiresAtIso === null) return true;
+  return new Date(expiresAtIso).getTime() - Date.now() >= LONG_DURATION_SECONDS * 1000;
+}
+
 export const connectPage = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((d) =>
@@ -95,6 +112,33 @@ export const connectPage = createServerFn({ method: "POST" })
       }
     }
 
+    // Sempre confere a validade real do token final antes de salvar.
+    // Isso evita manter no banco uma expiração antiga quando o usuário cola
+    // manualmente um token já estendido/long-lived na chavinha.
+    const debugCreds = appCredsToDebugCreds(creds);
+    let debugExpiresAtIso: string | null | undefined = undefined;
+    let debugDataAccessExpiresAtIso: string | null = null;
+    let debugScopes: string[] | null = null;
+    let debugError: string | null = null;
+    try {
+      const dbg = await debugFacebookToken(pageToken!, debugCreds);
+      debugExpiresAtIso = expiresSecondsToIso(normalizeFacebookExpiresAt(dbg.data));
+      const dataAccessExp = typeof dbg.data?.data_access_expires_at === "number" ? dbg.data.data_access_expires_at : null;
+      debugDataAccessExpiresAtIso = dataAccessExp && dataAccessExp > 0 ? new Date(dataAccessExp * 1000).toISOString() : null;
+      if (Array.isArray(dbg.data?.scopes)) debugScopes = dbg.data.scopes;
+      const reason = reconnectReasonFromDebugError(dbg.data?.error);
+      if (reason) debugError = reason;
+    } catch (e: any) {
+      debugError = e?.message ?? "falha ao verificar";
+    }
+
+    const expiresAtIso = debugExpiresAtIso !== undefined
+      ? debugExpiresAtIso
+      : tokenExpiresAt !== null
+        ? expiresSecondsToIso(tokenExpiresAt)
+        : undefined;
+    const longDuration = extendedNow || isLongDurationExpiry(expiresAtIso);
+
     // Picture
     let picture_url: string | null = null;
     try {
@@ -114,14 +158,13 @@ export const connectPage = createServerFn({ method: "POST" })
         is_active: true,
         needs_reconnect: false,
         reconnect_reason: null,
-        token_debug_error: null,
+        token_debug_error: debugError,
         token_last_refreshed_at: new Date().toISOString(),
         last_checked_at: new Date().toISOString(),
-        token_expires_at: tokenExpiresAt && tokenExpiresAt > 0
-          ? new Date(tokenExpiresAt * 1000).toISOString()
-          : tokenExpiresAt === 0 ? null : undefined,
-        // Limpa cache de debug pra forçar reverificação no próximo "Verificar validade"
-        token_last_debugged_at: null,
+        token_expires_at: expiresAtIso,
+        token_data_access_expires_at: debugDataAccessExpiresAtIso,
+        ...(debugScopes ? { token_scopes: debugScopes } : {}),
+        token_last_debugged_at: new Date().toISOString(),
       }, { onConflict: "user_id,fb_page_id" })
       .select()
       .single();
@@ -129,10 +172,10 @@ export const connectPage = createServerFn({ method: "POST" })
 
     await supabase.from("activity_logs").insert({
       user_id: userId, action: "page.connected", entity: "fb_page", entity_id: upserted.id,
-      metadata: { name: me.name, extended: extendedNow }, status: "ok",
+      metadata: { name: me.name, extended: longDuration, expires_at: expiresAtIso ?? null }, status: "ok",
     });
 
-    return { ok: true, page: upserted, skipped: false as const, extended: extendedNow };
+    return { ok: true, page: upserted, skipped: false as const, extended: longDuration, expiresAt: expiresAtIso ?? null };
   });
 
 export const testPageToken = createServerFn({ method: "POST" })
@@ -210,16 +253,16 @@ export const updatePageToken = createServerFn({ method: "POST" })
     // Sempre roda debug_token para descobrir a expiração REAL e os scopes
     // do token final, mesmo quando o extend falhou (ex: token já é long-lived
     // de outro App, ou é Page Token permanente vindo de fora).
-    const debugCreds = creds.map((c, i) => ({ slot: (i === 0 ? 1 : 2) as 1 | 2, appId: c.id, appSecret: c.secret }));
+    const debugCreds = appCredsToDebugCreds(creds);
     let debugExpiresAtIso: string | null | undefined = undefined;
+    let debugDataAccessExpiresAtIso: string | null = null;
     let debugScopes: string[] | null = null;
     let debugError: string | null = null;
     try {
       const dbg = await debugFacebookToken(finalToken, debugCreds);
-      const expSec = normalizeFacebookExpiresAt(dbg.data);
-      if (expSec !== null) {
-        debugExpiresAtIso = expSec > 0 ? new Date(expSec * 1000).toISOString() : null;
-      }
+      debugExpiresAtIso = expiresSecondsToIso(normalizeFacebookExpiresAt(dbg.data));
+      const dataAccessExp = typeof dbg.data?.data_access_expires_at === "number" ? dbg.data.data_access_expires_at : null;
+      debugDataAccessExpiresAtIso = dataAccessExp && dataAccessExp > 0 ? new Date(dataAccessExp * 1000).toISOString() : null;
       if (Array.isArray(dbg.data?.scopes)) debugScopes = dbg.data.scopes;
       const reason = reconnectReasonFromDebugError(dbg.data?.error);
       if (reason) debugError = reason;
@@ -247,6 +290,7 @@ export const updatePageToken = createServerFn({ method: "POST" })
         token_last_debugged_at: new Date().toISOString(),
         last_checked_at: new Date().toISOString(),
         ...(expiresAtIso !== undefined ? { token_expires_at: expiresAtIso } : {}),
+        token_data_access_expires_at: debugDataAccessExpiresAtIso,
         ...(debugScopes ? { token_scopes: debugScopes } : {}),
       })
       .eq("id", data.pageId)
@@ -254,7 +298,7 @@ export const updatePageToken = createServerFn({ method: "POST" })
     if (error) throw new Error(error.message);
 
     const isPermanent = expiresAtIso === null;
-    const wasExtended = ex.extended || isPermanent;
+    const wasExtended = ex.extended || isLongDurationExpiry(expiresAtIso);
     await supabase.from("activity_logs").insert({
       user_id: userId, action: "page.token_updated", entity: "fb_page", entity_id: data.pageId,
       metadata: { name: me.name, extended: wasExtended, permanent: isPermanent, expires_at: expiresAtIso ?? null }, status: "ok",
