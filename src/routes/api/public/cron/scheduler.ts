@@ -234,15 +234,34 @@ export const Route = createFileRoute("/api/public/cron/scheduler")({
         }
 
         // 1) Auto-comments due — process FIRST so they don't starve behind the publish loop.
-        const { data: dueComments } = await supabaseAdmin
+        const { data: dueCommentsRaw } = await supabaseAdmin
           .from("auto_comments")
-          .select("*")
+          .select("*, post_targets!inner(page_id)")
           .eq("status", "pending")
           .not("target_id", "is", null)
           .is("fb_comment_id", null)
           .lte("run_at", nowIso)
           .order("run_at", { ascending: true, nullsFirst: false })
           .limit(COMMENT_BATCH_LIMIT);
+
+        // Round-robin por página: garante que páginas diferentes alternem entre si,
+        // de forma que nenhuma página receba 2 comentários seguidos na mesma execução.
+        const byPage = new Map<string, any[]>();
+        for (const c of (dueCommentsRaw ?? []) as any[]) {
+          const pid = c.post_targets?.page_id ?? "_unknown";
+          const arr = byPage.get(pid) ?? [];
+          arr.push(c);
+          byPage.set(pid, arr);
+        }
+        const dueComments: any[] = [];
+        const queues = Array.from(byPage.values());
+        let qIdx = 0;
+        while (queues.some((q) => q.length)) {
+          const q = queues[qIdx % queues.length];
+          if (q.length) dueComments.push(q.shift());
+          qIdx++;
+          if (qIdx > 100000) break;
+        }
 
         async function deferComment(c: any, delayMs: number, reason: string) {
           await supabaseAdmin
