@@ -105,7 +105,12 @@ function PagesPage() {
       if (!response.ok) throw new Error(response.error);
       return response;
     },
-    onSuccess: () => { toast.success("Página conectada"); setOpen(false); setToken(""); setPageId(""); qc.invalidateQueries({ queryKey: ["pages"] }); },
+    onSuccess: (r: any) => {
+      if (r?.skipped) toast.success("Página já conectada — token preservado");
+      else if (r?.extended) toast.success("Página conectada com token estendido (longa duração)");
+      else toast.success("Página conectada (token não pôde ser estendido — configure App em Ajustes)");
+      setOpen(false); setToken(""); setPageId(""); qc.invalidateQueries({ queryKey: ["pages"] });
+    },
     onError: (e: any) => toast.error(e.message),
   });
   const remove = useMutation({
