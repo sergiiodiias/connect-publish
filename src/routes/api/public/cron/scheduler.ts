@@ -384,6 +384,39 @@ export const Route = createFileRoute("/api/public/cron/scheduler")({
           await Promise.all(group.map(postComment));
         }
 
+        // 1.5) Empurrar targets futuros para o agendador NATIVO do Facebook.
+        // Sem isso, posts importados em massa ficam só no nosso DB e dependem
+        // do cron publicar na hora, fazendo o usuário ver "1 só agendado" no FB.
+        try {
+          const { scheduleTargetsNative } = await import("@/lib/fb-schedule");
+          const { data: userRows } = await supabaseAdmin
+            .from("post_targets")
+            .select("user_id")
+            .is("fb_post_id", null)
+            .in("status", ["pending", "failed"])
+            .limit(200);
+          const uniqueUsers = [...new Set((userRows ?? []).map((r: any) => r.user_id).filter(Boolean))];
+          for (const uid of uniqueUsers) {
+            if (outOfTime() || rateLimitHit) break;
+            try {
+              const res = await scheduleTargetsNative({
+                supabase: supabaseAdmin,
+                userId: uid,
+                batchSize: 40,
+                concurrency: 5,
+              });
+              if (res.errors.some((e) => /limit|#4|#17|#32|#613/i.test(e))) {
+                rateLimitHit = true;
+                break;
+              }
+            } catch {
+              // best-effort; continua para o passo de publicação
+            }
+          }
+        } catch {
+          // se o módulo falhar, segue o fluxo normal
+        }
+
         // 2) Scheduled posts whose time has come.
         // Atomic claim: only pick posts still 'scheduled' and flip them to 'publishing' in one update,
         // so concurrent cron ticks never grab the same post.
@@ -393,6 +426,7 @@ export const Route = createFileRoute("/api/public/cron/scheduler")({
           .eq("status", "scheduled")
           .lte("scheduled_at", fallbackReadyIso)
           .limit(10);
+
         const due: any[] = [];
         for (const row of dueIds ?? []) {
           const { count: unsentTargets } = await supabaseAdmin
