@@ -38,6 +38,8 @@ export const Route = createFileRoute("/api/public/cron/scheduler")({
         const COMMENT_CONCURRENCY = 2;
         const COMMENT_BATCH_LIMIT = 240;
         const COMMENT_PAGE_COOLDOWN_MS = 10 * 60_000;
+        const COMMENT_PAGE_STAGGER_MS = 12 * 60_000;
+        const COMMENT_PAGE_STAGGER_JITTER_MS = 6 * 60_000;
         const COMMENT_INTER_DELAY_MS = 800; // pausa mínima entre comentários
         const COMMENT_INTER_JITTER_MS = 1700; // + jitter aleatório
         const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -331,16 +333,28 @@ export const Route = createFileRoute("/api/public/cron/scheduler")({
             .limit(5000);
           const targetIds = (pageTargets ?? []).map((t: any) => t.id).filter(Boolean);
           if (!targetIds.length) return;
-          await supabaseAdmin
+          const { data: pendingForPage } = await supabaseAdmin
             .from("auto_comments")
-            .update({
-              status: "pending",
-              error: reason,
-              run_at: new Date(Date.now() + delayMs).toISOString(),
-            } as any)
+            .select("id, run_at")
             .in("target_id", targetIds)
             .in("status", ["pending", "publishing"] as any)
-            .is("fb_comment_id", null);
+            .is("fb_comment_id", null)
+            .order("run_at", { ascending: true, nullsFirst: false })
+            .limit(5000);
+
+          let offsetMs = delayMs;
+          for (const row of pendingForPage ?? []) {
+            const jitter = Math.floor(Math.random() * COMMENT_PAGE_STAGGER_JITTER_MS);
+            await supabaseAdmin
+              .from("auto_comments")
+              .update({
+                status: "pending",
+                error: reason,
+                run_at: new Date(Date.now() + offsetMs + jitter).toISOString(),
+              } as any)
+              .eq("id", row.id);
+            offsetMs += COMMENT_PAGE_STAGGER_MS;
+          }
         }
 
         async function postComment(c: any) { return withApiCallTracking(c.user_id, async () => {
