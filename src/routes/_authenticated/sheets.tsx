@@ -60,6 +60,9 @@ function BulkUploadPage() {
   const [busy, setBusy] = useState(false);
   const [uploadProgress, setUploadProgress] = useState<{ done: number; total: number } | null>(null);
   const [commentDelaySec, setCommentDelaySec] = useState(60);
+  const [batchSize, setBatchSize] = useState(20);
+  const [batchIntervalMin, setBatchIntervalMin] = useState(10);
+  const [commentJitterSec, setCommentJitterSec] = useState(90);
 
 
   const { data: pages = [] } = useQuery({ queryKey: ["pages"], queryFn: () => listFn() });
@@ -212,7 +215,7 @@ function BulkUploadPage() {
       });
 
       // 3) Cria job (que cria posts agendados; cron publica)
-      const r = await createJobFn({ data: { slots: resolved, commentDelaySeconds: commentDelaySec } });
+      const r = await createJobFn({ data: { slots: resolved, commentDelaySeconds: commentDelaySec, batchSize, batchIntervalMinutes: batchIntervalMin, commentJitterSeconds: commentJitterSec } });
       console.log("[bulk] createBulkJob result:", r);
       if (!r || typeof r !== "object") {
         throw new Error("Resposta inválida do servidor ao criar o job. Veja o console.");
@@ -373,7 +376,57 @@ function BulkUploadPage() {
                   </Button>
                 ))}
               </div>
+          </div>
+
+          {/* 2c. Escalonamento em lotes (anti rate-limit) */}
+          <div className="rounded-xl border border-border bg-card p-5 space-y-3">
+            <div>
+              <Label>Escalonamento em lotes</Label>
+              <p className="text-xs text-muted-foreground">
+                Divide as publicações de cada horário em lotes para evitar limites do Facebook.
+                Cada lote ganha um deslocamento de tempo. Os comentários também são espaçados entre si.
+              </p>
             </div>
+            <div className="grid sm:grid-cols-3 gap-3">
+              <div>
+                <Label className="text-xs">Páginas por lote</Label>
+                <Input type="number" min={1} max={500} value={batchSize}
+                  onChange={(e) => setBatchSize(Math.max(1, Math.min(500, Number(e.target.value) || 1)))} />
+                <div className="flex flex-wrap gap-1 mt-2">
+                  {[5, 10, 20, 30, 50].map((v) => (
+                    <Button key={v} type="button" size="sm" variant={batchSize === v ? "default" : "outline"}
+                      className="h-7 px-2 text-xs" onClick={() => setBatchSize(v)}>{v}</Button>
+                  ))}
+                </div>
+              </div>
+              <div>
+                <Label className="text-xs">Intervalo entre lotes (min)</Label>
+                <Input type="number" min={0} max={720} value={batchIntervalMin}
+                  onChange={(e) => setBatchIntervalMin(Math.max(0, Math.min(720, Number(e.target.value) || 0)))} />
+                <div className="flex flex-wrap gap-1 mt-2">
+                  {[5, 10, 15, 30, 60].map((v) => (
+                    <Button key={v} type="button" size="sm" variant={batchIntervalMin === v ? "default" : "outline"}
+                      className="h-7 px-2 text-xs" onClick={() => setBatchIntervalMin(v)}>{v}min</Button>
+                  ))}
+                </div>
+              </div>
+              <div>
+                <Label className="text-xs">Jitter entre comentários (s)</Label>
+                <Input type="number" min={0} max={7200} value={commentJitterSec}
+                  onChange={(e) => setCommentJitterSec(Math.max(0, Math.min(7200, Number(e.target.value) || 0)))} />
+                <div className="flex flex-wrap gap-1 mt-2">
+                  {[30, 60, 90, 120, 300].map((v) => (
+                    <Button key={v} type="button" size="sm" variant={commentJitterSec === v ? "default" : "outline"}
+                      className="h-7 px-2 text-xs" onClick={() => setCommentJitterSec(v)}>{v < 60 ? `${v}s` : `${v / 60}min`}</Button>
+                  ))}
+                </div>
+              </div>
+            </div>
+            <p className="text-[11px] text-muted-foreground">
+              Ex.: 100 páginas com lote 20 e intervalo 10min → 5 lotes começando em 0, 10, 20, 30, 40min.
+              Com jitter 90s, os comentários do mesmo lote saem espaçados de 90 em 90s.
+            </p>
+          </div>
             <p className="text-[11px] text-muted-foreground">
               Aplicado apenas às linhas da planilha que tenham coluna de comentário preenchida.
             </p>
