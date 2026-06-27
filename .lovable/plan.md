@@ -1,83 +1,28 @@
-# Melhorias: Resiliência, UX e Segurança dos Tokens
+## Diagnóstico
 
-## 1. Resiliência
+Na data de hoje (27/06) ainda há 147 itens do dia 26 aparecendo na agenda:
 
-### 1.1 Backoff exponencial para rate-limit
-- Em `src/lib/fb-graph.ts`, criar `fetchWithRetry` que detecta os códigos de rate-limit do Facebook (`1`, `2`, `4`, `17`, `32`, `613`, `368`) e refaz a chamada com espera **1s → 2s → 4s → 8s** (máx. 3 retentativas, com jitter aleatório de ±20%).
-- `fbGet`, `fbGetWithUsage`, `fbPost`, `fbDelete` passam a usar esse helper.
-- Erros que NÃO são rate-limit (token inválido, permissão, etc.) continuam falhando imediatamente.
+- **137 `post_targets` com status `publishing`** e **sem `fb_post_id`** → o cron marcou como "publicando", a chamada ao Facebook estourou tempo/erro silencioso e nunca foi revertido. Ficam presos para sempre porque o cron só pega `pending`.
+- **10 `post_targets` com status `pending`** mas **com `fb_post_id`** → já estavam agendados nativamente no Facebook; só faltou a verificação confirmar como `published`.
+- Como reflexo, **47 `posts` continuam `scheduled`** e **54 `publishing`** com data passada.
 
-### 1.2 X-App-Usage granular
-- `parseAppUsage` passa a retornar `{ call_count, total_time, total_cputime, max }` em vez de só o máximo.
-- `fb_app_usage` no perfil guarda as três métricas por slot:
-  ```
-  { app1: { call:42, time:55, cpu:18, max:55, ts:... }, app2: {...} }
-  ```
-- A UI de Ajustes mostra três barrinhas (CPU / Tempo / Chamadas) por App.
+## O que vou fazer
 
-### 1.3 Modo econômico quando ambos Apps estão saturados
-- Em `refresh-tokens.server.ts`, se TODOS os apps disponíveis estão ≥ 80%:
-  - Pular tokens que ainda têm mais de **7 dias** de validade.
-  - Marcar essas páginas no relatório como `"adiado: quota alta"`.
-- Cron diário continua executando, mas processa só os urgentes nesse modo.
+### 1. Limpeza imediata dos dados do dia 26 (passado)
+- Para os 10 `pending` que já têm `fb_post_id`: marcar `post_targets.status = 'published'` (eles foram publicados nativamente pelo FB).
+- Para os 137 `publishing` sem `fb_post_id`: marcar como `failed` com `error = 'Travado em publishing (limpeza automática)'`. Assim somem da agenda e ficam auditáveis em "Falhas".
+- Recalcular `posts.status` para os posts afetados: vira `published` se todos os targets viraram published, `partial` se mistura, `failed` se nenhum publicou.
 
-## 2. UX no Relatório
+### 2. Salvaguarda no cron para nunca mais ficar preso
+Em `src/routes/api/public/cron/scheduler.ts`, antes de processar a fila, adicionar um passo "stale reaper":
+- `post_targets` em `publishing` há mais de 15 min sem `fb_post_id` → voltam para `pending` (para o cron tentar de novo) se ainda dentro da janela de agendamento, ou viram `failed` se a data já passou há mais de 1 hora.
 
-### 2.1 Delta de validade
-- `PageRefreshOutcome` ganha `previousExpiresAt`. O relatório mostra `"expirava em 5d → agora 60d"` (ou `"sem mudança"`).
-
-### 2.2 Renovar só os que expiram em <N dias
-- Novo parâmetro opcional `withinDays` em `refreshTokensNow`.
-- Botão extra ao lado de "Renovar agora": **"Renovar prestes a expirar"** (dropdown com 7/15/30 dias).
-
-### 2.3 Histórico de relatórios
-- Nova tabela `refresh_reports` (id, user_id, created_at, summary jsonb, results jsonb).
-- Após cada renovação (manual ou cron) salvamos o relatório.
-- Nova aba/seção em `/pages` com os **últimos 10 relatórios**, expansíveis para ver os detalhes.
-
-## 3. Segurança: criptografar `access_token` no banco
-
-### Abordagem
-- Usar `pgcrypto` (`pgp_sym_encrypt`/`pgp_sym_decrypt`) com chave-mestra guardada no **Supabase Vault** (`vault.secrets`).
-- Nova coluna `fb_pages.access_token_enc bytea`.
-- Funções `SECURITY DEFINER`:
-  - `public.encrypt_fb_token(plain text) returns bytea`
-  - `public.decrypt_fb_token(enc bytea) returns text`
-  Ambas leem a chave do Vault — usuários comuns NÃO podem chamar `decrypt_fb_token`; só `service_role`.
-- Migração de dados: trigger `BEFORE INSERT/UPDATE` em `fb_pages` que criptografa automaticamente para `access_token_enc` e zera `access_token`. Backfill executa uma vez para registros existentes.
-- Server functions passam a obter o token via RPC (`select decrypt_fb_token(access_token_enc) ...`), nunca via SELECT direto.
-- Após o backfill rodar e o código novo estar publicado: nova migração que **dropa** a coluna `access_token` em texto puro.
-
-### Por que pgcrypto e não pgsodium puro
-- `pgsodium` está em "soft deprecation" no Supabase; o caminho recomendado hoje é Vault + pgcrypto.
-- Vault armazena UMA chave-mestra (não cada token), o que escala bem para milhares de páginas.
+### 3. (opcional, se você quiser) Limpar também os 47 posts `scheduled` do dia 26 cujos targets já foram todos publicados — só atualização cosmética do status do post-pai.
 
 ## Detalhes técnicos
 
-**Arquivos a editar:**
-- `src/lib/fb-graph.ts` — `fetchWithRetry`, `parseAppUsage` granular.
-- `src/lib/fb-app-creds.ts` — `recordAppUsage` aceita objeto granular; novo `allAppsSaturated()`.
-- `src/lib/refresh-tokens.server.ts` — usa modo econômico, `withinDays`, salva `previousExpiresAt`, persiste relatório.
-- `src/lib/pages.functions.ts` — `refreshTokensNow` aceita `{ withinDays? }`; novo `listRefreshReports`; helpers para ler token decifrado.
-- `src/lib/profile.functions.ts` — retorna usage granular.
-- `src/routes/_authenticated/pages.tsx` — botão dropdown, delta, aba "Histórico de renovação".
-- `src/routes/_authenticated/settings.tsx` — três barras por App.
+- A limpeza dos dados é feita via SQL (`UPDATE` em `post_targets` e `posts` filtrando `scheduled_at::date = '2026-06-26'` e `user_id = <seu>`).
+- O reaper roda dentro do handler do cron, antes do "Step 1", limitado a 500 linhas por execução para não estourar.
+- Nenhuma mudança visual; a aba **Agenda** simplesmente deixa de listar os fantasmas do dia 26.
 
-**Novas migrações (3):**
-1. `refresh_reports` (tabela + RLS + GRANT).
-2. `fb_pages.access_token_enc` + funções de criptografia + trigger + backfill.
-3. (após validação) `DROP COLUMN access_token`.
-
-**Riscos / cuidados:**
-- O segredo no Vault precisa existir ANTES da migração das funções. Vou criar `FB_TOKEN_ENC_KEY` via `vault.create_secret` na própria migração (valor gerado aleatoriamente).
-- O backfill precisa ser idempotente (só criptografa se `access_token_enc IS NULL`).
-- A migração final que dropa a coluna em texto puro só roda depois que o usuário confirmar que tudo está funcionando — fica como passo separado.
-
-## Ordem de execução proposta
-1. Backoff + parseUsage granular + modo econômico (1 levas de edits, sem migração).
-2. Tabela `refresh_reports` + persistência + histórico na UI.
-3. Delta de validade + botão "renovar próximos a expirar".
-4. Criptografia: migração 1 (encrypt coluna + funções + trigger + backfill), atualizar código pra ler via RPC.
-5. Após validação manual sua: migração 2 que dropa `access_token` em texto puro.
-
-Confirma que posso seguir nessa ordem? Se quiser pular algum passo (ex.: deixar a criptografia pra depois) me diz antes de eu começar.
+Confirma que posso executar a limpeza + adicionar o reaper?

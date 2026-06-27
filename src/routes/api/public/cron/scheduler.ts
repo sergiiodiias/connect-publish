@@ -116,6 +116,41 @@ export const Route = createFileRoute("/api/public/cron/scheduler")({
           return null;
         }
 
+        // -3) Reaper: solta targets travados em "publishing" sem fb_post_id.
+        // Causa: cron anterior marcou publishing, chamada ao FB estourou tempo e nunca reverteu.
+        // Regra: >15min em publishing sem fb_post_id → volta a 'pending' se ainda dentro
+        // da janela útil; vira 'failed' se o agendamento já passou há mais de 1h.
+        {
+          const staleCutoffIso = new Date(Date.now() - 15 * 60_000).toISOString();
+          const expiredCutoffIso = new Date(Date.now() - 60 * 60_000).toISOString();
+          const { data: stale } = await supabaseAdmin
+            .from("post_targets")
+            .select("id, updated_at, posts!inner(scheduled_at)")
+            .eq("status", "publishing")
+            .is("fb_post_id", null)
+            .lt("updated_at", staleCutoffIso)
+            .limit(500);
+          const toFail: string[] = [];
+          const toRequeue: string[] = [];
+          for (const row of (stale ?? []) as any[]) {
+            const sched = row.posts?.scheduled_at as string | undefined;
+            if (sched && sched < expiredCutoffIso) toFail.push(row.id);
+            else toRequeue.push(row.id);
+          }
+          if (toFail.length) {
+            await supabaseAdmin
+              .from("post_targets")
+              .update({ status: "failed", error: "Travado em publishing (reaper automático)" } as any)
+              .in("id", toFail);
+          }
+          if (toRequeue.length) {
+            await supabaseAdmin
+              .from("post_targets")
+              .update({ status: "pending", error: null } as any)
+              .in("id", toRequeue);
+          }
+        }
+
         // -2) Reconcilia targets que já foram agendados nativamente no Facebook.
         // Qualquer target com fb_post_id NÃO deve ser publicado de novo pelo cron.
         const { data: nativeScheduledPosts } = await supabaseAdmin
