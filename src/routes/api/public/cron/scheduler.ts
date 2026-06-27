@@ -478,23 +478,25 @@ export const Route = createFileRoute("/api/public/cron/scheduler")({
               return null;
             };
 
+            // Check once before posting. Calling /comments repeatedly for every candidate
+            // object was multiplying Graph calls and making limits arrive faster.
+            const existingId = await findExistingComment();
+            if (existingId) {
+              await supabaseAdmin
+                .from("auto_comments")
+                .update({
+                  status: "posted",
+                  fb_comment_id: existingId,
+                  posted_at: new Date().toISOString(),
+                  error: "comentário já existia no Facebook; não repostado",
+                })
+                .eq("id", c.id);
+              comments++;
+              alreadyPosted = true;
+            }
+
             for (const objectId of commentObjectIds) {
-              // Always check first to avoid duplicating after a previous timeout.
-              const existingId = await findExistingComment();
-              if (existingId) {
-                await supabaseAdmin
-                  .from("auto_comments")
-                  .update({
-                    status: "posted",
-                    fb_comment_id: existingId,
-                    posted_at: new Date().toISOString(),
-                    error: "comentário já existia no Facebook; não repostado",
-                  })
-                  .eq("id", c.id);
-                comments++;
-                alreadyPosted = true;
-                break;
-              }
+              if (alreadyPosted) break;
 
               try {
                 const r: any = await fbPost(`/${objectId}/comments`, {
