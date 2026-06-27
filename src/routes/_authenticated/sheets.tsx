@@ -60,6 +60,9 @@ function BulkUploadPage() {
   const [busy, setBusy] = useState(false);
   const [uploadProgress, setUploadProgress] = useState<{ done: number; total: number } | null>(null);
   const [commentDelaySec, setCommentDelaySec] = useState(60);
+  const [batchSize, setBatchSize] = useState(20);
+  const [batchIntervalMin, setBatchIntervalMin] = useState(10);
+  const [commentJitterSec, setCommentJitterSec] = useState(90);
 
 
   const { data: pages = [] } = useQuery({ queryKey: ["pages"], queryFn: () => listFn() });
