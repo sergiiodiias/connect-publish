@@ -35,9 +35,9 @@ export const Route = createFileRoute("/api/public/cron/scheduler")({
         // Comentários: o erro #368 é por PÁGINA. Para nunca estourar, processamos
         // no máximo 1 comentário por página por execução do cron, com concorrência
         // baixa entre páginas distintas e jitter entre cada chamada.
-        const COMMENT_CONCURRENCY = 2;
-        const COMMENT_BATCH_LIMIT = 240;
-        const COMMENT_PAGE_COOLDOWN_MS = 10 * 60_000;
+        const COMMENT_CONCURRENCY = 1;
+        const COMMENT_BATCH_LIMIT = 120;
+        const COMMENT_PAGE_COOLDOWN_MS = 20 * 60_000;
         const COMMENT_PAGE_STAGGER_MS = 12 * 60_000;
         const COMMENT_PAGE_STAGGER_JITTER_MS = 6 * 60_000;
         const COMMENT_INTER_DELAY_MS = 800; // pausa mínima entre comentários
@@ -192,7 +192,7 @@ export const Route = createFileRoute("/api/public/cron/scheduler")({
 
         // -1) Auto-recuperação de comentários travados
         // Resetar 'publishing' parado há mais de 5min (worker crashou no meio)
-        const stuckPublishingCutoff = new Date(Date.now() - 5 * 60_000).toISOString();
+        const stuckPublishingCutoff = new Date(Date.now() - 3 * 60_000).toISOString();
         await supabaseAdmin
           .from("auto_comments")
           .update({ status: "pending", error: "auto-recuperado de publishing travado" } as any)
@@ -325,25 +325,38 @@ export const Route = createFileRoute("/api/public/cron/scheduler")({
           return !!recent?.length;
         }
 
-        async function deferPendingCommentsForPage(pageId: string, delayMs: number, reason: string) {
-          const { data: pageTargets } = await supabaseAdmin
-            .from("post_targets")
-            .select("id")
-            .eq("page_id", pageId)
-            .limit(5000);
-          const targetIds = (pageTargets ?? []).map((t: any) => t.id).filter(Boolean);
-          if (!targetIds.length) return;
-          const { data: pendingForPage } = await supabaseAdmin
+        async function deferPendingCommentsForPage(
+          pageId: string,
+          delayMs: number,
+          reason: string,
+          currentCommentId?: string,
+        ) {
+          if (currentCommentId) {
+            await supabaseAdmin
+              .from("auto_comments")
+              .update({
+                status: "pending",
+                error: reason,
+                run_at: new Date(Date.now() + delayMs + Math.floor(Math.random() * COMMENT_PAGE_STAGGER_JITTER_MS)).toISOString(),
+              } as any)
+              .eq("id", currentCommentId);
+          }
+
+          const { data: pendingForPage, error: pendingError } = await supabaseAdmin
             .from("auto_comments")
-            .select("id, run_at")
-            .in("target_id", targetIds)
+            .select("id, run_at, post_targets!inner(page_id)")
+            .not("target_id", "is", null)
             .in("status", ["pending", "publishing"] as any)
             .is("fb_comment_id", null)
+            .eq("post_targets.page_id", pageId)
             .order("run_at", { ascending: true, nullsFirst: false })
-            .limit(5000);
+            .limit(600);
+
+          if (pendingError) return;
 
           let offsetMs = delayMs;
           for (const row of pendingForPage ?? []) {
+            if (currentCommentId && row.id === currentCommentId) continue;
             const jitter = Math.floor(Math.random() * COMMENT_PAGE_STAGGER_JITTER_MS);
             await supabaseAdmin
               .from("auto_comments")
@@ -480,19 +493,26 @@ export const Route = createFileRoute("/api/public/cron/scheduler")({
 
             // Check once before posting. Calling /comments repeatedly for every candidate
             // object was multiplying Graph calls and making limits arrive faster.
-            const existingId = await findExistingComment();
-            if (existingId) {
-              await supabaseAdmin
-                .from("auto_comments")
-                .update({
-                  status: "posted",
-                  fb_comment_id: existingId,
-                  posted_at: new Date().toISOString(),
-                  error: "comentário já existia no Facebook; não repostado",
-                })
-                .eq("id", c.id);
-              comments++;
-              alreadyPosted = true;
+            const shouldCheckExistingFirst =
+              (c.attempts ?? 0) > 0 ||
+              /timeout|network|fetch failed|socket|ETIMEDOUT|ECONNRESET|auto-recuperado|duplic|já existia/i.test(
+                c.error ?? "",
+              );
+            if (shouldCheckExistingFirst) {
+              const existingId = await findExistingComment();
+              if (existingId) {
+                await supabaseAdmin
+                  .from("auto_comments")
+                  .update({
+                    status: "posted",
+                    fb_comment_id: existingId,
+                    posted_at: new Date().toISOString(),
+                    error: "comentário já existia no Facebook; não repostado",
+                  })
+                  .eq("id", c.id);
+                comments++;
+                alreadyPosted = true;
+              }
             }
 
             for (const objectId of commentObjectIds) {
@@ -551,7 +571,18 @@ export const Route = createFileRoute("/api/public/cron/scheduler")({
                 target.page_id,
                 cooldownMin * 60_000,
                 `rate-limit da página (#368) — comentários da página pausados por ${cooldownMin}min`,
+                c.id,
               );
+              return;
+            }
+            if (/limit|#4\b|#17\b|#32\b|#613/i.test(msg)) {
+              const cooldownMin = 45 + Math.floor(Math.random() * 46); // 45–90min
+              await deferComment(
+                c,
+                cooldownMin * 60_000,
+                `limite geral da API — comentário pausado por ${cooldownMin}min`,
+              );
+              rateLimitHit = true;
               return;
             }
             await supabaseAdmin
