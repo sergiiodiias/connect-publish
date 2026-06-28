@@ -377,6 +377,53 @@ export const Route = createFileRoute("/api/public/cron/scheduler")({
           }
         }
 
+        // Backoff exponencial para limite #368 por página.
+        // Conta hits consecutivos (reseta após 6h sem hits) e escala o cooldown:
+        // hit 1: 60min, 2: 120min, 3: 240min, 4: 480min, 5+: 720min (cap).
+        // O cooldown é gravado em fb_pages.comment_cooldown_until e respeitado
+        // por todas as próximas execuções do cron, evitando reprocessar em massa.
+        const PAGE_368_RESET_MS = 6 * 60 * 60_000;
+        const PAGE_368_BASE_MIN = 60;
+        const PAGE_368_MAX_MIN = 720;
+        async function escalate368ForPage(pageId: string): Promise<number> {
+          const { data: row } = await supabaseAdmin
+            .from("fb_pages")
+            .select("comment_368_count, comment_368_last_at")
+            .eq("id", pageId)
+            .single();
+          const lastAt = (row as any)?.comment_368_last_at
+            ? new Date((row as any).comment_368_last_at).getTime()
+            : 0;
+          const prevCount = (row as any)?.comment_368_count ?? 0;
+          const shouldReset = !lastAt || Date.now() - lastAt > PAGE_368_RESET_MS;
+          const nextCount = shouldReset ? 1 : prevCount + 1;
+          const baseMin = Math.min(
+            PAGE_368_BASE_MIN * Math.pow(2, nextCount - 1),
+            PAGE_368_MAX_MIN,
+          );
+          const jitterMin = Math.floor(baseMin * (Math.random() * 0.2)); // até +20%
+          const cooldownMin = Math.floor(baseMin + jitterMin);
+          const cooldownUntil = new Date(Date.now() + cooldownMin * 60_000).toISOString();
+          await supabaseAdmin
+            .from("fb_pages")
+            .update({
+              comment_368_count: nextCount,
+              comment_368_last_at: new Date().toISOString(),
+              comment_cooldown_until: cooldownUntil,
+            } as any)
+            .eq("id", pageId);
+          return cooldownMin;
+        }
+        async function clearCommentCooldownIfStale(pageId: string) {
+          // Após um comentário bem-sucedido, se o último hit foi há mais de 6h,
+          // zera o contador para que um novo estouro recomece em 60min, não em 720min.
+          await supabaseAdmin
+            .from("fb_pages")
+            .update({ comment_368_count: 0, comment_cooldown_until: null } as any)
+            .eq("id", pageId)
+            .lt("comment_368_last_at", new Date(Date.now() - PAGE_368_RESET_MS).toISOString());
+        }
+
         async function postComment(c: any) { return withApiCallTracking(c.user_id, async () => {
           if (c.fb_comment_id) {
             await supabaseAdmin
