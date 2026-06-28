@@ -206,20 +206,27 @@ export const Route = createFileRoute("/api/public/cron/scheduler")({
           .not("target_id", "is", null)
           .is("fb_comment_id", null)
           .limit(100);
-        const transientRe =
-          /limit|rate|timeout|temporar|unexpected|retry|network|fetch failed|nonexisting field \(comments\)|pages_read_engagement|impersonating a user's page|#4\b|#17\b|#32\b|#100\b|#190\b|#613/i;
+        const throttleRe = /#368\b|#4\b|#17\b|#32\b|#613\b|limit|rate|frequência|frequency|aguardando intervalo/i;
+        const transientRe = /timeout|temporar|unexpected|retry|network|fetch failed|socket|ETIMEDOUT|ECONNRESET/i;
+        let retryOffset = 0;
         for (const r of (retryable ?? []) as any[]) {
           const att = r.attempts ?? 0;
           if (att >= 3) continue;
-          if (!transientRe.test(r.error ?? "")) continue;
+          const errText = r.error ?? "";
+          const isThrottle = throttleRe.test(errText);
+          if (!isThrottle && !transientRe.test(errText)) continue;
+          const delayMs = isThrottle
+            ? (90 + Math.floor(Math.random() * 91) + retryOffset * 3) * 60_000
+            : (5 + retryOffset) * 60_000;
           await supabaseAdmin
             .from("auto_comments")
             .update({
               status: "pending",
-              run_at: new Date(Date.now() + 30_000).toISOString(),
+              run_at: new Date(Date.now() + delayMs).toISOString(),
               attempts: att + 1,
             } as any)
             .eq("id", r.id);
+          retryOffset++;
         }
 
         // 0) Heal orphan comment templates: for any pending template (target_id IS NULL)
