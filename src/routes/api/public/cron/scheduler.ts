@@ -445,6 +445,27 @@ export const Route = createFileRoute("/api/public/cron/scheduler")({
             return;
           }
 
+          // Backoff #368: se a página está em cooldown, reagenda sem chamar a API.
+          {
+            const { data: pgCool } = await supabaseAdmin
+              .from("fb_pages")
+              .select("comment_cooldown_until")
+              .eq("id", target.page_id)
+              .single();
+            const until = (pgCool as any)?.comment_cooldown_until
+              ? new Date((pgCool as any).comment_cooldown_until).getTime()
+              : 0;
+            if (until && until > Date.now()) {
+              const delayMs = until - Date.now() + Math.floor(Math.random() * 60_000);
+              await deferComment(
+                c,
+                delayMs,
+                `página em backoff #368 até ${new Date(until).toISOString()}`,
+              );
+              return;
+            }
+          }
+
           const pageJitterMs = (60 + Math.floor(Math.random() * 180)) * 1000;
           if (commentTouchedPages.has(target.page_id)) {
             await deferComment(
