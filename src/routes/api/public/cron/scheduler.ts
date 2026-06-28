@@ -641,15 +641,16 @@ export const Route = createFileRoute("/api/public/cron/scheduler")({
             if (!alreadyPosted) throw new Error(lastCommentError || "não foi possível comentar no post");
           } catch (e: any) {
             const msg = e?.message ?? "";
-            // Rate-limit por página (#368): reagendar com cooldown ao invés de falhar permanente.
+            // Rate-limit por página (#368): backoff exponencial (60→120→240→480→720min).
             if (/#368\b|Limitamos a frequência|frequency limit/i.test(msg)) {
-              const cooldownMin = 90 + Math.floor(Math.random() * 61); // 90–150min
+              const cooldownMin = await escalate368ForPage(target.page_id);
               await deferPendingCommentsForPage(
                 target.page_id,
                 cooldownMin * 60_000,
-                `rate-limit da página (#368) — comentários da página pausados por ${cooldownMin}min`,
+                `rate-limit da página (#368) — backoff exponencial: pausa de ${cooldownMin}min`,
                 c.id,
               );
+              rateLimitHit = true;
               return;
             }
             if (/limit|#4\b|#17\b|#32\b|#613/i.test(msg)) {
