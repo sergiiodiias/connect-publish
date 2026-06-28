@@ -150,6 +150,9 @@ export type Database = {
           access_token: string
           access_token_enc: string | null
           category: string | null
+          comment_368_count: number
+          comment_368_last_at: string | null
+          comment_cooldown_until: string | null
           created_at: string
           fb_page_id: string
           id: string
@@ -172,6 +175,9 @@ export type Database = {
           access_token: string
           access_token_enc?: string | null
           category?: string | null
+          comment_368_count?: number
+          comment_368_last_at?: string | null
+          comment_cooldown_until?: string | null
           created_at?: string
           fb_page_id: string
           id?: string
@@ -194,6 +200,9 @@ export type Database = {
           access_token?: string
           access_token_enc?: string | null
           category?: string | null
+          comment_368_count?: number
+          comment_368_last_at?: string | null
+          comment_cooldown_until?: string | null
           created_at?: string
           fb_page_id?: string
           id?: string

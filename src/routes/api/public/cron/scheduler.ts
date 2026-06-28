@@ -377,6 +377,53 @@ export const Route = createFileRoute("/api/public/cron/scheduler")({
           }
         }
 
+        // Backoff exponencial para limite #368 por página.
+        // Conta hits consecutivos (reseta após 6h sem hits) e escala o cooldown:
+        // hit 1: 60min, 2: 120min, 3: 240min, 4: 480min, 5+: 720min (cap).
+        // O cooldown é gravado em fb_pages.comment_cooldown_until e respeitado
+        // por todas as próximas execuções do cron, evitando reprocessar em massa.
+        const PAGE_368_RESET_MS = 6 * 60 * 60_000;
+        const PAGE_368_BASE_MIN = 60;
+        const PAGE_368_MAX_MIN = 720;
+        async function escalate368ForPage(pageId: string): Promise<number> {
+          const { data: row } = await supabaseAdmin
+            .from("fb_pages")
+            .select("comment_368_count, comment_368_last_at")
+            .eq("id", pageId)
+            .single();
+          const lastAt = (row as any)?.comment_368_last_at
+            ? new Date((row as any).comment_368_last_at).getTime()
+            : 0;
+          const prevCount = (row as any)?.comment_368_count ?? 0;
+          const shouldReset = !lastAt || Date.now() - lastAt > PAGE_368_RESET_MS;
+          const nextCount = shouldReset ? 1 : prevCount + 1;
+          const baseMin = Math.min(
+            PAGE_368_BASE_MIN * Math.pow(2, nextCount - 1),
+            PAGE_368_MAX_MIN,
+          );
+          const jitterMin = Math.floor(baseMin * (Math.random() * 0.2)); // até +20%
+          const cooldownMin = Math.floor(baseMin + jitterMin);
+          const cooldownUntil = new Date(Date.now() + cooldownMin * 60_000).toISOString();
+          await supabaseAdmin
+            .from("fb_pages")
+            .update({
+              comment_368_count: nextCount,
+              comment_368_last_at: new Date().toISOString(),
+              comment_cooldown_until: cooldownUntil,
+            } as any)
+            .eq("id", pageId);
+          return cooldownMin;
+        }
+        async function clearCommentCooldownIfStale(pageId: string) {
+          // Após um comentário bem-sucedido, se o último hit foi há mais de 6h,
+          // zera o contador para que um novo estouro recomece em 60min, não em 720min.
+          await supabaseAdmin
+            .from("fb_pages")
+            .update({ comment_368_count: 0, comment_cooldown_until: null } as any)
+            .eq("id", pageId)
+            .lt("comment_368_last_at", new Date(Date.now() - PAGE_368_RESET_MS).toISOString());
+        }
+
         async function postComment(c: any) { return withApiCallTracking(c.user_id, async () => {
           if (c.fb_comment_id) {
             await supabaseAdmin
@@ -396,6 +443,27 @@ export const Route = createFileRoute("/api/public/cron/scheduler")({
               .update({ status: "failed", error: "post não publicado" })
               .eq("id", c.id);
             return;
+          }
+
+          // Backoff #368: se a página está em cooldown, reagenda sem chamar a API.
+          {
+            const { data: pgCool } = await supabaseAdmin
+              .from("fb_pages")
+              .select("comment_cooldown_until")
+              .eq("id", target.page_id)
+              .single();
+            const until = (pgCool as any)?.comment_cooldown_until
+              ? new Date((pgCool as any).comment_cooldown_until).getTime()
+              : 0;
+            if (until && until > Date.now()) {
+              const delayMs = until - Date.now() + Math.floor(Math.random() * 60_000);
+              await deferComment(
+                c,
+                delayMs,
+                `página em backoff #368 até ${new Date(until).toISOString()}`,
+              );
+              return;
+            }
           }
 
           const pageJitterMs = (60 + Math.floor(Math.random() * 180)) * 1000;
@@ -541,6 +609,8 @@ export const Route = createFileRoute("/api/public/cron/scheduler")({
                   .eq("id", c.id);
                 comments++;
                 alreadyPosted = true;
+                // Sucesso: se a página acumulou hits #368 antigos (>6h), reseta o contador.
+                await clearCommentCooldownIfStale(target.page_id);
                 break;
               } catch (e: any) {
                 lastCommentError = e?.message ?? String(e);
@@ -571,15 +641,16 @@ export const Route = createFileRoute("/api/public/cron/scheduler")({
             if (!alreadyPosted) throw new Error(lastCommentError || "não foi possível comentar no post");
           } catch (e: any) {
             const msg = e?.message ?? "";
-            // Rate-limit por página (#368): reagendar com cooldown ao invés de falhar permanente.
+            // Rate-limit por página (#368): backoff exponencial (60→120→240→480→720min).
             if (/#368\b|Limitamos a frequência|frequency limit/i.test(msg)) {
-              const cooldownMin = 90 + Math.floor(Math.random() * 61); // 90–150min
+              const cooldownMin = await escalate368ForPage(target.page_id);
               await deferPendingCommentsForPage(
                 target.page_id,
                 cooldownMin * 60_000,
-                `rate-limit da página (#368) — comentários da página pausados por ${cooldownMin}min`,
+                `rate-limit da página (#368) — backoff exponencial: pausa de ${cooldownMin}min`,
                 c.id,
               );
+              rateLimitHit = true;
               return;
             }
             if (/limit|#4\b|#17\b|#32\b|#613/i.test(msg)) {
