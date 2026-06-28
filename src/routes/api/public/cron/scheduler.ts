@@ -609,6 +609,8 @@ export const Route = createFileRoute("/api/public/cron/scheduler")({
                   .eq("id", c.id);
                 comments++;
                 alreadyPosted = true;
+                // Sucesso: se a página acumulou hits #368 antigos (>6h), reseta o contador.
+                await clearCommentCooldownIfStale(target.page_id);
                 break;
               } catch (e: any) {
                 lastCommentError = e?.message ?? String(e);
