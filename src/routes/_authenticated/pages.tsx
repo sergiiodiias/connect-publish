@@ -470,7 +470,19 @@ function PagesPage() {
             {f.label}
           </Button>
         ))}
+        <span className="text-muted-foreground ml-2">Ordenar:</span>
+        <Select value={sortMode} onValueChange={(v) => setSortMode(v as any)}>
+          <SelectTrigger className="h-7 w-48 text-xs"><SelectValue /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="recent" className="text-xs">Mais recentes</SelectItem>
+            <SelectItem value="followers" className="text-xs">Mais seguidores</SelectItem>
+            <SelectItem value="engaged" className="text-xs">Mais engajamento (28d)</SelectItem>
+            <SelectItem value="impressions" className="text-xs">Mais impressões (28d)</SelectItem>
+            <SelectItem value="name" className="text-xs">Nome (A–Z)</SelectItem>
+          </SelectContent>
+        </Select>
       </div>
+
 
       <div className="rounded-xl border border-border bg-card divide-y divide-border">
         {isLoading && <div className="p-8 text-sm text-muted-foreground text-center">Carregando…</div>}
