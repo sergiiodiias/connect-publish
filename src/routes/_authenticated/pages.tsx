@@ -282,7 +282,18 @@ function PagesPage() {
       return !p.needs_reconnect && p.is_active && isLongDurationExpirySeconds(seconds);
     })
     : groupFilteredPages;
-  const filteredPages = baseFiltered;
+  const sortKey = (p: any) => {
+    if (sortMode === "followers") return Number(p.followers_count ?? -1);
+    if (sortMode === "engaged") return Number(p.engaged_users_28d ?? -1);
+    if (sortMode === "impressions") return Number(p.impressions_28d ?? -1);
+    return 0;
+  };
+  const filteredPages = sortMode === "recent"
+    ? baseFiltered
+    : sortMode === "name"
+      ? [...baseFiltered].sort((a: any, b: any) => (a.name ?? "").localeCompare(b.name ?? "", "pt-BR"))
+      : [...baseFiltered].sort((a: any, b: any) => sortKey(b) - sortKey(a));
+
 
   return (
     <div className="p-8 space-y-6">
