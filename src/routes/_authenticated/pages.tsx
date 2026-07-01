@@ -244,6 +244,7 @@ function PagesPage() {
   });
   const [filterMode, setFilterMode] = useState<"all" | "needs_extend" | "expiring" | "expired" | "permanent">("all");
   const [groupFilter, setGroupFilter] = useState<string>("all"); // "all" | "none" | <groupId>
+  const [sortMode, setSortMode] = useState<"recent" | "followers" | "engaged" | "impressions" | "name">("recent");
 
   const { data: groupsData = [] } = useQuery({
     queryKey: ["page-groups-with-members"],
