@@ -567,7 +567,25 @@ function PagesPage() {
                       <Clock className="size-3" />
                       {expiryLabel}
                     </Badge>
+                    {p.followers_count != null && (
+                      <Badge variant="outline" className="gap-1" title={`${Number(p.followers_count).toLocaleString("pt-BR")} seguidores${p.fan_count != null ? ` · ${Number(p.fan_count).toLocaleString("pt-BR")} curtidas` : ""}`}>
+                        <Users className="size-3" />
+                        {formatCompact(Number(p.followers_count))}
+                      </Badge>
+                    )}
+                    {p.engaged_users_28d != null && (
+                      <Badge variant="outline" className="gap-1" title={`${Number(p.engaged_users_28d).toLocaleString("pt-BR")} usuários engajados nos últimos 28 dias${p.impressions_28d != null ? ` · ${Number(p.impressions_28d).toLocaleString("pt-BR")} impressões` : ""}`}>
+                        <TrendingUp className="size-3" />
+                        {formatCompact(Number(p.engaged_users_28d))} eng/28d
+                      </Badge>
+                    )}
+                    {p.stats_error && (
+                      <Badge variant="outline" className="gap-1 border-warning/40 text-warning" title={p.stats_error}>
+                        <AlertTriangle className="size-3" />stats: erro
+                      </Badge>
+                    )}
                   </div>
+
                   <div className="text-xs text-muted-foreground flex flex-wrap gap-x-3 gap-y-0.5 mt-0.5">
                     <span>{p.category ?? "—"} · ID {p.fb_page_id}</span>
                     {refreshedAt && (
