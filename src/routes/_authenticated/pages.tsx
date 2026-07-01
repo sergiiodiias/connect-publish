@@ -213,6 +213,17 @@ function PagesPage() {
     enabled: historyOpen,
   });
 
+  // Sincronizar seguidores + engajamento a partir do Graph API
+  const syncStatsFn = useServerFn(syncPageStats);
+  const syncStats = useMutation({
+    mutationFn: (opts?: { pageIds?: string[] }) => syncStatsFn({ data: { pageIds: opts?.pageIds } }),
+    onSuccess: (r: any) => {
+      toast.success(`Estatísticas sincronizadas: ${r.ok}/${r.total}${r.failed ? ` · ${r.failed} falharam` : ""}`);
+      qc.invalidateQueries({ queryKey: ["pages"] });
+    },
+    onError: (e: any) => toast.error(e.message),
+  });
+
   // Filtros derivados de token_expires_at + needs_reconnect
   const now = Date.now();
   const expiringSoon = pages.filter((p: any) => {
