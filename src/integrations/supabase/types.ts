@@ -154,14 +154,22 @@ export type Database = {
           comment_368_last_at: string | null
           comment_cooldown_until: string | null
           created_at: string
+          engaged_users_28d: number | null
+          fan_count: number | null
           fb_page_id: string
+          followers_count: number | null
           id: string
+          impressions_28d: number | null
           is_active: boolean
           last_checked_at: string | null
           name: string
           needs_reconnect: boolean
           picture_url: string | null
+          post_engagements_28d: number | null
+          reach_28d: number | null
           reconnect_reason: string | null
+          stats_error: string | null
+          stats_updated_at: string | null
           token_data_access_expires_at: string | null
           token_debug_error: string | null
           token_expires_at: string | null
@@ -179,14 +187,22 @@ export type Database = {
           comment_368_last_at?: string | null
           comment_cooldown_until?: string | null
           created_at?: string
+          engaged_users_28d?: number | null
+          fan_count?: number | null
           fb_page_id: string
+          followers_count?: number | null
           id?: string
+          impressions_28d?: number | null
           is_active?: boolean
           last_checked_at?: string | null
           name: string
           needs_reconnect?: boolean
           picture_url?: string | null
+          post_engagements_28d?: number | null
+          reach_28d?: number | null
           reconnect_reason?: string | null
+          stats_error?: string | null
+          stats_updated_at?: string | null
           token_data_access_expires_at?: string | null
           token_debug_error?: string | null
           token_expires_at?: string | null
@@ -204,14 +220,22 @@ export type Database = {
           comment_368_last_at?: string | null
           comment_cooldown_until?: string | null
           created_at?: string
+          engaged_users_28d?: number | null
+          fan_count?: number | null
           fb_page_id?: string
+          followers_count?: number | null
           id?: string
+          impressions_28d?: number | null
           is_active?: boolean
           last_checked_at?: string | null
           name?: string
           needs_reconnect?: boolean
           picture_url?: string | null
+          post_engagements_28d?: number | null
+          reach_28d?: number | null
           reconnect_reason?: string | null
+          stats_error?: string | null
+          stats_updated_at?: string | null
           token_data_access_expires_at?: string | null
           token_debug_error?: string | null
           token_expires_at?: string | null

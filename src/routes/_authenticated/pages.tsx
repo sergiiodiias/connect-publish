@@ -3,6 +3,7 @@ import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { listPages, connectPage, deletePage, deletePages, testPageToken, inspectTokens, updatePageToken, refreshTokensNow, listRefreshReports, refreshOnePage, reconnectAllWithUserToken } from "@/lib/pages.functions";
+import { syncPageStats } from "@/lib/pages-stats.functions";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -12,7 +13,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, Dialog
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator } from "@/components/ui/dropdown-menu";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Plus, Trash2, CheckCircle2, AlertTriangle, RefreshCw, Clock, Copy, Eye, EyeOff, KeyRound, History, ChevronDown, FolderOpen } from "lucide-react";
+import { Plus, Trash2, CheckCircle2, AlertTriangle, RefreshCw, Clock, Copy, Eye, EyeOff, KeyRound, History, ChevronDown, FolderOpen, Users, TrendingUp, BarChart3 } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 
@@ -58,6 +59,14 @@ function deltaLabel(prev: string | null, next: string | null): string {
 }
 
 const LONG_DURATION_DAYS = 30;
+
+function formatCompact(n: number): string {
+  if (!Number.isFinite(n)) return "—";
+  const abs = Math.abs(n);
+  if (abs >= 1_000_000) return `${(n / 1_000_000).toFixed(n >= 10_000_000 ? 0 : 1)}M`;
+  if (abs >= 1_000) return `${(n / 1_000).toFixed(n >= 10_000 ? 0 : 1)}k`;
+  return n.toLocaleString("pt-BR");
+}
 
 function isLongDurationExpirySeconds(expiresAt: number | null | undefined): boolean {
   if (expiresAt === 0) return true;
@@ -212,6 +221,17 @@ function PagesPage() {
     enabled: historyOpen,
   });
 
+  // Sincronizar seguidores + engajamento a partir do Graph API
+  const syncStatsFn = useServerFn(syncPageStats);
+  const syncStats = useMutation({
+    mutationFn: (opts?: { pageIds?: string[] }) => syncStatsFn({ data: { pageIds: opts?.pageIds } }),
+    onSuccess: (r: any) => {
+      toast.success(`Estatísticas sincronizadas: ${r.ok}/${r.total}${r.failed ? ` · ${r.failed} falharam` : ""}`);
+      qc.invalidateQueries({ queryKey: ["pages"] });
+    },
+    onError: (e: any) => toast.error(e.message),
+  });
+
   // Filtros derivados de token_expires_at + needs_reconnect
   const now = Date.now();
   const expiringSoon = pages.filter((p: any) => {
@@ -232,6 +252,7 @@ function PagesPage() {
   });
   const [filterMode, setFilterMode] = useState<"all" | "needs_extend" | "expiring" | "expired" | "permanent">("all");
   const [groupFilter, setGroupFilter] = useState<string>("all"); // "all" | "none" | <groupId>
+  const [sortMode, setSortMode] = useState<"recent" | "followers" | "engaged" | "impressions" | "name">("recent");
 
   const { data: groupsData = [] } = useQuery({
     queryKey: ["page-groups-with-members"],
@@ -269,7 +290,18 @@ function PagesPage() {
       return !p.needs_reconnect && p.is_active && isLongDurationExpirySeconds(seconds);
     })
     : groupFilteredPages;
-  const filteredPages = baseFiltered;
+  const sortKey = (p: any) => {
+    if (sortMode === "followers") return Number(p.followers_count ?? -1);
+    if (sortMode === "engaged") return Number(p.engaged_users_28d ?? -1);
+    if (sortMode === "impressions") return Number(p.impressions_28d ?? -1);
+    return 0;
+  };
+  const filteredPages = sortMode === "recent"
+    ? baseFiltered
+    : sortMode === "name"
+      ? [...baseFiltered].sort((a: any, b: any) => (a.name ?? "").localeCompare(b.name ?? "", "pt-BR"))
+      : [...baseFiltered].sort((a: any, b: any) => sortKey(b) - sortKey(a));
+
 
   return (
     <div className="p-8 space-y-6">
@@ -307,6 +339,15 @@ function PagesPage() {
           </div>
           <Button variant="outline" onClick={async () => { await refetchTokens(); await qc.invalidateQueries({ queryKey: ["pages"] }); }} disabled={tokenLoading || pages.length === 0}>
             <Clock className="size-4 mr-2" />{tokenLoading ? "Verificando…" : "Verificar validade"}
+          </Button>
+          <Button
+            variant="outline"
+            onClick={() => syncStats.mutate(selected.size > 0 ? { pageIds: Array.from(selected) } : undefined)}
+            disabled={syncStats.isPending || pages.length === 0}
+            title="Busca seguidores e engajamento (28d) no Facebook. Requer permissões pages_read_engagement + read_insights."
+          >
+            <BarChart3 className={`size-4 mr-2 ${syncStats.isPending ? "animate-pulse" : ""}`} />
+            {syncStats.isPending ? "Sincronizando…" : selected.size > 0 ? `Sincronizar stats (${selected.size})` : "Sincronizar stats"}
           </Button>
           <Button variant="outline" onClick={() => setReconnectOpen(true)} title="Reconectar páginas em lote usando um User Access Token">
             <KeyRound className="size-4 mr-2" />Reconectar via User Token
@@ -437,7 +478,19 @@ function PagesPage() {
             {f.label}
           </Button>
         ))}
+        <span className="text-muted-foreground ml-2">Ordenar:</span>
+        <Select value={sortMode} onValueChange={(v) => setSortMode(v as any)}>
+          <SelectTrigger className="h-7 w-48 text-xs"><SelectValue /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="recent" className="text-xs">Mais recentes</SelectItem>
+            <SelectItem value="followers" className="text-xs">Mais seguidores</SelectItem>
+            <SelectItem value="engaged" className="text-xs">Mais engajamento (28d)</SelectItem>
+            <SelectItem value="impressions" className="text-xs">Mais impressões (28d)</SelectItem>
+            <SelectItem value="name" className="text-xs">Nome (A–Z)</SelectItem>
+          </SelectContent>
+        </Select>
       </div>
+
 
       <div className="rounded-xl border border-border bg-card divide-y divide-border">
         {isLoading && <div className="p-8 text-sm text-muted-foreground text-center">Carregando…</div>}
@@ -522,7 +575,25 @@ function PagesPage() {
                       <Clock className="size-3" />
                       {expiryLabel}
                     </Badge>
+                    {p.followers_count != null && (
+                      <Badge variant="outline" className="gap-1" title={`${Number(p.followers_count).toLocaleString("pt-BR")} seguidores${p.fan_count != null ? ` · ${Number(p.fan_count).toLocaleString("pt-BR")} curtidas` : ""}`}>
+                        <Users className="size-3" />
+                        {formatCompact(Number(p.followers_count))}
+                      </Badge>
+                    )}
+                    {p.engaged_users_28d != null && (
+                      <Badge variant="outline" className="gap-1" title={`${Number(p.engaged_users_28d).toLocaleString("pt-BR")} usuários engajados nos últimos 28 dias${p.impressions_28d != null ? ` · ${Number(p.impressions_28d).toLocaleString("pt-BR")} impressões` : ""}`}>
+                        <TrendingUp className="size-3" />
+                        {formatCompact(Number(p.engaged_users_28d))} eng/28d
+                      </Badge>
+                    )}
+                    {p.stats_error && (
+                      <Badge variant="outline" className="gap-1 border-warning/40 text-warning" title={p.stats_error}>
+                        <AlertTriangle className="size-3" />stats: erro
+                      </Badge>
+                    )}
                   </div>
+
                   <div className="text-xs text-muted-foreground flex flex-wrap gap-x-3 gap-y-0.5 mt-0.5">
                     <span>{p.category ?? "—"} · ID {p.fb_page_id}</span>
                     {refreshedAt && (
