@@ -60,6 +60,14 @@ function deltaLabel(prev: string | null, next: string | null): string {
 
 const LONG_DURATION_DAYS = 30;
 
+function formatCompact(n: number): string {
+  if (!Number.isFinite(n)) return "—";
+  const abs = Math.abs(n);
+  if (abs >= 1_000_000) return `${(n / 1_000_000).toFixed(n >= 10_000_000 ? 0 : 1)}M`;
+  if (abs >= 1_000) return `${(n / 1_000).toFixed(n >= 10_000 ? 0 : 1)}k`;
+  return n.toLocaleString("pt-BR");
+}
+
 function isLongDurationExpirySeconds(expiresAt: number | null | undefined): boolean {
   if (expiresAt === 0) return true;
   if (!expiresAt) return false;
