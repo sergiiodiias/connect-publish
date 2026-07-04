@@ -14,14 +14,24 @@ export const Route = createFileRoute("/api/public/cron/scheduler")({
         const { fbGet, fbPost } = await import("@/lib/fb-graph");
         const { publishFacebookPost } = await import("@/lib/fb-publish");
         const { withApiCallTracking } = await import("@/lib/fb-api-tracker.server");
+        const { expandSpintax, hasSpintax } = await import("@/lib/message-variants");
 
         const nowIso = new Date().toISOString();
         // Give Facebook's native scheduler time to publish before using our fallback.
         // This prevents a native scheduled post and our cron fallback from posting together.
         const FALLBACK_GRACE_MS = 10 * 60_000;
-        const PAGE_FALLBACK_COOLDOWN_MS = 20 * 60_000;
+        // Cooldown por página no fallback: 2-3 min entre publicações da mesma página.
+        const PAGE_FALLBACK_COOLDOWN_MIN_MS = 2 * 60_000;
+        const PAGE_FALLBACK_COOLDOWN_JITTER_MS = 60_000; // +0-60s → total 2-3 min
+        const pageFallbackCooldownMs = () =>
+          PAGE_FALLBACK_COOLDOWN_MIN_MS + Math.floor(Math.random() * PAGE_FALLBACK_COOLDOWN_JITTER_MS);
+        // Compat com o restante do código que usava a constante fixa: mantemos como valor médio (2.5min).
+        const PAGE_FALLBACK_COOLDOWN_MS = PAGE_FALLBACK_COOLDOWN_MIN_MS + PAGE_FALLBACK_COOLDOWN_JITTER_MS / 2;
         const FB_EXISTING_WINDOW_MS = 30 * 60_000;
         const fallbackReadyIso = new Date(Date.now() - FALLBACK_GRACE_MS).toISOString();
+        // Limite duro: publicar no máximo 10 páginas por execução do cron
+        // para nunca estourar limites da App.
+        const MAX_PAGES_PER_RUN = 10;
         let processed = 0,
           failed = 0,
           comments = 0;
@@ -37,9 +47,15 @@ export const Route = createFileRoute("/api/public/cron/scheduler")({
         // baixa entre páginas distintas e jitter entre cada chamada.
         const COMMENT_CONCURRENCY = 1;
         const COMMENT_BATCH_LIMIT = 120;
-        const COMMENT_PAGE_COOLDOWN_MS = 20 * 60_000;
-        const COMMENT_PAGE_STAGGER_MS = 12 * 60_000;
-        const COMMENT_PAGE_STAGGER_JITTER_MS = 6 * 60_000;
+        // 3-5 min entre comentários da mesma página (era 20 min fixo).
+        const COMMENT_PAGE_COOLDOWN_MIN_MS = 3 * 60_000;
+        const COMMENT_PAGE_COOLDOWN_JITTER_MS = 2 * 60_000; // +0-2min → total 3-5 min
+        const commentPageCooldownMs = () =>
+          COMMENT_PAGE_COOLDOWN_MIN_MS + Math.floor(Math.random() * COMMENT_PAGE_COOLDOWN_JITTER_MS);
+        // Compat com o restante do código: valor médio (4min) para queries de "recente".
+        const COMMENT_PAGE_COOLDOWN_MS = COMMENT_PAGE_COOLDOWN_MIN_MS + COMMENT_PAGE_COOLDOWN_JITTER_MS / 2;
+        const COMMENT_PAGE_STAGGER_MS = 4 * 60_000;
+        const COMMENT_PAGE_STAGGER_JITTER_MS = 2 * 60_000;
         const COMMENT_INTER_DELAY_MS = 800; // pausa mínima entre comentários
         const COMMENT_INTER_JITTER_MS = 1700; // + jitter aleatório
         const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -52,6 +68,7 @@ export const Route = createFileRoute("/api/public/cron/scheduler")({
         let rateLimitHit = false;
         const fallbackPublishedPages = new Set<string>();
         const commentTouchedPages = new Set<string>();
+
 
         async function findMatchingFacebookPost(
           pg: { fb_page_id: string; access_token: string },
