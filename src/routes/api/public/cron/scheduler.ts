@@ -14,14 +14,24 @@ export const Route = createFileRoute("/api/public/cron/scheduler")({
         const { fbGet, fbPost } = await import("@/lib/fb-graph");
         const { publishFacebookPost } = await import("@/lib/fb-publish");
         const { withApiCallTracking } = await import("@/lib/fb-api-tracker.server");
+        const { expandSpintax, hasSpintax } = await import("@/lib/message-variants");
 
         const nowIso = new Date().toISOString();
         // Give Facebook's native scheduler time to publish before using our fallback.
         // This prevents a native scheduled post and our cron fallback from posting together.
         const FALLBACK_GRACE_MS = 10 * 60_000;
-        const PAGE_FALLBACK_COOLDOWN_MS = 20 * 60_000;
+        // Cooldown por página no fallback: 2-3 min entre publicações da mesma página.
+        const PAGE_FALLBACK_COOLDOWN_MIN_MS = 2 * 60_000;
+        const PAGE_FALLBACK_COOLDOWN_JITTER_MS = 60_000; // +0-60s → total 2-3 min
+        const pageFallbackCooldownMs = () =>
+          PAGE_FALLBACK_COOLDOWN_MIN_MS + Math.floor(Math.random() * PAGE_FALLBACK_COOLDOWN_JITTER_MS);
+        // Compat com o restante do código que usava a constante fixa: mantemos como valor médio (2.5min).
+        const PAGE_FALLBACK_COOLDOWN_MS = PAGE_FALLBACK_COOLDOWN_MIN_MS + PAGE_FALLBACK_COOLDOWN_JITTER_MS / 2;
         const FB_EXISTING_WINDOW_MS = 30 * 60_000;
         const fallbackReadyIso = new Date(Date.now() - FALLBACK_GRACE_MS).toISOString();
+        // Limite duro: publicar no máximo 10 páginas por execução do cron
+        // para nunca estourar limites da App.
+        const MAX_PAGES_PER_RUN = 10;
         let processed = 0,
           failed = 0,
           comments = 0;
@@ -37,9 +47,15 @@ export const Route = createFileRoute("/api/public/cron/scheduler")({
         // baixa entre páginas distintas e jitter entre cada chamada.
         const COMMENT_CONCURRENCY = 1;
         const COMMENT_BATCH_LIMIT = 120;
-        const COMMENT_PAGE_COOLDOWN_MS = 20 * 60_000;
-        const COMMENT_PAGE_STAGGER_MS = 12 * 60_000;
-        const COMMENT_PAGE_STAGGER_JITTER_MS = 6 * 60_000;
+        // 3-5 min entre comentários da mesma página (era 20 min fixo).
+        const COMMENT_PAGE_COOLDOWN_MIN_MS = 3 * 60_000;
+        const COMMENT_PAGE_COOLDOWN_JITTER_MS = 2 * 60_000; // +0-2min → total 3-5 min
+        const commentPageCooldownMs = () =>
+          COMMENT_PAGE_COOLDOWN_MIN_MS + Math.floor(Math.random() * COMMENT_PAGE_COOLDOWN_JITTER_MS);
+        // Compat com o restante do código: valor médio (4min) para queries de "recente".
+        const COMMENT_PAGE_COOLDOWN_MS = COMMENT_PAGE_COOLDOWN_MIN_MS + COMMENT_PAGE_COOLDOWN_JITTER_MS / 2;
+        const COMMENT_PAGE_STAGGER_MS = 4 * 60_000;
+        const COMMENT_PAGE_STAGGER_JITTER_MS = 2 * 60_000;
         const COMMENT_INTER_DELAY_MS = 800; // pausa mínima entre comentários
         const COMMENT_INTER_JITTER_MS = 1700; // + jitter aleatório
         const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -52,6 +68,7 @@ export const Route = createFileRoute("/api/public/cron/scheduler")({
         let rateLimitHit = false;
         const fallbackPublishedPages = new Set<string>();
         const commentTouchedPages = new Set<string>();
+
 
         async function findMatchingFacebookPost(
           pg: { fb_page_id: string; access_token: string },
@@ -470,19 +487,20 @@ export const Route = createFileRoute("/api/public/cron/scheduler")({
           if (commentTouchedPages.has(target.page_id)) {
             await deferComment(
               c,
-              COMMENT_PAGE_COOLDOWN_MS + pageJitterMs,
-              "aguardando intervalo da página para evitar limite de comentários",
+              commentPageCooldownMs() + pageJitterMs,
+              "aguardando intervalo da página (3-5 min) para evitar limite de comentários",
             );
             return;
           }
           if (await hasRecentPageCommentActivity(target.page_id, c.id)) {
             await deferComment(
               c,
-              COMMENT_PAGE_COOLDOWN_MS + pageJitterMs,
-              "aguardando intervalo da página para evitar limite de comentários",
+              commentPageCooldownMs() + pageJitterMs,
+              "aguardando intervalo da página (3-5 min) para evitar limite de comentários",
             );
             return;
           }
+
           commentTouchedPages.add(target.page_id);
 
           // Atomic claim: only one cron tick can flip pending -> publishing.
@@ -513,8 +531,14 @@ export const Route = createFileRoute("/api/public/cron/scheduler")({
             .eq("id", c.post_id)
             .single();
           try {
-            const wanted = normalizeComment(c.message ?? "");
+            // Expande spintax {a|b|c} da mensagem — cada envio gera uma variação para
+            // evitar detecção de duplicidade e reduzir estouros de #368.
+            const rawMsg = c.message ?? "";
+            const spinSeed = Math.floor(Math.random() * 1_000_000);
+            const finalMsg = hasSpintax(rawMsg) ? expandSpintax(rawMsg, spinSeed) : rawMsg;
+            const wanted = normalizeComment(finalMsg);
             const commentObjectIds = [String(target.fb_post_id)];
+
             if (postForComment?.type === "video") {
               try {
                 const videos: any = await fbGet(`/${pg.fb_page_id}/videos`, {
@@ -596,8 +620,9 @@ export const Route = createFileRoute("/api/public/cron/scheduler")({
               try {
                 const r: any = await fbPost(`/${objectId}/comments`, {
                   access_token: pg.access_token,
-                  message: c.message,
+                  message: finalMsg,
                 });
+
                 await supabaseAdmin
                   .from("auto_comments")
                   .update({
@@ -743,11 +768,12 @@ export const Route = createFileRoute("/api/public/cron/scheduler")({
         }
 
         for (const post of due) {
-          if (outOfTime()) {
+          if (outOfTime() || fallbackPublishedPages.size >= MAX_PAGES_PER_RUN) {
             // Hand back so another tick can resume.
             await supabaseAdmin.from("posts").update({ status: "scheduled" }).eq("id", post.id);
             break;
           }
+
           // Only pending targets ready for (re)try. Skip targets whose next_retry_at is still in the future.
           // Also skip targets with an fb_post_id (imported FB-scheduled posts — FB publishes them itself).
           const { data: targets } = await supabaseAdmin
@@ -760,7 +786,8 @@ export const Route = createFileRoute("/api/public/cron/scheduler")({
 
           const candidateTargets: any[] = [];
           for (const target of targets ?? []) {
-            const nextCooldownIso = new Date(Date.now() + PAGE_FALLBACK_COOLDOWN_MS).toISOString();
+            const nextCooldownIso = new Date(Date.now() + pageFallbackCooldownMs()).toISOString();
+
             if (fallbackPublishedPages.has(target.page_id)) {
               await supabaseAdmin
                 .from("post_targets")
@@ -804,7 +831,7 @@ export const Route = createFileRoute("/api/public/cron/scheduler")({
 
             const nextAttempt = (claimedT.attempts ?? 0) + 1;
             const pageCooldownIso = new Date(Date.now() - PAGE_FALLBACK_COOLDOWN_MS).toISOString();
-            const nextCooldownIso = new Date(Date.now() + PAGE_FALLBACK_COOLDOWN_MS).toISOString();
+            const nextCooldownIso = new Date(Date.now() + pageFallbackCooldownMs()).toISOString();
             const { data: competingTargets } = await supabaseAdmin
               .from("post_targets")
               .select("id,last_attempt_at")
@@ -972,7 +999,12 @@ export const Route = createFileRoute("/api/public/cron/scheduler")({
 
           for (const group of chunk(candidateTargets, CONCURRENCY)) {
             if (outOfTime() || rateLimitHit) break;
+            if (fallbackPublishedPages.size >= MAX_PAGES_PER_RUN) break;
             await Promise.all(group.map(publishTarget));
+            // Espaça 2-3 min entre grupos de páginas na mesma execução.
+            // Como MAX_RUN_MS=45s, geralmente só um grupo roda por tick — o restante
+            // fica com next_retry_at ~2-3min, respeitando o intervalo entre páginas.
+
           }
 
           // Finalize: are there still pending/publishing targets?

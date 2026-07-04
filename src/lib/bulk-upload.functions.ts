@@ -2,6 +2,8 @@ import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import { scheduleTargetsNative } from "@/lib/fb-schedule";
+import { rotateMessage } from "@/lib/message-variants";
+
 
 const SlotSchema = z.object({
   pageId: z.string().uuid(),
@@ -26,22 +28,30 @@ export const createBulkJob = createServerFn({ method: "POST" })
   .inputValidator((d) =>
     z.object({
       slots: z.array(SlotSchema).min(1).max(10000),
-      commentDelaySeconds: z.number().int().min(0).max(86400).default(60),
+      commentDelaySeconds: z.number().int().min(0).max(86400).default(240),
       // Escalonamento para evitar limites do Facebook:
-      // - batchSize: nº de páginas que publicam ao mesmo tempo
-      // - batchIntervalMinutes: minutos somados a cada lote seguinte de publicação
-      // - commentJitterSeconds: segundos somados entre comentários do mesmo lote
-      batchSize: z.number().int().min(1).max(500).default(20),
-      batchIntervalMinutes: z.number().int().min(0).max(720).default(10),
-      commentJitterSeconds: z.number().int().min(0).max(7200).default(90),
+      // - batchSize: nº de páginas publicando com o mesmo horário base (default 1 = escalonamento máximo)
+      // - batchIntervalMinutes: minutos entre CADA página (default 2 min → 2-3 com jitter)
+      // - commentJitterSeconds: segundos somados entre comentários da mesma página (default 240 = 4 min)
+      // - rotateEveryPages: a cada quantas páginas trocar variação de mensagem (spintax) — default 10
+      batchSize: z.number().int().min(1).max(500).default(1),
+      batchIntervalMinutes: z.number().int().min(0).max(720).default(2),
+      commentJitterSeconds: z.number().int().min(0).max(7200).default(240),
+      rotateEveryPages: z.number().int().min(1).max(1000).default(10),
     }).parse(d),
   )
   .handler(async ({ data, context }) => {
     const { supabase, userId } = context;
-    const commentDelaySeconds = data.commentDelaySeconds ?? 60;
-    const batchSize = Math.max(1, data.batchSize ?? 20);
-    const batchIntervalMs = Math.max(0, data.batchIntervalMinutes ?? 10) * 60_000;
-    const commentJitterMs = Math.max(0, data.commentJitterSeconds ?? 90) * 1000;
+    const commentDelaySeconds = data.commentDelaySeconds ?? 240;
+    const batchSize = Math.max(1, data.batchSize ?? 1);
+    const batchIntervalMs = Math.max(0, data.batchIntervalMinutes ?? 2) * 60_000;
+    const commentJitterMs = Math.max(0, data.commentJitterSeconds ?? 240) * 1000;
+    const rotateEvery = Math.max(1, data.rotateEveryPages ?? 10);
+    // Jitter aleatório extra em cima do intervalo base — soma 0..60s para não ficar exato demais.
+    const PAGE_JITTER_MS = 60_000;
+    // Jitter aleatório dos comentários — soma 0..60s para variar entre páginas.
+    const COMMENT_JITTER_MS = 60_000;
+
 
     const { data: job, error: jerr } = await supabase
       .from("upload_jobs")
@@ -49,7 +59,7 @@ export const createBulkJob = createServerFn({ method: "POST" })
         user_id: userId,
         status: "running",
         total_count: data.slots.length,
-        payload: { slots: data.slots.length, batchSize, batchIntervalMinutes: data.batchIntervalMinutes, commentJitterSeconds: data.commentJitterSeconds } as any,
+        payload: { slots: data.slots.length, batchSize, batchIntervalMinutes: data.batchIntervalMinutes, commentJitterSeconds: data.commentJitterSeconds, rotateEveryPages: rotateEvery } as any,
       })
       .select("id")
       .single();
@@ -78,7 +88,8 @@ export const createBulkJob = createServerFn({ method: "POST" })
       const baseMs = new Date(g.sample.scheduledAt).getTime();
       const parts = chunk(g.pageIds, batchSize);
       parts.forEach((pageIds, i) => {
-        const newIso = new Date(baseMs + i * batchIntervalMs).toISOString();
+        const jitter = Math.floor(Math.random() * PAGE_JITTER_MS);
+        const newIso = new Date(baseMs + i * batchIntervalMs + jitter).toISOString();
         subBatches.push({ sample: g.sample, pageIds, scheduledAtIso: newIso, batchIndex: i });
       });
     }
@@ -87,15 +98,22 @@ export const createBulkJob = createServerFn({ method: "POST" })
     let success = 0;
 
     // Insere 1 linha em posts por sub-lote (cada um com seu scheduled_at distinto).
-    const postRows = subBatches.map((b) => ({
-      user_id: userId,
-      type: b.sample.type,
-      message: b.sample.message || "\u200B",
-      media_urls: [b.sample.mediaUrl],
-      status: "scheduled" as const,
-      scheduled_at: b.scheduledAtIso,
-      tags: [] as string[],
-    }));
+    // A mensagem é rotacionada a cada `rotateEvery` sub-lotes (blocos de 10 páginas por padrão)
+    // via spintax {a|b|c} ou variação leve automática, para reduzir detecção de duplicidade.
+    const postRows = subBatches.map((b) => {
+      const blockIndex = Math.floor(b.batchIndex / rotateEvery);
+      const rotated = rotateMessage(b.sample.message ?? "", blockIndex);
+      return {
+        user_id: userId,
+        type: b.sample.type,
+        message: rotated || "\u200B",
+        media_urls: [b.sample.mediaUrl],
+        status: "scheduled" as const,
+        scheduled_at: b.scheduledAtIso,
+        tags: [] as string[],
+      };
+    });
+
 
     const insertedPostIds: string[] = [];
     for (const part of chunk(postRows, 200)) {
@@ -118,12 +136,16 @@ export const createBulkJob = createServerFn({ method: "POST" })
       b.pageIds.forEach((pageId, posInBatch) => {
         const seed: TargetSeed = { post_id: pid, page_id: pageId, user_id: userId, status: "pending" };
         if (b.sample.commentLink) {
-          const offsetMs = commentDelaySeconds * 1000 + posInBatch * commentJitterMs;
+          const jitter = Math.floor(Math.random() * COMMENT_JITTER_MS);
+          const offsetMs = commentDelaySeconds * 1000 + posInBatch * commentJitterMs + jitter;
           seed._commentRunAt = new Date(baseMs + offsetMs).toISOString();
-          seed._commentMessage = b.sample.commentLink;
+          // Rotaciona a mensagem do comentário a cada bloco (spintax) — mesma lógica dos posts.
+          const blockIndex = Math.floor(b.batchIndex / rotateEvery);
+          seed._commentMessage = rotateMessage(b.sample.commentLink, blockIndex);
         }
         targetSeeds.push(seed);
       });
+
     });
 
     const insertedTargetIds: string[] = [];
