@@ -28,22 +28,30 @@ export const createBulkJob = createServerFn({ method: "POST" })
   .inputValidator((d) =>
     z.object({
       slots: z.array(SlotSchema).min(1).max(10000),
-      commentDelaySeconds: z.number().int().min(0).max(86400).default(60),
+      commentDelaySeconds: z.number().int().min(0).max(86400).default(240),
       // Escalonamento para evitar limites do Facebook:
-      // - batchSize: nº de páginas que publicam ao mesmo tempo
-      // - batchIntervalMinutes: minutos somados a cada lote seguinte de publicação
-      // - commentJitterSeconds: segundos somados entre comentários do mesmo lote
-      batchSize: z.number().int().min(1).max(500).default(20),
-      batchIntervalMinutes: z.number().int().min(0).max(720).default(10),
-      commentJitterSeconds: z.number().int().min(0).max(7200).default(90),
+      // - batchSize: nº de páginas publicando com o mesmo horário base (default 1 = escalonamento máximo)
+      // - batchIntervalMinutes: minutos entre CADA página (default 2 min → 2-3 com jitter)
+      // - commentJitterSeconds: segundos somados entre comentários da mesma página (default 240 = 4 min)
+      // - rotateEveryPages: a cada quantas páginas trocar variação de mensagem (spintax) — default 10
+      batchSize: z.number().int().min(1).max(500).default(1),
+      batchIntervalMinutes: z.number().int().min(0).max(720).default(2),
+      commentJitterSeconds: z.number().int().min(0).max(7200).default(240),
+      rotateEveryPages: z.number().int().min(1).max(1000).default(10),
     }).parse(d),
   )
   .handler(async ({ data, context }) => {
     const { supabase, userId } = context;
-    const commentDelaySeconds = data.commentDelaySeconds ?? 60;
-    const batchSize = Math.max(1, data.batchSize ?? 20);
-    const batchIntervalMs = Math.max(0, data.batchIntervalMinutes ?? 10) * 60_000;
-    const commentJitterMs = Math.max(0, data.commentJitterSeconds ?? 90) * 1000;
+    const commentDelaySeconds = data.commentDelaySeconds ?? 240;
+    const batchSize = Math.max(1, data.batchSize ?? 1);
+    const batchIntervalMs = Math.max(0, data.batchIntervalMinutes ?? 2) * 60_000;
+    const commentJitterMs = Math.max(0, data.commentJitterSeconds ?? 240) * 1000;
+    const rotateEvery = Math.max(1, data.rotateEveryPages ?? 10);
+    // Jitter aleatório extra em cima do intervalo base — soma 0..60s para não ficar exato demais.
+    const PAGE_JITTER_MS = 60_000;
+    // Jitter aleatório dos comentários — soma 0..60s para variar entre páginas.
+    const COMMENT_JITTER_MS = 60_000;
+
 
     const { data: job, error: jerr } = await supabase
       .from("upload_jobs")
