@@ -830,7 +830,7 @@ export const Route = createFileRoute("/api/public/cron/scheduler")({
 
             const nextAttempt = (claimedT.attempts ?? 0) + 1;
             const pageCooldownIso = new Date(Date.now() - PAGE_FALLBACK_COOLDOWN_MS).toISOString();
-            const nextCooldownIso = new Date(Date.now() + PAGE_FALLBACK_COOLDOWN_MS).toISOString();
+            const nextCooldownIso = new Date(Date.now() + pageFallbackCooldownMs()).toISOString();
             const { data: competingTargets } = await supabaseAdmin
               .from("post_targets")
               .select("id,last_attempt_at")
