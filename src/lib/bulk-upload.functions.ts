@@ -59,7 +59,7 @@ export const createBulkJob = createServerFn({ method: "POST" })
         user_id: userId,
         status: "running",
         total_count: data.slots.length,
-        payload: { slots: data.slots.length, batchSize, batchIntervalMinutes: data.batchIntervalMinutes, commentJitterSeconds: data.commentJitterSeconds } as any,
+        payload: { slots: data.slots.length, batchSize, batchIntervalMinutes: data.batchIntervalMinutes, commentJitterSeconds: data.commentJitterSeconds, rotateEveryPages: rotateEvery } as any,
       })
       .select("id")
       .single();
