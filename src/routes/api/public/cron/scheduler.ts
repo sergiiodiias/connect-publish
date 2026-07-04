@@ -767,11 +767,12 @@ export const Route = createFileRoute("/api/public/cron/scheduler")({
         }
 
         for (const post of due) {
-          if (outOfTime()) {
+          if (outOfTime() || fallbackPublishedPages.size >= MAX_PAGES_PER_RUN) {
             // Hand back so another tick can resume.
             await supabaseAdmin.from("posts").update({ status: "scheduled" }).eq("id", post.id);
             break;
           }
+
           // Only pending targets ready for (re)try. Skip targets whose next_retry_at is still in the future.
           // Also skip targets with an fb_post_id (imported FB-scheduled posts — FB publishes them itself).
           const { data: targets } = await supabaseAdmin
