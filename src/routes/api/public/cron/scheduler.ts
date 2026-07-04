@@ -997,7 +997,12 @@ export const Route = createFileRoute("/api/public/cron/scheduler")({
 
           for (const group of chunk(candidateTargets, CONCURRENCY)) {
             if (outOfTime() || rateLimitHit) break;
+            if (fallbackPublishedPages.size >= MAX_PAGES_PER_RUN) break;
             await Promise.all(group.map(publishTarget));
+            // Espaça 2-3 min entre grupos de páginas na mesma execução.
+            // Como MAX_RUN_MS=45s, geralmente só um grupo roda por tick — o restante
+            // fica com next_retry_at ~2-3min, respeitando o intervalo entre páginas.
+
           }
 
           // Finalize: are there still pending/publishing targets?
