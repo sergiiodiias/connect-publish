@@ -785,7 +785,8 @@ export const Route = createFileRoute("/api/public/cron/scheduler")({
 
           const candidateTargets: any[] = [];
           for (const target of targets ?? []) {
-            const nextCooldownIso = new Date(Date.now() + PAGE_FALLBACK_COOLDOWN_MS).toISOString();
+            const nextCooldownIso = new Date(Date.now() + pageFallbackCooldownMs()).toISOString();
+
             if (fallbackPublishedPages.has(target.page_id)) {
               await supabaseAdmin
                 .from("post_targets")
