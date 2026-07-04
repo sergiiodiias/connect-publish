@@ -487,19 +487,20 @@ export const Route = createFileRoute("/api/public/cron/scheduler")({
           if (commentTouchedPages.has(target.page_id)) {
             await deferComment(
               c,
-              COMMENT_PAGE_COOLDOWN_MS + pageJitterMs,
-              "aguardando intervalo da página para evitar limite de comentários",
+              commentPageCooldownMs() + pageJitterMs,
+              "aguardando intervalo da página (3-5 min) para evitar limite de comentários",
             );
             return;
           }
           if (await hasRecentPageCommentActivity(target.page_id, c.id)) {
             await deferComment(
               c,
-              COMMENT_PAGE_COOLDOWN_MS + pageJitterMs,
-              "aguardando intervalo da página para evitar limite de comentários",
+              commentPageCooldownMs() + pageJitterMs,
+              "aguardando intervalo da página (3-5 min) para evitar limite de comentários",
             );
             return;
           }
+
           commentTouchedPages.add(target.page_id);
 
           // Atomic claim: only one cron tick can flip pending -> publishing.
