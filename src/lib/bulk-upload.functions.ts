@@ -97,12 +97,64 @@ export const createBulkJob = createServerFn({ method: "POST" })
     const errors: string[] = [];
     let success = 0;
 
-    // Insere 1 linha em posts por sub-lote (cada um com seu scheduled_at distinto).
-    // A mensagem é rotacionada a cada `rotateEvery` sub-lotes (blocos de 10 páginas por padrão)
-    // via spintax {a|b|c} ou variação leve automática, para reduzir detecção de duplicidade.
+    // 1) Para cada mensagem/comentário base único, gera N variações via IA (Lovable AI Gateway).
+    //    N = ceil(maxSubBatches / rotateEvery) — uma variação por bloco de páginas.
+    //    O usuário não precisa escrever nada extra: usamos o próprio texto como base.
+    const { generateMessageVariants } = await import("@/lib/ai-variants.server");
+    const groupSubBatchCount = new Map<string, number>();
+    for (const b of subBatches) {
+      const k = `${b.sample.mediaUrl}|${b.sample.message}|${b.sample.commentLink ?? ""}|${b.sample.type}`;
+      groupSubBatchCount.set(k, (groupSubBatchCount.get(k) ?? 0) + 1);
+    }
+    const postVariantsByMsg = new Map<string, string[]>();
+    const commentVariantsByMsg = new Map<string, string[]>();
+    // Gera variações em paralelo (uma requisição por mensagem única).
+    const uniqueMessages = new Map<string, { message: string; commentLink: string | null; blocks: number }>();
+    for (const b of subBatches) {
+      const k = `${b.sample.message}||${b.sample.commentLink ?? ""}`;
+      const prev = uniqueMessages.get(k);
+      const groupKey = `${b.sample.mediaUrl}|${b.sample.message}|${b.sample.commentLink ?? ""}|${b.sample.type}`;
+      const blocks = Math.max(1, Math.ceil((groupSubBatchCount.get(groupKey) ?? 1) / rotateEvery));
+      if (!prev || prev.blocks < blocks) {
+        uniqueMessages.set(k, { message: b.sample.message ?? "", commentLink: b.sample.commentLink ?? null, blocks });
+      }
+    }
+    await Promise.all(
+      [...uniqueMessages.values()].map(async (u) => {
+        const jobs: Promise<void>[] = [];
+        if (u.message?.trim()) {
+          jobs.push(
+            generateMessageVariants(u.message, u.blocks, "post").then((v) => {
+              postVariantsByMsg.set(u.message, v);
+            }),
+          );
+        }
+        if (u.commentLink?.trim()) {
+          jobs.push(
+            generateMessageVariants(u.commentLink, u.blocks, "comment").then((v) => {
+              commentVariantsByMsg.set(u.commentLink!, v);
+            }),
+          );
+        }
+        await Promise.all(jobs);
+      }),
+    );
+
+    const pickVariant = (
+      cache: Map<string, string[]>,
+      base: string,
+      blockIndex: number,
+    ): string => {
+      const list = cache.get(base);
+      if (!list || list.length === 0) return rotateMessage(base, blockIndex);
+      return list[blockIndex % list.length];
+    };
+
+    // 2) Insere 1 linha em posts por sub-lote. Cada bloco de `rotateEvery` páginas
+    //    recebe uma variação diferente da mensagem gerada pela IA.
     const postRows = subBatches.map((b) => {
       const blockIndex = Math.floor(b.batchIndex / rotateEvery);
-      const rotated = rotateMessage(b.sample.message ?? "", blockIndex);
+      const rotated = pickVariant(postVariantsByMsg, b.sample.message ?? "", blockIndex);
       return {
         user_id: userId,
         type: b.sample.type,
@@ -126,7 +178,7 @@ export const createBulkJob = createServerFn({ method: "POST" })
       for (const r of ins) insertedPostIds.push(r.id);
     }
 
-    // Monta targets e comentários por target já com jitter entre comentários do mesmo lote.
+    // 3) Monta targets e comentários por target já com jitter entre comentários do mesmo lote.
     type TargetSeed = { post_id: string; page_id: string; user_id: string; status: "pending"; _commentRunAt?: string; _commentMessage?: string };
     const targetSeeds: TargetSeed[] = [];
     subBatches.forEach((b, i) => {
@@ -139,14 +191,15 @@ export const createBulkJob = createServerFn({ method: "POST" })
           const jitter = Math.floor(Math.random() * COMMENT_JITTER_MS);
           const offsetMs = commentDelaySeconds * 1000 + posInBatch * commentJitterMs + jitter;
           seed._commentRunAt = new Date(baseMs + offsetMs).toISOString();
-          // Rotaciona a mensagem do comentário a cada bloco (spintax) — mesma lógica dos posts.
+          // Rotaciona a mensagem do comentário a cada bloco usando as variações da IA.
           const blockIndex = Math.floor(b.batchIndex / rotateEvery);
-          seed._commentMessage = rotateMessage(b.sample.commentLink, blockIndex);
+          seed._commentMessage = pickVariant(commentVariantsByMsg, b.sample.commentLink, blockIndex);
         }
         targetSeeds.push(seed);
       });
 
     });
+
 
     const insertedTargetIds: string[] = [];
     const commentRows: any[] = [];
