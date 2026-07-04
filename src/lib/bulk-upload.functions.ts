@@ -88,7 +88,8 @@ export const createBulkJob = createServerFn({ method: "POST" })
       const baseMs = new Date(g.sample.scheduledAt).getTime();
       const parts = chunk(g.pageIds, batchSize);
       parts.forEach((pageIds, i) => {
-        const newIso = new Date(baseMs + i * batchIntervalMs).toISOString();
+        const jitter = Math.floor(Math.random() * PAGE_JITTER_MS);
+        const newIso = new Date(baseMs + i * batchIntervalMs + jitter).toISOString();
         subBatches.push({ sample: g.sample, pageIds, scheduledAtIso: newIso, batchIndex: i });
       });
     }
@@ -97,15 +98,22 @@ export const createBulkJob = createServerFn({ method: "POST" })
     let success = 0;
 
     // Insere 1 linha em posts por sub-lote (cada um com seu scheduled_at distinto).
-    const postRows = subBatches.map((b) => ({
-      user_id: userId,
-      type: b.sample.type,
-      message: b.sample.message || "\u200B",
-      media_urls: [b.sample.mediaUrl],
-      status: "scheduled" as const,
-      scheduled_at: b.scheduledAtIso,
-      tags: [] as string[],
-    }));
+    // A mensagem é rotacionada a cada `rotateEvery` sub-lotes (blocos de 10 páginas por padrão)
+    // via spintax {a|b|c} ou variação leve automática, para reduzir detecção de duplicidade.
+    const postRows = subBatches.map((b) => {
+      const blockIndex = Math.floor(b.batchIndex / rotateEvery);
+      const rotated = rotateMessage(b.sample.message ?? "", blockIndex);
+      return {
+        user_id: userId,
+        type: b.sample.type,
+        message: rotated || "\u200B",
+        media_urls: [b.sample.mediaUrl],
+        status: "scheduled" as const,
+        scheduled_at: b.scheduledAtIso,
+        tags: [] as string[],
+      };
+    });
+
 
     const insertedPostIds: string[] = [];
     for (const part of chunk(postRows, 200)) {
