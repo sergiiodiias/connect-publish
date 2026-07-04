@@ -136,12 +136,16 @@ export const createBulkJob = createServerFn({ method: "POST" })
       b.pageIds.forEach((pageId, posInBatch) => {
         const seed: TargetSeed = { post_id: pid, page_id: pageId, user_id: userId, status: "pending" };
         if (b.sample.commentLink) {
-          const offsetMs = commentDelaySeconds * 1000 + posInBatch * commentJitterMs;
+          const jitter = Math.floor(Math.random() * COMMENT_JITTER_MS);
+          const offsetMs = commentDelaySeconds * 1000 + posInBatch * commentJitterMs + jitter;
           seed._commentRunAt = new Date(baseMs + offsetMs).toISOString();
-          seed._commentMessage = b.sample.commentLink;
+          // Rotaciona a mensagem do comentário a cada bloco (spintax) — mesma lógica dos posts.
+          const blockIndex = Math.floor(b.batchIndex / rotateEvery);
+          seed._commentMessage = rotateMessage(b.sample.commentLink, blockIndex);
         }
         targetSeeds.push(seed);
       });
+
     });
 
     const insertedTargetIds: string[] = [];
