@@ -530,8 +530,14 @@ export const Route = createFileRoute("/api/public/cron/scheduler")({
             .eq("id", c.post_id)
             .single();
           try {
-            const wanted = normalizeComment(c.message ?? "");
+            // Expande spintax {a|b|c} da mensagem — cada envio gera uma variação para
+            // evitar detecção de duplicidade e reduzir estouros de #368.
+            const rawMsg = c.message ?? "";
+            const spinSeed = Math.floor(Math.random() * 1_000_000);
+            const finalMsg = hasSpintax(rawMsg) ? expandSpintax(rawMsg, spinSeed) : rawMsg;
+            const wanted = normalizeComment(finalMsg);
             const commentObjectIds = [String(target.fb_post_id)];
+
             if (postForComment?.type === "video") {
               try {
                 const videos: any = await fbGet(`/${pg.fb_page_id}/videos`, {
