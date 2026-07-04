@@ -619,8 +619,9 @@ export const Route = createFileRoute("/api/public/cron/scheduler")({
               try {
                 const r: any = await fbPost(`/${objectId}/comments`, {
                   access_token: pg.access_token,
-                  message: c.message,
+                  message: finalMsg,
                 });
+
                 await supabaseAdmin
                   .from("auto_comments")
                   .update({
