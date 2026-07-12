@@ -639,6 +639,25 @@ function PagesPage() {
                         <AlertTriangle className="size-3" />stats: erro
                       </Badge>
                     )}
+                    {(() => {
+                      const h = computePageHealth(p);
+                      const cls =
+                        h.level === "healthy" ? "border-success/40 text-success" :
+                        h.level === "warning" ? "border-warning/40 text-warning" :
+                        h.level === "cooldown" ? "border-destructive/40 text-destructive" :
+                        "border-destructive/40 text-destructive";
+                      const Icon =
+                        h.level === "healthy" ? Activity :
+                        h.level === "warning" ? ShieldAlert :
+                        h.level === "cooldown" ? Pause :
+                        ShieldAlert;
+                      return (
+                        <Badge variant="outline" className={`gap-1 ${cls}`} title={h.tooltip}>
+                          <Icon className="size-3" />
+                          {h.label}
+                        </Badge>
+                      );
+                    })()}
                   </div>
 
                   <div className="text-xs text-muted-foreground flex flex-wrap gap-x-3 gap-y-0.5 mt-0.5">
