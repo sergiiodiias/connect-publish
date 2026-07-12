@@ -819,6 +819,18 @@ export const Route = createFileRoute("/api/public/cron/scheduler")({
           // se o módulo falhar, segue o fluxo normal
         }
 
+        // Se a quota do App está muito alta (>=95%), NÃO publicamos nada nesse tick —
+        // deixamos para a próxima janela. Comentários já processados acima entram na fila normal.
+        if (adaptive.hardStop) {
+          return Response.json({
+            ok: true,
+            processed, failed, comments,
+            pendingComments: (dueComments ?? []).length,
+            adaptive: { pct: adaptive.pct, multiplier: adaptive.multiplier, throttle: adaptive.throttle, hardStop: true },
+            skipped: "hard-stop por quota do Facebook",
+          });
+        }
+
         // 2) Scheduled posts whose time has come.
         // Atomic claim: only pick posts still 'scheduled' and flip them to 'publishing' in one update,
         // so concurrent cron ticks never grab the same post.
