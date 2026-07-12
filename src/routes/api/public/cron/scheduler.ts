@@ -695,7 +695,22 @@ export const Route = createFileRoute("/api/public/cron/scheduler")({
                 alreadyPosted = true;
                 // Sucesso: se a página acumulou hits #368 antigos (>6h), reseta o contador.
                 await clearCommentCooldownIfStale(target.page_id);
+                // Incrementa o contador diário da página (cap de segurança contra excesso).
+                {
+                  const { data: pgNow } = await supabaseAdmin
+                    .from("fb_pages")
+                    .select("daily_comment_count")
+                    .eq("id", target.page_id)
+                    .single();
+                  await supabaseAdmin
+                    .from("fb_pages")
+                    .update({
+                      daily_comment_count: ((pgNow as any)?.daily_comment_count ?? 0) + 1,
+                    } as any)
+                    .eq("id", target.page_id);
+                }
                 break;
+
               } catch (e: any) {
                 lastCommentError = e?.message ?? String(e);
                 if (/limit|#4\b|#17\b|#32\b|#368\b|#613/i.test(lastCommentError)) throw e;
