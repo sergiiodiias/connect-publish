@@ -145,6 +145,33 @@ export type Database = {
           },
         ]
       }
+      fb_app_usage: {
+        Row: {
+          call_count: number
+          max_pct: number
+          total_cputime: number
+          total_time: number
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          call_count?: number
+          max_pct?: number
+          total_cputime?: number
+          total_time?: number
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          call_count?: number
+          max_pct?: number
+          total_cputime?: number
+          total_time?: number
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       fb_pages: {
         Row: {
           access_token: string
@@ -670,6 +697,15 @@ export type Database = {
           p_processed: number
           p_should_complete: boolean
           p_success_inc: number
+        }
+        Returns: undefined
+      }
+      report_fb_app_usage: {
+        Args: {
+          p_call_count: number
+          p_total_cputime: number
+          p_total_time: number
+          p_user_id: string
         }
         Returns: undefined
       }
