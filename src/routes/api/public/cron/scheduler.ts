@@ -1135,6 +1135,7 @@ export const Route = createFileRoute("/api/public/cron/scheduler")({
           failed,
           comments,
           pendingComments: (dueComments ?? []).length,
+          adaptive: { pct: adaptive.pct, multiplier: adaptive.multiplier, throttle: adaptive.throttle, hardStop: adaptive.hardStop },
         });
       },
     },
