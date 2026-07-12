@@ -47,13 +47,16 @@ export const Route = createFileRoute("/api/public/cron/scheduler")({
         // baixa entre páginas distintas e jitter entre cada chamada.
         const COMMENT_CONCURRENCY = 1;
         const COMMENT_BATCH_LIMIT = 120;
-        // 3-5 min entre comentários da mesma página (era 20 min fixo).
-        const COMMENT_PAGE_COOLDOWN_MIN_MS = 3 * 60_000;
-        const COMMENT_PAGE_COOLDOWN_JITTER_MS = 2 * 60_000; // +0-2min → total 3-5 min
+        // 30-45 min entre comentários da mesma página (endurecido para evitar #368).
+        const COMMENT_PAGE_COOLDOWN_MIN_MS = 30 * 60_000;
+        const COMMENT_PAGE_COOLDOWN_JITTER_MS = 15 * 60_000; // +0-15min → total 30-45 min
         const commentPageCooldownMs = () =>
           COMMENT_PAGE_COOLDOWN_MIN_MS + Math.floor(Math.random() * COMMENT_PAGE_COOLDOWN_JITTER_MS);
-        // Compat com o restante do código: valor médio (4min) para queries de "recente".
+        // Compat com queries de "recente".
         const COMMENT_PAGE_COOLDOWN_MS = COMMENT_PAGE_COOLDOWN_MIN_MS + COMMENT_PAGE_COOLDOWN_JITTER_MS / 2;
+        // Cap diário por página — evita queimar uma página com muitos comentários no mesmo dia.
+        const DAILY_COMMENT_CAP = 20;
+
         const COMMENT_PAGE_STAGGER_MS = 4 * 60_000;
         const COMMENT_PAGE_STAGGER_JITTER_MS = 2 * 60_000;
         const COMMENT_INTER_DELAY_MS = 800; // pausa mínima entre comentários
