@@ -24,8 +24,9 @@ export type ApiCallCategory =
   | "me_accounts"
   | "other";
 
+type UsageSnapshot = { call_count: number; total_time: number; total_cputime: number };
 type Bucket = Map<ApiCallCategory, number>;
-type Ctx = { bucket: Bucket; userId: string };
+type Ctx = { bucket: Bucket; userId: string; usage: UsageSnapshot };
 
 const als = new AsyncLocalStorage<Ctx>();
 
