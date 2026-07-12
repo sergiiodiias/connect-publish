@@ -491,7 +491,7 @@ export const Route = createFileRoute("/api/public/cron/scheduler")({
             await deferComment(
               c,
               commentPageCooldownMs() + pageJitterMs,
-              "aguardando intervalo da página (3-5 min) para evitar limite de comentários",
+              "aguardando intervalo da página (30-45 min) para evitar limite de comentários",
             );
             return;
           }
@@ -499,12 +499,68 @@ export const Route = createFileRoute("/api/public/cron/scheduler")({
             await deferComment(
               c,
               commentPageCooldownMs() + pageJitterMs,
-              "aguardando intervalo da página (3-5 min) para evitar limite de comentários",
+              "aguardando intervalo da página (30-45 min) para evitar limite de comentários",
             );
             return;
           }
 
+          // Cap diário por página: no máx 20 comentários publicados/dia.
+          // Reseta o contador quando cruza a virada do dia UTC.
+          {
+            const { data: pgDaily } = await supabaseAdmin
+              .from("fb_pages")
+              .select("daily_comment_count, daily_comment_reset_at")
+              .eq("id", target.page_id)
+              .single();
+            const resetAt = (pgDaily as any)?.daily_comment_reset_at
+              ? new Date((pgDaily as any).daily_comment_reset_at).getTime()
+              : 0;
+            const isStale = !resetAt || Date.now() - resetAt > 24 * 60 * 60_000;
+            const dailyCount = isStale ? 0 : ((pgDaily as any)?.daily_comment_count ?? 0);
+            if (dailyCount >= DAILY_COMMENT_CAP) {
+              // adia para o próximo dia
+              const nextDayMs = 6 * 60 * 60_000 + Math.floor(Math.random() * 4 * 60 * 60_000);
+              await deferComment(
+                c,
+                nextDayMs,
+                `cap diário atingido (${DAILY_COMMENT_CAP}/dia) — retomando em algumas horas`,
+              );
+              return;
+            }
+            if (isStale) {
+              await supabaseAdmin
+                .from("fb_pages")
+                .update({
+                  daily_comment_count: 0,
+                  daily_comment_reset_at: new Date().toISOString(),
+                } as any)
+                .eq("id", target.page_id);
+            }
+          }
+
+          // Dedupe: se este target já recebeu um comentário publicado nas últimas 24h,
+          // não repostar (proteção extra contra duplicidade de link na mesma página).
+          {
+            const cutoff = new Date(Date.now() - 24 * 60 * 60_000).toISOString();
+            const { data: dup } = await supabaseAdmin
+              .from("auto_comments")
+              .select("id")
+              .eq("target_id", c.target_id!)
+              .not("fb_comment_id", "is", null)
+              .gte("posted_at", cutoff)
+              .neq("id", c.id)
+              .limit(1);
+            if (dup?.length) {
+              await supabaseAdmin
+                .from("auto_comments")
+                .update({ status: "posted", error: "duplicado no target nas últimas 24h; ignorado" } as any)
+                .eq("id", c.id);
+              return;
+            }
+          }
+
           commentTouchedPages.add(target.page_id);
+
 
           // Atomic claim: only one cron tick can flip pending -> publishing.
           const { data: claimed } = await supabaseAdmin
