@@ -456,7 +456,7 @@ export const listPages = createServerFn({ method: "GET" })
   .handler(async ({ context }) => {
     const { data, error } = await context.supabase
       .from("fb_pages")
-      .select("id, fb_page_id, name, category, picture_url, is_active, last_checked_at, created_at, token_expires_at, token_data_access_expires_at, token_scopes, token_last_debugged_at, token_last_refreshed_at, token_debug_error, needs_reconnect, reconnect_reason, followers_count, fan_count, engaged_users_28d, impressions_28d, reach_28d, post_engagements_28d, stats_updated_at, stats_error")
+      .select("id, fb_page_id, name, category, picture_url, is_active, last_checked_at, created_at, token_expires_at, token_data_access_expires_at, token_scopes, token_last_debugged_at, token_last_refreshed_at, token_debug_error, needs_reconnect, reconnect_reason, followers_count, fan_count, engaged_users_28d, impressions_28d, reach_28d, post_engagements_28d, stats_updated_at, stats_error, comment_368_count, comment_368_last_at, comment_cooldown_until, daily_comment_count, daily_comment_reset_at")
       .order("created_at", { ascending: false });
     if (error) throw new Error(error.message);
     return data;
