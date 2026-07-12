@@ -79,6 +79,15 @@ async function track(path: string, method: "GET" | "POST" | "DELETE" | "MULTIPAR
   } catch { /* tracker indisponível (ex: ambiente sem AsyncLocalStorage) */ }
 }
 
+async function reportUsage(headers: Headers) {
+  const usage = parseAppUsage(headers);
+  if (!usage) return;
+  try {
+    const mod = await import("@/lib/fb-api-tracker.server");
+    mod.reportAppUsageCurrent(usage);
+  } catch { /* tracker indisponível */ }
+}
+
 export async function fbGet<T = any>(path: string, params: Record<string, string>): Promise<T> {
   const url = new URL(FB_GRAPH + path);
   for (const [k, v] of Object.entries(params)) url.searchParams.set(k, v);
