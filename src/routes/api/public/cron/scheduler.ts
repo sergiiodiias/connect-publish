@@ -15,6 +15,15 @@ export const Route = createFileRoute("/api/public/cron/scheduler")({
         const { publishFacebookPost } = await import("@/lib/fb-publish");
         const { withApiCallTracking } = await import("@/lib/fb-api-tracker.server");
         const { expandSpintax, hasSpintax } = await import("@/lib/message-variants");
+        const { getGlobalAdaptiveState } = await import("@/lib/fb-adaptive-delay.server");
+
+        // Delay adaptativo baseado no header x-app-usage do Facebook.
+        // Se a quota do App está alta, escalamos os cooldowns e/ou pausamos publicação.
+        const adaptive = await getGlobalAdaptiveState();
+        if (adaptive.pct > 0) {
+          console.log(`[cron] x-app-usage ${adaptive.pct}% → mult ${adaptive.multiplier}x${adaptive.hardStop ? " HARD-STOP" : adaptive.throttle ? " throttle" : ""}`);
+        }
+
 
         const nowIso = new Date().toISOString();
         // Give Facebook's native scheduler time to publish before using our fallback.
