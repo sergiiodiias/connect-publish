@@ -93,6 +93,7 @@ export async function fbGet<T = any>(path: string, params: Record<string, string
   for (const [k, v] of Object.entries(params)) url.searchParams.set(k, v);
   await track(path, "GET");
   const { res, json } = await fetchWithRetry(url.toString(), { signal: timeoutSignal() });
+  await reportUsage(res.headers);
   if (!res.ok || json.error) throw new Error(fmtErr(json, `Graph GET ${path} ${res.status}`));
   return json;
 }
@@ -103,6 +104,7 @@ export async function fbGetWithUsage<T = any>(path: string, params: Record<strin
   await track(path, "GET");
   const { res, json } = await fetchWithRetry(url.toString(), { signal: timeoutSignal() });
   const usage = parseAppUsage(res.headers);
+  await reportUsage(res.headers);
   if (!res.ok || json.error) {
     const err: any = new Error(fmtErr(json, `Graph GET ${path} ${res.status}`));
     err.usage = usage;
@@ -115,6 +117,7 @@ export async function fbPost<T = any>(path: string, params: Record<string, strin
   const body = new URLSearchParams(params);
   await track(path, "POST");
   const { res, json } = await fetchWithRetry(FB_GRAPH + path, { method: "POST", body, signal: timeoutSignal() });
+  await reportUsage(res.headers);
   if (!res.ok || json.error) throw new Error(fmtErr(json, `Graph POST ${path} ${res.status}`));
   return json;
 }
@@ -124,6 +127,7 @@ export async function fbPostMultipart<T = any>(path: string, form: FormData): Pr
   // multipart não retorna JSON consistente em erro de rate-limit; chamada única sem retry.
   const res = await fetch(FB_GRAPH + path, { method: "POST", body: form, signal: timeoutSignal(45_000) });
   const json: any = await res.json();
+  await reportUsage(res.headers);
   if (!res.ok || json.error) throw new Error(fmtErr(json, `Graph multipart POST ${path} ${res.status}`));
   return json;
 }
@@ -132,6 +136,7 @@ export async function fbDelete<T = any>(path: string, params: Record<string, str
   const url = FB_GRAPH + path + "?" + new URLSearchParams(params).toString();
   await track(path, "DELETE");
   const { res, json } = await fetchWithRetry(url, { method: "DELETE", signal: timeoutSignal() });
+  await reportUsage(res.headers);
   if (!res.ok || json.error) throw new Error(fmtErr(json, `Graph DELETE ${path} ${res.status}`));
   return json;
 }
