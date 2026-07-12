@@ -13,7 +13,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, Dialog
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator } from "@/components/ui/dropdown-menu";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Plus, Trash2, CheckCircle2, AlertTriangle, RefreshCw, Clock, Copy, Eye, EyeOff, KeyRound, History, ChevronDown, FolderOpen, Users, TrendingUp, BarChart3 } from "lucide-react";
+import { Plus, Trash2, CheckCircle2, AlertTriangle, RefreshCw, Clock, Copy, Eye, EyeOff, KeyRound, History, ChevronDown, FolderOpen, Users, TrendingUp, BarChart3, Activity, ShieldAlert, Pause } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 
@@ -73,6 +73,53 @@ function isLongDurationExpirySeconds(expiresAt: number | null | undefined): bool
   if (!expiresAt) return false;
   const days = Math.floor((expiresAt - Math.floor(Date.now() / 1000)) / 86400);
   return days >= LONG_DURATION_DAYS;
+}
+
+type Health =
+  | { level: "healthy"; label: string; tooltip: string }
+  | { level: "warning"; label: string; tooltip: string }
+  | { level: "cooldown"; label: string; tooltip: string }
+  | { level: "capped"; label: string; tooltip: string };
+
+function computePageHealth(p: any): Health {
+  const now = Date.now();
+  const cooldownUntil = p.comment_cooldown_until ? new Date(p.comment_cooldown_until).getTime() : 0;
+  const hits368 = p.comment_368_count ?? 0;
+  const daily = p.daily_comment_count ?? 0;
+  const resetAt = p.daily_comment_reset_at ? new Date(p.daily_comment_reset_at).getTime() : 0;
+  const dailyFresh = resetAt && now - resetAt < 24 * 60 * 60_000;
+  const effectiveDaily = dailyFresh ? daily : 0;
+
+  if (cooldownUntil > now) {
+    const mins = Math.round((cooldownUntil - now) / 60_000);
+    const label = mins >= 60 ? `${Math.round(mins / 60)}h de pausa` : `${mins}min de pausa`;
+    return {
+      level: "cooldown",
+      label,
+      tooltip: `Facebook aplicou limite #368 nesta página. Retomando em ${new Date(cooldownUntil).toLocaleString("pt-BR")}. Hits recentes: ${hits368}.`,
+    };
+  }
+  if (effectiveDaily >= 20) {
+    return {
+      level: "capped",
+      label: `cap diário (${effectiveDaily}/20)`,
+      tooltip: `Página já recebeu ${effectiveDaily} comentários hoje. Aguardando reset (24h).`,
+    };
+  }
+  if (hits368 >= 2 || effectiveDaily >= 15) {
+    return {
+      level: "warning",
+      label: hits368 >= 2 ? `${hits368}× #368` : `${effectiveDaily}/20 hoje`,
+      tooltip: hits368 >= 2
+        ? `Página já sofreu ${hits368} bloqueios #368 recentes. Cooldown escalonado ativo.`
+        : `Página já com ${effectiveDaily} comentários hoje — próxima do cap diário (20).`,
+    };
+  }
+  return {
+    level: "healthy",
+    label: effectiveDaily > 0 ? `saudável · ${effectiveDaily} hoje` : "saudável",
+    tooltip: `Sem cooldowns ativos. ${effectiveDaily} comentário(s) publicados hoje. Hits #368 recentes: ${hits368}.`,
+  };
 }
 
 function PagesPage() {
@@ -592,6 +639,25 @@ function PagesPage() {
                         <AlertTriangle className="size-3" />stats: erro
                       </Badge>
                     )}
+                    {(() => {
+                      const h = computePageHealth(p);
+                      const cls =
+                        h.level === "healthy" ? "border-success/40 text-success" :
+                        h.level === "warning" ? "border-warning/40 text-warning" :
+                        h.level === "cooldown" ? "border-destructive/40 text-destructive" :
+                        "border-destructive/40 text-destructive";
+                      const Icon =
+                        h.level === "healthy" ? Activity :
+                        h.level === "warning" ? ShieldAlert :
+                        h.level === "cooldown" ? Pause :
+                        ShieldAlert;
+                      return (
+                        <Badge variant="outline" className={`gap-1 ${cls}`} title={h.tooltip}>
+                          <Icon className="size-3" />
+                          {h.label}
+                        </Badge>
+                      );
+                    })()}
                   </div>
 
                   <div className="text-xs text-muted-foreground flex flex-wrap gap-x-3 gap-y-0.5 mt-0.5">

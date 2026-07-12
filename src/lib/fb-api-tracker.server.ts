@@ -24,8 +24,9 @@ export type ApiCallCategory =
   | "me_accounts"
   | "other";
 
+type UsageSnapshot = { call_count: number; total_time: number; total_cputime: number };
 type Bucket = Map<ApiCallCategory, number>;
-type Ctx = { bucket: Bucket; userId: string };
+type Ctx = { bucket: Bucket; userId: string; usage: UsageSnapshot };
 
 const als = new AsyncLocalStorage<Ctx>();
 
@@ -66,11 +67,21 @@ export function bumpCurrent(category: ApiCallCategory, n = 1) {
   ctx.bucket.set(category, (ctx.bucket.get(category) ?? 0) + n);
 }
 
+/** Reporta um snapshot do header `x-app-usage`. Mantemos o maior valor visto. */
+export function reportAppUsageCurrent(usage: { call_count: number; total_time: number; total_cputime: number } | null) {
+  if (!usage) return;
+  const ctx = als.getStore();
+  if (!ctx) return;
+  ctx.usage.call_count = Math.max(ctx.usage.call_count, usage.call_count | 0);
+  ctx.usage.total_time = Math.max(ctx.usage.total_time, usage.total_time | 0);
+  ctx.usage.total_cputime = Math.max(ctx.usage.total_cputime, usage.total_cputime | 0);
+}
+
 export async function withApiCallTracking<T>(
   userId: string,
   fn: () => Promise<T>,
 ): Promise<T> {
-  const ctx: Ctx = { userId, bucket: new Map() };
+  const ctx: Ctx = { userId, bucket: new Map(), usage: { call_count: 0, total_time: 0, total_cputime: 0 } };
   try {
     return await als.run(ctx, fn);
   } finally {
@@ -80,13 +91,24 @@ export async function withApiCallTracking<T>(
 }
 
 async function flushBucket(ctx: Ctx) {
-  if (ctx.bucket.size === 0) return;
   const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-  await Promise.all(Array.from(ctx.bucket.entries()).map(([endpoint, count]) =>
-    (supabaseAdmin as any).rpc("bump_fb_api_call", {
+  const jobs: Promise<any>[] = [];
+  if (ctx.bucket.size > 0) {
+    for (const [endpoint, count] of ctx.bucket.entries()) {
+      jobs.push((supabaseAdmin as any).rpc("bump_fb_api_call", {
+        p_user_id: ctx.userId,
+        p_endpoint: endpoint,
+        p_inc: count,
+      }));
+    }
+  }
+  if (ctx.usage.call_count || ctx.usage.total_time || ctx.usage.total_cputime) {
+    jobs.push((supabaseAdmin as any).rpc("report_fb_app_usage", {
       p_user_id: ctx.userId,
-      p_endpoint: endpoint,
-      p_inc: count,
-    }),
-  ));
+      p_call_count: ctx.usage.call_count,
+      p_total_time: ctx.usage.total_time,
+      p_total_cputime: ctx.usage.total_cputime,
+    }));
+  }
+  if (jobs.length) await Promise.all(jobs);
 }

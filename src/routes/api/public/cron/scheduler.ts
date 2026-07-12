@@ -15,23 +15,32 @@ export const Route = createFileRoute("/api/public/cron/scheduler")({
         const { publishFacebookPost } = await import("@/lib/fb-publish");
         const { withApiCallTracking } = await import("@/lib/fb-api-tracker.server");
         const { expandSpintax, hasSpintax } = await import("@/lib/message-variants");
+        const { getGlobalAdaptiveState } = await import("@/lib/fb-adaptive-delay.server");
+
+        // Delay adaptativo baseado no header x-app-usage do Facebook.
+        // Se a quota do App está alta, escalamos os cooldowns e/ou pausamos publicação.
+        const adaptive = await getGlobalAdaptiveState();
+        if (adaptive.pct > 0) {
+          console.log(`[cron] x-app-usage ${adaptive.pct}% → mult ${adaptive.multiplier}x${adaptive.hardStop ? " HARD-STOP" : adaptive.throttle ? " throttle" : ""}`);
+        }
+
 
         const nowIso = new Date().toISOString();
         // Give Facebook's native scheduler time to publish before using our fallback.
         // This prevents a native scheduled post and our cron fallback from posting together.
         const FALLBACK_GRACE_MS = 10 * 60_000;
         // Cooldown por página no fallback: 2-3 min entre publicações da mesma página.
-        const PAGE_FALLBACK_COOLDOWN_MIN_MS = 2 * 60_000;
-        const PAGE_FALLBACK_COOLDOWN_JITTER_MS = 60_000; // +0-60s → total 2-3 min
+        // Multiplicado por adaptive.multiplier quando a quota do App está alta.
+        const PAGE_FALLBACK_COOLDOWN_MIN_MS = 2 * 60_000 * adaptive.multiplier;
+        const PAGE_FALLBACK_COOLDOWN_JITTER_MS = 60_000 * adaptive.multiplier;
         const pageFallbackCooldownMs = () =>
           PAGE_FALLBACK_COOLDOWN_MIN_MS + Math.floor(Math.random() * PAGE_FALLBACK_COOLDOWN_JITTER_MS);
-        // Compat com o restante do código que usava a constante fixa: mantemos como valor médio (2.5min).
         const PAGE_FALLBACK_COOLDOWN_MS = PAGE_FALLBACK_COOLDOWN_MIN_MS + PAGE_FALLBACK_COOLDOWN_JITTER_MS / 2;
         const FB_EXISTING_WINDOW_MS = 30 * 60_000;
         const fallbackReadyIso = new Date(Date.now() - FALLBACK_GRACE_MS).toISOString();
         // Limite duro: publicar no máximo 10 páginas por execução do cron
-        // para nunca estourar limites da App.
-        const MAX_PAGES_PER_RUN = 10;
+        // para nunca estourar limites da App. Em throttle, cortamos pela metade.
+        const MAX_PAGES_PER_RUN = adaptive.throttle ? 3 : 10;
         let processed = 0,
           failed = 0,
           comments = 0;
@@ -47,15 +56,14 @@ export const Route = createFileRoute("/api/public/cron/scheduler")({
         // baixa entre páginas distintas e jitter entre cada chamada.
         const COMMENT_CONCURRENCY = 1;
         const COMMENT_BATCH_LIMIT = 120;
-        // 30-45 min entre comentários da mesma página (endurecido para evitar #368).
-        const COMMENT_PAGE_COOLDOWN_MIN_MS = 30 * 60_000;
-        const COMMENT_PAGE_COOLDOWN_JITTER_MS = 15 * 60_000; // +0-15min → total 30-45 min
+        // 30-45 min entre comentários da mesma página (× multiplier adaptativo).
+        const COMMENT_PAGE_COOLDOWN_MIN_MS = 30 * 60_000 * adaptive.multiplier;
+        const COMMENT_PAGE_COOLDOWN_JITTER_MS = 15 * 60_000 * adaptive.multiplier;
         const commentPageCooldownMs = () =>
           COMMENT_PAGE_COOLDOWN_MIN_MS + Math.floor(Math.random() * COMMENT_PAGE_COOLDOWN_JITTER_MS);
-        // Compat com queries de "recente".
         const COMMENT_PAGE_COOLDOWN_MS = COMMENT_PAGE_COOLDOWN_MIN_MS + COMMENT_PAGE_COOLDOWN_JITTER_MS / 2;
-        // Cap diário por página — evita queimar uma página com muitos comentários no mesmo dia.
-        const DAILY_COMMENT_CAP = 20;
+        // Cap diário por página — encolhe em throttle para dar respiro ao App.
+        const DAILY_COMMENT_CAP = adaptive.throttle ? 10 : 20;
 
         const COMMENT_PAGE_STAGGER_MS = 4 * 60_000;
         const COMMENT_PAGE_STAGGER_JITTER_MS = 2 * 60_000;
@@ -811,6 +819,18 @@ export const Route = createFileRoute("/api/public/cron/scheduler")({
           // se o módulo falhar, segue o fluxo normal
         }
 
+        // Se a quota do App está muito alta (>=95%), NÃO publicamos nada nesse tick —
+        // deixamos para a próxima janela. Comentários já processados acima entram na fila normal.
+        if (adaptive.hardStop) {
+          return Response.json({
+            ok: true,
+            processed, failed, comments,
+            pendingComments: (dueComments ?? []).length,
+            adaptive: { pct: adaptive.pct, multiplier: adaptive.multiplier, throttle: adaptive.throttle, hardStop: true },
+            skipped: "hard-stop por quota do Facebook",
+          });
+        }
+
         // 2) Scheduled posts whose time has come.
         // Atomic claim: only pick posts still 'scheduled' and flip them to 'publishing' in one update,
         // so concurrent cron ticks never grab the same post.
@@ -1127,6 +1147,7 @@ export const Route = createFileRoute("/api/public/cron/scheduler")({
           failed,
           comments,
           pendingComments: (dueComments ?? []).length,
+          adaptive: { pct: adaptive.pct, multiplier: adaptive.multiplier, throttle: adaptive.throttle, hardStop: adaptive.hardStop },
         });
       },
     },
