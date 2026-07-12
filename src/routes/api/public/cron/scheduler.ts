@@ -30,17 +30,17 @@ export const Route = createFileRoute("/api/public/cron/scheduler")({
         // This prevents a native scheduled post and our cron fallback from posting together.
         const FALLBACK_GRACE_MS = 10 * 60_000;
         // Cooldown por página no fallback: 2-3 min entre publicações da mesma página.
-        const PAGE_FALLBACK_COOLDOWN_MIN_MS = 2 * 60_000;
-        const PAGE_FALLBACK_COOLDOWN_JITTER_MS = 60_000; // +0-60s → total 2-3 min
+        // Multiplicado por adaptive.multiplier quando a quota do App está alta.
+        const PAGE_FALLBACK_COOLDOWN_MIN_MS = 2 * 60_000 * adaptive.multiplier;
+        const PAGE_FALLBACK_COOLDOWN_JITTER_MS = 60_000 * adaptive.multiplier;
         const pageFallbackCooldownMs = () =>
           PAGE_FALLBACK_COOLDOWN_MIN_MS + Math.floor(Math.random() * PAGE_FALLBACK_COOLDOWN_JITTER_MS);
-        // Compat com o restante do código que usava a constante fixa: mantemos como valor médio (2.5min).
         const PAGE_FALLBACK_COOLDOWN_MS = PAGE_FALLBACK_COOLDOWN_MIN_MS + PAGE_FALLBACK_COOLDOWN_JITTER_MS / 2;
         const FB_EXISTING_WINDOW_MS = 30 * 60_000;
         const fallbackReadyIso = new Date(Date.now() - FALLBACK_GRACE_MS).toISOString();
         // Limite duro: publicar no máximo 10 páginas por execução do cron
-        // para nunca estourar limites da App.
-        const MAX_PAGES_PER_RUN = 10;
+        // para nunca estourar limites da App. Em throttle, cortamos pela metade.
+        const MAX_PAGES_PER_RUN = adaptive.throttle ? 3 : 10;
         let processed = 0,
           failed = 0,
           comments = 0;
