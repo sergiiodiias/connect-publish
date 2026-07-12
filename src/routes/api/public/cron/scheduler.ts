@@ -56,15 +56,14 @@ export const Route = createFileRoute("/api/public/cron/scheduler")({
         // baixa entre páginas distintas e jitter entre cada chamada.
         const COMMENT_CONCURRENCY = 1;
         const COMMENT_BATCH_LIMIT = 120;
-        // 30-45 min entre comentários da mesma página (endurecido para evitar #368).
-        const COMMENT_PAGE_COOLDOWN_MIN_MS = 30 * 60_000;
-        const COMMENT_PAGE_COOLDOWN_JITTER_MS = 15 * 60_000; // +0-15min → total 30-45 min
+        // 30-45 min entre comentários da mesma página (× multiplier adaptativo).
+        const COMMENT_PAGE_COOLDOWN_MIN_MS = 30 * 60_000 * adaptive.multiplier;
+        const COMMENT_PAGE_COOLDOWN_JITTER_MS = 15 * 60_000 * adaptive.multiplier;
         const commentPageCooldownMs = () =>
           COMMENT_PAGE_COOLDOWN_MIN_MS + Math.floor(Math.random() * COMMENT_PAGE_COOLDOWN_JITTER_MS);
-        // Compat com queries de "recente".
         const COMMENT_PAGE_COOLDOWN_MS = COMMENT_PAGE_COOLDOWN_MIN_MS + COMMENT_PAGE_COOLDOWN_JITTER_MS / 2;
-        // Cap diário por página — evita queimar uma página com muitos comentários no mesmo dia.
-        const DAILY_COMMENT_CAP = 20;
+        // Cap diário por página — encolhe em throttle para dar respiro ao App.
+        const DAILY_COMMENT_CAP = adaptive.throttle ? 10 : 20;
 
         const COMMENT_PAGE_STAGGER_MS = 4 * 60_000;
         const COMMENT_PAGE_STAGGER_JITTER_MS = 2 * 60_000;
