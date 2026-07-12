@@ -37,7 +37,7 @@ export const createBulkJob = createServerFn({ method: "POST" })
       batchSize: z.number().int().min(1).max(500).default(1),
       batchIntervalMinutes: z.number().int().min(0).max(720).default(2),
       commentJitterSeconds: z.number().int().min(0).max(7200).default(240),
-      rotateEveryPages: z.number().int().min(1).max(1000).default(10),
+      rotateEveryPages: z.number().int().min(1).max(1000).default(5),
     }).parse(d),
   )
   .handler(async ({ data, context }) => {
@@ -100,7 +100,11 @@ export const createBulkJob = createServerFn({ method: "POST" })
     // 1) Para cada mensagem/comentário base único, gera N variações via IA (Lovable AI Gateway).
     //    N = ceil(maxSubBatches / rotateEvery) — uma variação por bloco de páginas.
     //    O usuário não precisa escrever nada extra: usamos o próprio texto como base.
-    const { generateMessageVariants } = await import("@/lib/ai-variants.server");
+    //    Se o commentLink for uma URL pura, baixamos o contexto (og:title/description)
+    //    e geramos frases relacionadas — o comentário final vira "<frase>\n<link>",
+    //    evitando N páginas comentando exatamente a mesma URL "pelada" (gatilho de #368).
+    const { generateMessageVariants, generateLinkComments } = await import("@/lib/ai-variants.server");
+    const { fetchLinkContext, isUrlOnly } = await import("@/lib/link-context.server");
     const groupSubBatchCount = new Map<string, number>();
     for (const b of subBatches) {
       const k = `${b.sample.mediaUrl}|${b.sample.message}|${b.sample.commentLink ?? ""}|${b.sample.type}`;
@@ -129,16 +133,31 @@ export const createBulkJob = createServerFn({ method: "POST" })
             }),
           );
         }
-        if (u.commentLink?.trim()) {
-          jobs.push(
-            generateMessageVariants(u.commentLink, u.blocks, "comment").then((v) => {
-              commentVariantsByMsg.set(u.commentLink!, v);
-            }),
-          );
+        const rawComment = u.commentLink?.trim();
+        if (rawComment) {
+          if (isUrlOnly(rawComment)) {
+            // URL pura → gera frases contextuais e concatena com o link.
+            jobs.push(
+              (async () => {
+                const ctx = await fetchLinkContext(rawComment);
+                const phrases = await generateLinkComments(ctx, u.blocks);
+                const composed = phrases.map((p) => `${p}\n${rawComment}`);
+                commentVariantsByMsg.set(rawComment, composed);
+              })(),
+            );
+          } else {
+            // Texto (com ou sem link embutido) → variações preservando URLs.
+            jobs.push(
+              generateMessageVariants(rawComment, u.blocks, "comment").then((v) => {
+                commentVariantsByMsg.set(rawComment, v);
+              }),
+            );
+          }
         }
         await Promise.all(jobs);
       }),
     );
+
 
     const pickVariant = (
       cache: Map<string, string[]>,
