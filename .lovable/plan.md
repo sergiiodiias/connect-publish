@@ -1,28 +1,63 @@
-## Diagnóstico
+# Plano — Reduzir limitações em comentários e títulos
 
-Na data de hoje (27/06) ainda há 147 itens do dia 26 aparecendo na agenda:
+## Objetivo
+Parar de postar o mesmo link "pelado" repetido em N páginas (principal gatilho dos erros #368) e girar títulos/comentários por grupo, sem exigir que você escreva variações manualmente.
 
-- **137 `post_targets` com status `publishing`** e **sem `fb_post_id`** → o cron marcou como "publicando", a chamada ao Facebook estourou tempo/erro silencioso e nunca foi revertido. Ficam presos para sempre porque o cron só pega `pending`.
-- **10 `post_targets` com status `pending`** mas **com `fb_post_id`** → já estavam agendados nativamente no Facebook; só faltou a verificação confirmar como `published`.
-- Como reflexo, **47 `posts` continuam `scheduled`** e **54 `publishing`** com data passada.
+## 1. Comentário = texto contextual + link (não só link)
 
-## O que vou fazer
+Hoje `commentLink` é usado como se fosse o texto do comentário, então o Facebook vê N páginas comentando exatamente a mesma URL. Vamos:
 
-### 1. Limpeza imediata dos dados do dia 26 (passado)
-- Para os 10 `pending` que já têm `fb_post_id`: marcar `post_targets.status = 'published'` (eles foram publicados nativamente pelo FB).
-- Para os 137 `publishing` sem `fb_post_id`: marcar como `failed` com `error = 'Travado em publishing (limpeza automática)'`. Assim somem da agenda e ficam auditáveis em "Falhas".
-- Recalcular `posts.status` para os posts afetados: vira `published` se todos os targets viraram published, `partial` se mistura, `failed` se nenhum publicou.
+- Detectar automaticamente se `commentLink` é apenas uma URL.
+- Se for, chamar a IA (Lovable AI Gateway, `google/gemini-2.5-flash-lite`) uma vez por link para:
+  1. Baixar o título/descrição do link (fetch + parse `<title>` e `<meta og:*>`), com timeout curto e fallback pro domínio.
+  2. Gerar N frases curtas (1-2 linhas, pt-BR, com emojis leves) **relacionadas ao conteúdo** do link — N = nº de blocos de páginas.
+- Montar cada comentário como `"<frase variada>\n<link>"` (link sempre íntegro, nunca reescrito).
+- Se `commentLink` já for texto+link, mantemos o fluxo atual (só variamos o texto ao redor, preservando qualquer URL).
 
-### 2. Salvaguarda no cron para nunca mais ficar preso
-Em `src/routes/api/public/cron/scheduler.ts`, antes de processar a fila, adicionar um passo "stale reaper":
-- `post_targets` em `publishing` há mais de 15 min sem `fb_post_id` → voltam para `pending` (para o cron tentar de novo) se ainda dentro da janela de agendamento, ou viram `failed` se a data já passou há mais de 1 hora.
+Arquivos: novo `src/lib/link-context.server.ts` (fetch + og-scrape), ajuste em `src/lib/ai-variants.server.ts` (novo modo `"comment-with-link"` recebendo `{ link, context }`), e em `src/lib/bulk-upload.functions.ts` para chamar esse caminho quando o input for URL pura.
 
-### 3. (opcional, se você quiser) Limpar também os 47 posts `scheduled` do dia 26 cujos targets já foram todos publicados — só atualização cosmética do status do post-pai.
+## 2. Rotação de títulos por grupo
+
+Já geramos variações por bloco de `rotateEveryPages` (default 10). Vamos:
+
+- Reduzir default para **5 páginas por variação** (mais seguro contra deduplicação do FB).
+- Garantir que cada bloco receba variação **diferente do bloco anterior** (dedupe por hash antes de escolher).
+- Expor `rotateEveryPages` como campo no importador (se ainda não estiver visível) com valores sugeridos 5/10/20.
+
+## 3. Salvaguardas por página (runtime, no scheduler)
+
+No `src/routes/api/public/cron/scheduler.ts`:
+
+- **Máx. 1 comentário por página a cada 30 min** (hoje é 3-5 min). Página que acabou de comentar entra em cooldown maior.
+- **Máx. 20 comentários/página/dia** por padrão (configurável). Ao atingir, pula pro próximo dia.
+- Ao pegar erro #368 numa página, **cooldown escalonado**: 1ª ocorrência 2h, 2ª 12h, 3ª 24h (hoje já tem `comment_368_count`, vamos usar).
+- Nunca postar o **mesmo link** na mesma página em menos de 24h (checar `auto_comments` publicados recentes por `page_id` + `link`).
+
+## 4. Sugestões extras (aplico se aprovar)
+
+- **Warm-up de páginas novas**: página com <7 dias no sistema fica limitada a 5 comentários/dia.
+- **Alternar tipos de post** (foto/vídeo/link) automaticamente por bloco — variedade reduz sinal de spam.
+- **Delay adaptativo**: se `x-app-usage` do FB passar de 70%, dobra automaticamente os intervalos até a próxima janela.
+- **Painel "Saúde das páginas"** simples em `/pages` mostrando: cooldown ativo, últimos #368, comentários hoje.
 
 ## Detalhes técnicos
 
-- A limpeza dos dados é feita via SQL (`UPDATE` em `post_targets` e `posts` filtrando `scheduled_at::date = '2026-06-26'` e `user_id = <seu>`).
-- O reaper roda dentro do handler do cron, antes do "Step 1", limitado a 500 linhas por execução para não estourar.
-- Nenhuma mudança visual; a aba **Agenda** simplesmente deixa de listar os fantasmas do dia 26.
+- Fetch de metadados do link com `AbortSignal.timeout(4000)`, User-Agent de browser, cache in-memory por hostname+path para não repetir dentro do mesmo job.
+- Prompt da IA recebe título + descrição + domínio do link e instrui: "gere N frases curtas em pt-BR relacionadas a esse conteúdo, sem repetir a URL, sem hashtags, sem promessas exageradas".
+- Validação: se a IA gerar frase que contenha URL diferente da original, descarta.
+- Todo o cálculo de cooldown/limites por página fica no scheduler (afeta os 6k+ itens já agendados, não só novos).
 
-Confirma que posso executar a limpeza + adicionar o reaper?
+## Arquivos afetados
+
+- `src/lib/link-context.server.ts` (novo)
+- `src/lib/ai-variants.server.ts` (novo modo)
+- `src/lib/bulk-upload.functions.ts` (montagem texto+link, rotateEvery=5)
+- `src/routes/api/public/cron/scheduler.ts` (cooldown 30min, cap diário, dedupe de link/página, backoff #368 escalonado)
+- Migração SQL adicionando colunas `daily_comment_count`, `daily_comment_reset_at` em `fb_pages` se necessário
+- (Opcional) `src/routes/_authenticated/pages.tsx` — coluna de saúde
+
+## Confirmar antes de implementar
+
+1. **Cap diário por página**: 20/dia OK ou prefere outro valor?
+2. **Cooldown entre comentários da mesma página**: 30 min OK?
+3. Implemento também as **Sugestões extras** (warm-up, alternância de tipo, delay adaptativo, painel de saúde) ou só o núcleo (1-3)?

@@ -154,6 +154,8 @@ export type Database = {
           comment_368_last_at: string | null
           comment_cooldown_until: string | null
           created_at: string
+          daily_comment_count: number
+          daily_comment_reset_at: string | null
           engaged_users_28d: number | null
           fan_count: number | null
           fb_page_id: string
@@ -187,6 +189,8 @@ export type Database = {
           comment_368_last_at?: string | null
           comment_cooldown_until?: string | null
           created_at?: string
+          daily_comment_count?: number
+          daily_comment_reset_at?: string | null
           engaged_users_28d?: number | null
           fan_count?: number | null
           fb_page_id: string
@@ -220,6 +224,8 @@ export type Database = {
           comment_368_last_at?: string | null
           comment_cooldown_until?: string | null
           created_at?: string
+          daily_comment_count?: number
+          daily_comment_reset_at?: string | null
           engaged_users_28d?: number | null
           fan_count?: number | null
           fb_page_id?: string
