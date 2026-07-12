@@ -1091,14 +1091,18 @@ export const Route = createFileRoute("/api/public/cron/scheduler")({
             }
           }); }
 
-          for (const group of chunk(candidateTargets, CONCURRENCY)) {
+          const publishGroups = chunk(candidateTargets, CONCURRENCY);
+          for (let gi = 0; gi < publishGroups.length; gi++) {
+            const group = publishGroups[gi];
             if (outOfTime() || rateLimitHit) break;
             if (fallbackPublishedPages.size >= MAX_PAGES_PER_RUN) break;
             await Promise.all(group.map(publishTarget));
-            // Espaça 2-3 min entre grupos de páginas na mesma execução.
-            // Como MAX_RUN_MS=45s, geralmente só um grupo roda por tick — o restante
-            // fica com next_retry_at ~2-3min, respeitando o intervalo entre páginas.
-
+            // Espaçamento entre grupos de páginas do mesmo lote: 20-40s (× multiplier adaptativo).
+            // Evita rajada de N publicações simultâneas e distribui a carga no App.
+            if (gi < publishGroups.length - 1) {
+              const interGroupMs = Math.floor((20_000 + Math.random() * 20_000) * adaptive.multiplier);
+              await sleep(interGroupMs);
+            }
           }
 
           // Finalize: are there still pending/publishing targets?
