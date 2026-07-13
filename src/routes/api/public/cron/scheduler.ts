@@ -473,15 +473,78 @@ export const Route = createFileRoute("/api/public/cron/scheduler")({
           }
           const { data: target } = await supabaseAdmin
             .from("post_targets")
-            .select("fb_post_id, page_id")
+            .select("fb_post_id, page_id, status, published_at")
             .eq("id", c.target_id!)
             .single();
           if (!target?.fb_post_id) {
-            await supabaseAdmin
-              .from("auto_comments")
-              .update({ status: "failed", error: "post não publicado" })
-              .eq("id", c.id);
+            // Post ainda não foi publicado no Facebook — não falhar, apenas adiar.
+            // Tenta de novo em 5-10 min para dar tempo do agendador do FB
+            // ou do nosso fallback publicarem antes de comentar.
+            await deferComment(
+              c,
+              (5 + Math.floor(Math.random() * 5)) * 60_000,
+              "aguardando post ser publicado no Facebook",
+            );
             return;
+          }
+
+          // Verifica no Facebook se o post JÁ está publicado. Se ainda estiver
+          // agendado (scheduled_publish_time no futuro ou is_published=false),
+          // adia o comentário até depois da publicação — evita erro "post não existe".
+          {
+            try {
+              const { data: pgTok } = await supabaseAdmin
+                .from("fb_pages")
+                .select("access_token")
+                .eq("id", target.page_id)
+                .single();
+              if (pgTok?.access_token) {
+                const info: any = await fbGet(`/${target.fb_post_id}`, {
+                  access_token: pgTok.access_token,
+                  fields: "id,is_published,scheduled_publish_time",
+                });
+                const scheduledUnix = Number(info?.scheduled_publish_time ?? 0);
+                const isPublished = info?.is_published !== false;
+                const publishAtMs = scheduledUnix ? scheduledUnix * 1000 : 0;
+                if (!isPublished || (publishAtMs && publishAtMs > Date.now())) {
+                  const waitMs =
+                    (publishAtMs && publishAtMs > Date.now()
+                      ? publishAtMs - Date.now()
+                      : 5 * 60_000) +
+                    (60 + Math.floor(Math.random() * 120)) * 1000;
+                  await deferComment(
+                    c,
+                    waitMs,
+                    "post ainda agendado no Facebook; aguardando publicação",
+                  );
+                  return;
+                }
+                if (target.status !== "published") {
+                  await supabaseAdmin
+                    .from("post_targets")
+                    .update({
+                      status: "published",
+                      published_at: target.published_at ?? new Date().toISOString(),
+                      error: null,
+                    } as any)
+                    .eq("id", c.target_id!);
+                }
+              }
+            } catch (e: any) {
+              const emsg = e?.message ?? String(e);
+              if (/does not exist|Unsupported get request|#100\b/i.test(emsg)) {
+                await supabaseAdmin
+                  .from("auto_comments")
+                  .update({ status: "failed", error: `post não encontrado no Facebook: ${emsg}` })
+                  .eq("id", c.id);
+                return;
+              }
+              if (/timeout|network|fetch failed|socket|ETIMEDOUT|ECONNRESET|rate|limit/i.test(emsg)) {
+                await deferComment(c, 5 * 60_000, `checagem do post falhou (transiente): ${emsg}`);
+                return;
+              }
+              // outros erros: segue e deixa o fluxo normal decidir
+            }
           }
 
           // Backoff #368: se a página está em cooldown, reagenda sem chamar a API.
