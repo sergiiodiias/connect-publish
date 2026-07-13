@@ -14,6 +14,19 @@ export const Route = createFileRoute("/api/public/cron/scheduler")({
         const { withApiCallTracking } = await import("@/lib/fb-api-tracker.server");
         const { expandSpintax, hasSpintax } = await import("@/lib/message-variants");
         const { getGlobalAdaptiveState } = await import("@/lib/fb-adaptive-delay.server");
+        const { diversifyPendingComments } = await import("@/lib/diversify-comments.server");
+
+        // Diversifica automaticamente grupos de comentários pendentes com texto idêntico.
+        // Divide texto e URL, gera N frases diferentes (via IA + fallback) e reatribui
+        // 1 texto único por página. Bounded para não estourar o tempo do tick.
+        // Diversifica automaticamente grupos de comentários pendentes com texto idêntico.
+        // Divide texto e URL, gera N frases diferentes (via IA + fallback) e reatribui
+        // 1 texto único por página. Bounded para não estourar o tempo do tick.
+        try {
+          await diversifyPendingComments(supabaseAdmin, { maxRows: 400, maxGroups: 15 });
+        } catch {
+          // Best-effort: se falhar, o cron segue publicando normalmente.
+        }
 
         // Delay adaptativo baseado no header x-app-usage do Facebook.
         // Se a quota do App está alta, escalamos os cooldowns e/ou pausamos publicação.
