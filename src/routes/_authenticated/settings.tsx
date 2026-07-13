@@ -8,6 +8,9 @@ import { Label } from "@/components/ui/label";
 import { Progress } from "@/components/ui/progress";
 import { toast } from "sonner";
 import { getMyFbApp, updateMyFbApp } from "@/lib/profile.functions";
+import { getConnectionStatus } from "@/lib/pages.functions";
+import { Link } from "@tanstack/react-router";
+import { CheckCircle2, AlertTriangle, XCircle, Clock, RefreshCw } from "lucide-react";
 
 export const Route = createFileRoute("/_authenticated/settings")({
   head: () => ({ meta: [{ title: "Ajustes — PagePilot" }] }),
