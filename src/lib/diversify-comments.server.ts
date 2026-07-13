@@ -30,7 +30,7 @@ export async function diversifyPendingComments(
   const maxGroups = opts.maxGroups ?? 20;
 
   // Pega comentários pendentes já instanciados (target_id != null) e ainda não postados.
-  const { data: rows } = await supabaseAdmin
+  const { data: rows, error: qErr } = await supabaseAdmin
     .from("auto_comments")
     .select("id, message, post_id")
     .eq("status", "pending")
@@ -38,6 +38,8 @@ export async function diversifyPendingComments(
     .is("fb_comment_id", null)
     .limit(maxRows);
 
+  if (qErr) console.warn(`[diversify] query err: ${qErr.message}`);
+  console.log(`[diversify] pendentes: ${rows?.length ?? 0}`);
   if (!rows?.length) return { diversified: 0, groups: 0 };
 
   // Agrupa por (post_id, message) — mesmo post + mesmo texto = duplicidade real.
@@ -59,22 +61,24 @@ export async function diversifyPendingComments(
     if (g.ids.length < 2) continue;
 
     const url = extractUrl(g.message);
-    if (!url) continue;
+    if (!url) { console.log(`[diversify] grupo sem url, skip`); continue; }
 
     processedGroups++;
+    console.log(`[diversify] grupo post=${g.postId.slice(0,8)} n=${g.ids.length}`);
 
     let ctx: { url: string; domain: string; title: string; description: string };
     try {
       ctx = await fetchLinkContext(url);
-    } catch {
+    } catch (e: any) {
+      console.warn(`[diversify] fetchLinkContext falhou: ${e?.message ?? e}`);
       let domain = "";
       try { domain = new URL(url).hostname; } catch {}
       ctx = { url, domain, title: "", description: "" };
     }
 
     const phrases = shuffle(await generateLinkComments(ctx, g.ids.length));
-    // Precisa ter pelo menos 2 frases distintas para valer a pena atualizar.
     const distinct = new Set(phrases.map((p) => p.trim().toLowerCase())).size;
+    console.log(`[diversify] frases=${phrases.length} distintas=${distinct}`);
     if (distinct < 2) continue;
 
     const shuffledIds = shuffle(g.ids);
@@ -86,7 +90,8 @@ export async function diversifyPendingComments(
         .from("auto_comments")
         .update({ message: newMsg })
         .eq("id", shuffledIds[i]);
-      if (!error) diversified++;
+      if (error) console.warn(`[diversify] update err: ${error.message}`);
+      else diversified++;
     }
   }
 
