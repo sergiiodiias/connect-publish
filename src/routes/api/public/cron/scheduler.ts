@@ -21,9 +21,7 @@ export const Route = createFileRoute("/api/public/cron/scheduler")({
         // 1 texto único por página. Bounded para não estourar o tempo do tick.
         try {
           const diver = await diversifyPendingComments(supabaseAdmin, { maxRows: 400, maxGroups: 15 });
-          if (diver.diversified > 0) {
-            console.log(`[cron] diversificados ${diver.diversified} comentários em ${diver.groups} grupos`);
-          }
+          console.log(`[cron] diversify: ${diver.diversified} atualizados em ${diver.groups} grupos`);
         } catch (e: any) {
           console.warn(`[cron] diversify falhou: ${e?.message ?? e}`);
         }
