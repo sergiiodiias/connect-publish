@@ -21,9 +21,21 @@ export const Route = createFileRoute("/api/public/cron/scheduler")({
         // 1 texto único por página. Bounded para não estourar o tempo do tick.
         try {
           const diver = await diversifyPendingComments(supabaseAdmin, { maxRows: 400, maxGroups: 15 });
-          console.log(`[cron] diversify: ${diver.diversified} atualizados em ${diver.groups} grupos`);
+          await supabaseAdmin.from("activity_logs").insert({
+            user_id: "00000000-0000-0000-0000-000000000000",
+            action: "cron.diversify",
+            entity: "auto_comments",
+            metadata: diver as any,
+            status: "ok",
+          } as any);
         } catch (e: any) {
-          console.warn(`[cron] diversify falhou: ${e?.message ?? e}`);
+          await supabaseAdmin.from("activity_logs").insert({
+            user_id: "00000000-0000-0000-0000-000000000000",
+            action: "cron.diversify",
+            entity: "auto_comments",
+            metadata: { error: e?.message ?? String(e), stack: e?.stack ?? null } as any,
+            status: "error",
+          } as any);
         }
 
         // Delay adaptativo baseado no header x-app-usage do Facebook.
