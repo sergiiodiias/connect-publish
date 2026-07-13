@@ -8,6 +8,9 @@ import { Label } from "@/components/ui/label";
 import { Progress } from "@/components/ui/progress";
 import { toast } from "sonner";
 import { getMyFbApp, updateMyFbApp } from "@/lib/profile.functions";
+import { getConnectionStatus } from "@/lib/pages.functions";
+import { Link } from "@tanstack/react-router";
+import { CheckCircle2, AlertTriangle, XCircle, Clock, RefreshCw } from "lucide-react";
 
 export const Route = createFileRoute("/_authenticated/settings")({
   head: () => ({ meta: [{ title: "Ajustes — PagePilot" }] }),
@@ -167,6 +170,10 @@ function SettingsPage() {
         <p className="text-sm text-muted-foreground">Suas informações de perfil e integrações.</p>
       </div>
 
+      <ConnectionStatusCard />
+
+
+
       <div className="rounded-xl border border-border bg-card p-6 space-y-4">
         <div><Label>E-mail</Label><Input value={email} disabled className="mt-2" /></div>
         <div><Label>Nome</Label><Input value={name} onChange={e => setName(e.target.value)} className="mt-2" /></div>
@@ -187,6 +194,115 @@ function SettingsPage() {
           <AppSlot slot={2} id={fbAppId2} setId={setFbAppId2} secret={fbAppSecret2} setSecret={setFbAppSecret2} hasSec={hasSecret2} usage={usage2} />
         </div>
       </div>
+    </div>
+  );
+}
+
+function ConnectionStatusCard() {
+  const check = useServerFn(getConnectionStatus);
+  const [data, setData] = useState<Awaited<ReturnType<typeof getConnectionStatus>> | null>(null);
+  const [loading, setLoading] = useState(false);
+
+  const run = async () => {
+    setLoading(true);
+    try {
+      const r = await check();
+      setData(r);
+    } catch (e: any) {
+      toast.error(e?.message ?? "Erro ao verificar");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => { run(); /* eslint-disable-next-line */ }, []);
+
+  const Icon = ({ s }: { s: "ok" | "reconnect" | "expiring" | "cooldown" | "inactive" }) => {
+    if (s === "ok") return <CheckCircle2 className="size-4 text-success" />;
+    if (s === "expiring") return <AlertTriangle className="size-4 text-warning" />;
+    if (s === "cooldown") return <Clock className="size-4 text-warning" />;
+    return <XCircle className="size-4 text-destructive" />;
+  };
+
+  return (
+    <div className="rounded-xl border border-border bg-card p-6 space-y-4">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <h2 className="text-lg font-semibold">Status das conexões</h2>
+          <p className="text-sm text-muted-foreground mt-1">
+            Verifica se o perfil (Apps) e as páginas do Facebook estão conectados. Não consome cota — lê apenas o banco local.
+          </p>
+        </div>
+        <Button size="sm" variant="outline" onClick={run} disabled={loading}>
+          <RefreshCw className={`size-4 mr-2 ${loading ? "animate-spin" : ""}`} /> Verificar
+        </Button>
+      </div>
+
+      {!data && loading && <div className="text-sm text-muted-foreground">Verificando…</div>}
+
+      {data && (
+        <>
+          <div className="rounded-lg border border-border/60 p-3">
+            <div className="flex items-center gap-2 text-sm">
+              <Icon s={data.profile.ok ? (data.profile.warning ? "expiring" : "ok") : "reconnect"} />
+              <span className="font-medium">Perfil</span>
+              <span className="text-muted-foreground">
+                · App #1: {data.profile.hasApp1 ? `configurado (${Math.round(data.profile.app1UsagePct)}%)` : "não configurado"} · App #2: {data.profile.hasApp2 ? `configurado (${Math.round(data.profile.app2UsagePct)}%)` : "não configurado"}
+              </span>
+            </div>
+            {data.profile.warning && (
+              <div className="text-xs text-warning mt-1">{data.profile.warning}</div>
+            )}
+          </div>
+
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-center">
+            <div className="rounded-md border border-border/60 p-2">
+              <div className="text-lg font-semibold">{data.summary.total}</div>
+              <div className="text-[11px] text-muted-foreground">Total</div>
+            </div>
+            <div className="rounded-md border border-border/60 p-2">
+              <div className="text-lg font-semibold text-success">{data.summary.ok}</div>
+              <div className="text-[11px] text-muted-foreground">Saudáveis</div>
+            </div>
+            <div className="rounded-md border border-border/60 p-2">
+              <div className="text-lg font-semibold text-warning">{data.summary.expiringSoon + data.summary.cooldown}</div>
+              <div className="text-[11px] text-muted-foreground">Alertas</div>
+            </div>
+            <div className="rounded-md border border-border/60 p-2">
+              <div className="text-lg font-semibold text-destructive">{data.summary.needsReconnect}</div>
+              <div className="text-[11px] text-muted-foreground">Reconectar</div>
+            </div>
+          </div>
+
+          {data.pages.length > 0 && (
+            <div className="border border-border/60 rounded-lg max-h-64 overflow-auto">
+              {data.pages
+                .slice()
+                .sort((a, b) => {
+                  const rank = { reconnect: 0, cooldown: 1, expiring: 2, inactive: 3, ok: 4 } as const;
+                  return rank[a.status] - rank[b.status];
+                })
+                .map((p) => (
+                  <div key={p.id} className="flex items-center gap-3 px-3 py-2 border-b border-border/40 last:border-0 text-sm">
+                    <Icon s={p.status} />
+                    <span className="font-medium truncate flex-1">{p.name}</span>
+                    <span className="text-xs text-muted-foreground truncate max-w-[55%] text-right">{p.detail}</span>
+                  </div>
+                ))}
+            </div>
+          )}
+
+          {data.summary.needsReconnect > 0 && (
+            <Link to="/pages" className="text-sm text-primary hover:underline inline-block">
+              → Ir para Páginas e reconectar
+            </Link>
+          )}
+
+          <div className="text-[10px] text-muted-foreground">
+            Verificado em {new Date(data.checkedAt).toLocaleString("pt-BR")}
+          </div>
+        </>
+      )}
     </div>
   );
 }

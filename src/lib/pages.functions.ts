@@ -462,6 +462,102 @@ export const listPages = createServerFn({ method: "GET" })
     return data;
   });
 
+// Diagnóstico rápido: perfil + páginas — sem chamar Facebook (só lê banco).
+// Serve para o botão "Verificar conexões" mostrar o que está OK, o que
+// precisa reconectar e o que está em cooldown.
+export const getConnectionStatus = createServerFn({ method: "GET" })
+  .middleware([requireSupabaseAuth])
+  .handler(async ({ context }) => {
+    const { supabase, userId } = context;
+
+    const { data: profile } = await supabase
+      .from("profiles")
+      .select("fb_app_id, fb_app_secret, fb_app_id_2, fb_app_secret_2, fb_app_usage")
+      .eq("id", userId)
+      .single();
+
+    const hasApp1 = !!(profile?.fb_app_id && profile?.fb_app_secret);
+    const hasApp2 = !!(profile?.fb_app_id_2 && profile?.fb_app_secret_2);
+    const usage = (profile?.fb_app_usage ?? {}) as Record<string, { pct?: number }>;
+    const app1Pct = usage.app1?.pct ?? 0;
+    const app2Pct = usage.app2?.pct ?? 0;
+
+    const { data: pages, error } = await supabase
+      .from("fb_pages")
+      .select("id, name, picture_url, is_active, needs_reconnect, reconnect_reason, token_expires_at, token_debug_error, last_checked_at, comment_cooldown_until, comment_368_count, daily_comment_count")
+      .eq("user_id", userId)
+      .order("name", { ascending: true });
+    if (error) throw new Error(error.message);
+
+    const now = Date.now();
+    const SOON_MS = 7 * 24 * 3600 * 1000;
+
+    type PageStatus = {
+      id: string;
+      name: string;
+      picture_url: string | null;
+      status: "ok" | "reconnect" | "expiring" | "cooldown" | "inactive";
+      detail: string;
+      cooldown_until: string | null;
+      expires_at: string | null;
+    };
+
+    const list: PageStatus[] = (pages ?? []).map((p) => {
+      const cooldownActive = p.comment_cooldown_until && new Date(p.comment_cooldown_until).getTime() > now;
+      const expMs = p.token_expires_at ? new Date(p.token_expires_at).getTime() - now : Infinity;
+      let status: PageStatus["status"] = "ok";
+      let detail = "Conectada e saudável";
+      if (p.needs_reconnect || p.is_active === false) {
+        status = "reconnect";
+        detail = p.reconnect_reason || p.token_debug_error || "Token inválido — reconecte";
+      } else if (expMs !== Infinity && expMs <= 0) {
+        status = "reconnect";
+        detail = "Token expirado";
+      } else if (cooldownActive) {
+        status = "cooldown";
+        detail = `Em cooldown até ${new Date(p.comment_cooldown_until!).toLocaleString("pt-BR")}`;
+      } else if (expMs !== Infinity && expMs < SOON_MS) {
+        status = "expiring";
+        detail = `Token expira em ${Math.max(1, Math.floor(expMs / (24 * 3600 * 1000)))} dia(s)`;
+      }
+      return {
+        id: p.id,
+        name: p.name,
+        picture_url: p.picture_url ?? null,
+        status,
+        detail,
+        cooldown_until: p.comment_cooldown_until ?? null,
+        expires_at: p.token_expires_at ?? null,
+      };
+    });
+
+    const summary = {
+      total: list.length,
+      ok: list.filter((p) => p.status === "ok").length,
+      needsReconnect: list.filter((p) => p.status === "reconnect").length,
+      expiringSoon: list.filter((p) => p.status === "expiring").length,
+      cooldown: list.filter((p) => p.status === "cooldown").length,
+    };
+
+    return {
+      profile: {
+        hasApp1,
+        hasApp2,
+        app1UsagePct: app1Pct,
+        app2UsagePct: app2Pct,
+        ok: hasApp1 || hasApp2,
+        warning: !hasApp1 && !hasApp2
+          ? "Nenhum App do Facebook configurado — tokens não poderão ser estendidos automaticamente."
+          : (hasApp1 && app1Pct >= 80 && (!hasApp2 || app2Pct >= 80))
+            ? "Uso da API acima de 80% — considere adicionar um App backup."
+            : null,
+      },
+      pages: list,
+      summary,
+      checkedAt: new Date().toISOString(),
+    };
+  });
+
 // Triggers the same monthly debug+refresh routine on demand.
 export const refreshTokensNow = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
