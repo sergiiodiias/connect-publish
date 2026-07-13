@@ -1,0 +1,2 @@
+UPDATE public.post_targets SET status='pending', error=NULL, next_retry_at=NULL WHERE status IN ('publishing','failed') AND fb_post_id IS NULL;
+UPDATE public.posts SET status='scheduled' WHERE status='publishing';
