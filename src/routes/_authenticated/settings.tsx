@@ -170,6 +170,10 @@ function SettingsPage() {
         <p className="text-sm text-muted-foreground">Suas informações de perfil e integrações.</p>
       </div>
 
+      <ConnectionStatusCard />
+
+
+
       <div className="rounded-xl border border-border bg-card p-6 space-y-4">
         <div><Label>E-mail</Label><Input value={email} disabled className="mt-2" /></div>
         <div><Label>Nome</Label><Input value={name} onChange={e => setName(e.target.value)} className="mt-2" /></div>
