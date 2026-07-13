@@ -499,27 +499,15 @@ export const Route = createFileRoute("/api/public/cron/scheduler")({
                 .eq("id", target.page_id)
                 .single();
               if (pgTok?.access_token) {
+                // Consulta apenas campos universais (id/created_time). Fotos e
+                // vídeos NÃO expõem `is_published`/`scheduled_publish_time` no
+                // GET direto — pedir esses campos retorna #100 "nonexisting
+                // field", um falso negativo (o post existe).
                 const info: any = await fbGet(`/${target.fb_post_id}`, {
                   access_token: pgTok.access_token,
-                  fields: "id,is_published,scheduled_publish_time",
+                  fields: "id,created_time",
                 });
-                const scheduledUnix = Number(info?.scheduled_publish_time ?? 0);
-                const isPublished = info?.is_published !== false;
-                const publishAtMs = scheduledUnix ? scheduledUnix * 1000 : 0;
-                if (!isPublished || (publishAtMs && publishAtMs > Date.now())) {
-                  const waitMs =
-                    (publishAtMs && publishAtMs > Date.now()
-                      ? publishAtMs - Date.now()
-                      : 5 * 60_000) +
-                    (60 + Math.floor(Math.random() * 120)) * 1000;
-                  await deferComment(
-                    c,
-                    waitMs,
-                    "post ainda agendado no Facebook; aguardando publicação",
-                  );
-                  return;
-                }
-                if (target.status !== "published") {
+                if (info?.id && target.status !== "published") {
                   await supabaseAdmin
                     .from("post_targets")
                     .update({
@@ -532,18 +520,21 @@ export const Route = createFileRoute("/api/public/cron/scheduler")({
               }
             } catch (e: any) {
               const emsg = e?.message ?? String(e);
-              if (/does not exist|Unsupported get request|#100\b/i.test(emsg)) {
-                await supabaseAdmin
-                  .from("auto_comments")
-                  .update({ status: "failed", error: `post não encontrado no Facebook: ${emsg}` })
-                  .eq("id", c.id);
+              if (/nonexisting field/i.test(emsg)) {
+                // post existe, segue para comentar
+              } else if (/does not exist|Unsupported get request|Object with ID/i.test(emsg)) {
+                // Ainda não visível — pode ser propagação lenta do FB. Adia em vez de falhar.
+                await deferComment(
+                  c,
+                  (5 + Math.floor(Math.random() * 10)) * 60_000,
+                  `post ainda não visível no Facebook: ${emsg}`,
+                );
                 return;
-              }
-              if (/timeout|network|fetch failed|socket|ETIMEDOUT|ECONNRESET|rate|limit/i.test(emsg)) {
+              } else if (/timeout|network|fetch failed|socket|ETIMEDOUT|ECONNRESET|rate|limit/i.test(emsg)) {
                 await deferComment(c, 5 * 60_000, `checagem do post falhou (transiente): ${emsg}`);
                 return;
               }
-              // outros erros: segue e deixa o fluxo normal decidir
+              // outros erros: segue
             }
           }
 
