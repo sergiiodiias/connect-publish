@@ -45,9 +45,10 @@ export async function diversifyPendingComments(
   const groups = new Map<string, Group>();
   for (const r of rows as any[]) {
     const key = `${r.post_id}::${r.message}`;
-    const g = groups.get(key) ?? { key, postId: r.post_id, message: r.message, ids: [] };
+    const existing = groups.get(key);
+    const g: Group = existing ?? { key, postId: r.post_id, message: r.message, ids: [] };
     g.ids.push(r.id);
-    groups.set(key, g);
+    if (!existing) groups.set(key, g);
   }
 
   let diversified = 0;
