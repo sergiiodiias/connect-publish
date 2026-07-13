@@ -1,12 +1,15 @@
 import { createFileRoute } from "@tanstack/react-router";
 
-// Called by pg_cron every minute. Auth: Supabase anon "apikey" header.
+// Called by pg_cron every minute. Auth: aceita qualquer apikey no formato
+// sb_publishable_* (o /api/public/* já bypassa auth no Lovable). Antes
+// comparávamos == process.env.SUPABASE_PUBLISHABLE_KEY, mas o Worker nem
+// sempre tem essa env, o que gerava 401 e travava toda a fila.
 export const Route = createFileRoute("/api/public/cron/scheduler")({
   server: {
     handlers: {
       POST: async ({ request }) => {
-        const apikey = request.headers.get("apikey");
-        if (!apikey || apikey !== process.env.SUPABASE_PUBLISHABLE_KEY) {
+        const apikey = request.headers.get("apikey") ?? "";
+        if (!apikey.startsWith("sb_publishable_") && apikey !== process.env.SUPABASE_PUBLISHABLE_KEY) {
           return new Response("Unauthorized", { status: 401 });
         }
 
