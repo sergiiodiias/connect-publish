@@ -19,23 +19,13 @@ export const Route = createFileRoute("/api/public/cron/scheduler")({
         // Diversifica automaticamente grupos de comentários pendentes com texto idêntico.
         // Divide texto e URL, gera N frases diferentes (via IA + fallback) e reatribui
         // 1 texto único por página. Bounded para não estourar o tempo do tick.
+        // Diversifica automaticamente grupos de comentários pendentes com texto idêntico.
+        // Divide texto e URL, gera N frases diferentes (via IA + fallback) e reatribui
+        // 1 texto único por página. Bounded para não estourar o tempo do tick.
         try {
-          const diver = await diversifyPendingComments(supabaseAdmin, { maxRows: 400, maxGroups: 15 });
-          await supabaseAdmin.from("activity_logs").insert({
-            user_id: "00000000-0000-0000-0000-000000000000",
-            action: "cron.diversify",
-            entity: "auto_comments",
-            metadata: diver as any,
-            status: "ok",
-          } as any);
-        } catch (e: any) {
-          await supabaseAdmin.from("activity_logs").insert({
-            user_id: "00000000-0000-0000-0000-000000000000",
-            action: "cron.diversify",
-            entity: "auto_comments",
-            metadata: { error: e?.message ?? String(e), stack: e?.stack ?? null } as any,
-            status: "error",
-          } as any);
+          await diversifyPendingComments(supabaseAdmin, { maxRows: 400, maxGroups: 15 });
+        } catch {
+          // Best-effort: se falhar, o cron segue publicando normalmente.
         }
 
         // Delay adaptativo baseado no header x-app-usage do Facebook.
