@@ -159,21 +159,21 @@ export const Route = createFileRoute("/api/public/cron/scheduler")({
 
         // -3) Reaper: solta targets travados em "publishing" sem fb_post_id.
         // Causa: cron anterior marcou publishing, chamada ao FB estourou tempo e nunca reverteu.
-        // Regra: >15min em publishing sem fb_post_id → volta a 'pending' se ainda dentro
-        // da janela útil; vira 'failed' se o agendamento já passou há mais de 1h.
+        // OBS: post_targets NÃO tem coluna updated_at — usamos last_attempt_at (created_at como fallback).
         {
-          const staleCutoffIso = new Date(Date.now() - 15 * 60_000).toISOString();
-          const expiredCutoffIso = new Date(Date.now() - 60 * 60_000).toISOString();
+          const staleCutoffIso = new Date(Date.now() - 10 * 60_000).toISOString();
+          const expiredCutoffIso = new Date(Date.now() - 120 * 60_000).toISOString();
           const { data: stale } = await supabaseAdmin
             .from("post_targets")
-            .select("id, updated_at, posts!inner(scheduled_at)")
+            .select("id, last_attempt_at, created_at, posts!inner(scheduled_at)")
             .eq("status", "publishing")
             .is("fb_post_id", null)
-            .lt("updated_at", staleCutoffIso)
             .limit(500);
           const toFail: string[] = [];
           const toRequeue: string[] = [];
           for (const row of (stale ?? []) as any[]) {
+            const ref = (row.last_attempt_at as string | null) ?? (row.created_at as string | null);
+            if (ref && ref >= staleCutoffIso) continue;
             const sched = row.posts?.scheduled_at as string | undefined;
             if (sched && sched < expiredCutoffIso) toFail.push(row.id);
             else toRequeue.push(row.id);
@@ -187,8 +187,33 @@ export const Route = createFileRoute("/api/public/cron/scheduler")({
           if (toRequeue.length) {
             await supabaseAdmin
               .from("post_targets")
-              .update({ status: "pending", error: null } as any)
+              .update({ status: "pending", error: null, next_retry_at: null } as any)
               .in("id", toRequeue);
+          }
+
+          // Reaper de POSTS: posts em 'publishing' cujo agendamento já passou e
+          // que não têm nenhum target ativamente publicando → devolve a 'scheduled'.
+          const { data: stuckPosts } = await supabaseAdmin
+            .from("posts")
+            .select("id")
+            .eq("status", "publishing")
+            .lt("scheduled_at", staleCutoffIso)
+            .limit(200);
+          for (const p of stuckPosts ?? []) {
+            const { data: tgts } = await supabaseAdmin
+              .from("post_targets")
+              .select("id, status, fb_post_id")
+              .eq("post_id", p.id);
+            if (!tgts?.length) continue;
+            if (tgts.some((t: any) => t.status === "publishing")) continue;
+            const hasSendable = tgts.some((t: any) => !t.fb_post_id && (t.status === "pending" || t.status === "failed"));
+            if (hasSendable) {
+              await supabaseAdmin
+                .from("posts")
+                .update({ status: "scheduled", error: null })
+                .eq("id", p.id)
+                .eq("status", "publishing");
+            }
           }
         }
 
