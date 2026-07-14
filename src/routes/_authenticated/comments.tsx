@@ -60,19 +60,41 @@ function CommentsPage() {
     queryKey: ["auto-comments", status],
     refetchInterval: 15_000,
     queryFn: async () => {
-      let q = supabase
-        .from("auto_comments")
-        .select(`
-          id, post_id, target_id, message, delay_seconds, status,
-          fb_comment_id, error, run_at, posted_at, created_at,
-          post_targets(fb_post_id, fb_pages(name, fb_page_id)),
-          posts!inner(message)
-        `)
-        .order("run_at", { ascending: false, nullsFirst: false })
-        .limit(1000);
-      if (status !== "all") q = q.eq("status", status as any);
-      const { data, error } = await q;
-      if (error) throw error;
+      const sel = `
+        id, post_id, target_id, message, delay_seconds, status,
+        fb_comment_id, error, run_at, posted_at, created_at,
+        post_targets(fb_post_id, fb_pages(name, fb_page_id)),
+        posts!inner(message)
+      `;
+      // Busca em duas frentes para não perder postados recentes quando há
+      // milhares de pendentes futuros na fila:
+      // 1) últimos postados/failed/publishing por posted_at/created_at desc
+      // 2) próximos pendentes por run_at asc
+      const applyStatus = (q: any) => (status !== "all" ? q.eq("status", status as any) : q);
+      const [recent, upcoming] = await Promise.all([
+        applyStatus(
+          supabase.from("auto_comments").select(sel)
+            .in("status", (status !== "all" ? [status] : ["posted", "failed", "publishing", "pending"]) as any)
+            .order("posted_at", { ascending: false, nullsFirst: false })
+            .order("created_at", { ascending: false })
+            .limit(1500),
+        ),
+        status === "all" || status === "pending"
+          ? supabase.from("auto_comments").select(sel)
+              .eq("status", "pending")
+              .order("run_at", { ascending: true, nullsFirst: false })
+              .limit(1500)
+          : Promise.resolve({ data: [], error: null } as any),
+      ]);
+      if (recent.error) throw recent.error;
+      if ((upcoming as any).error) throw (upcoming as any).error;
+      const seen = new Set<string>();
+      const data: any[] = [];
+      for (const r of [...(recent.data ?? []), ...((upcoming as any).data ?? [])]) {
+        if (seen.has(r.id)) continue;
+        seen.add(r.id);
+        data.push(r);
+      }
       return (data ?? []).map((r: any): Row => ({
         id: r.id,
         post_id: r.post_id,
