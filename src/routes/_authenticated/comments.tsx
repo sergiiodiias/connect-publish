@@ -74,7 +74,7 @@ function CommentsPage() {
       const [recent, upcoming] = await Promise.all([
         applyStatus(
           supabase.from("auto_comments").select(sel)
-            .in("status", status !== "all" ? [status] : ["posted", "failed", "publishing", "pending"])
+            .in("status", (status !== "all" ? [status] : ["posted", "failed", "publishing", "pending"]) as any)
             .order("posted_at", { ascending: false, nullsFirst: false })
             .order("created_at", { ascending: false })
             .limit(1500),
