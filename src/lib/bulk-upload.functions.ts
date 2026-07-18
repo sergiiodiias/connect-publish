@@ -75,53 +75,85 @@ export const createBulkJob = createServerFn({ method: "POST" })
       else groups.set(k, { sample: s, pageIds: [s.pageId] });
     }
 
-    // Divide cada grupo em sub-lotes de páginas; cada sub-lote ganha um horário
-    // deslocado para evitar tempestade de chamadas (limite por App e por página).
+    // Mapa pageId -> groupId (primeiro grupo em que a página aparece).
+    // Usado para trocar título/comentário a cada GRUPO — assim páginas do mesmo
+    // grupo saem com uma variação e o grupo seguinte já entra com outra.
+    const allPageIds = Array.from(new Set(data.slots.map((s) => s.pageId)));
+    const pageToGroup = new Map<string, string>();
+    if (allPageIds.length) {
+      const { data: gm } = await supabase
+        .from("page_group_members")
+        .select("page_id, group_id")
+        .in("page_id", allPageIds);
+      for (const row of (gm ?? []) as any[]) {
+        if (!pageToGroup.has(row.page_id)) pageToGroup.set(row.page_id, row.group_id);
+      }
+    }
+    const groupKeyOf = (pid: string) => pageToGroup.get(pid) ?? "__nogroup__";
+
+    // Divide cada grupo (criativa) em sub-lotes de páginas; cada sub-lote ganha
+    // um horário deslocado. Também segmenta por groupKey — cada sub-lote contém
+    // páginas de um único grupo de páginas, permitindo trocar a variação por grupo.
     type SubBatch = {
       sample: Slot;
       pageIds: string[];
       scheduledAtIso: string;
       batchIndex: number;
+      groupKey: string;
     };
     const subBatches: SubBatch[] = [];
     for (const g of groups.values()) {
       const baseMs = new Date(g.sample.scheduledAt).getTime();
-      const parts = chunk(g.pageIds, batchSize);
-      parts.forEach((pageIds, i) => {
-        const jitter = Math.floor(Math.random() * PAGE_JITTER_MS);
-        const newIso = new Date(baseMs + i * batchIntervalMs + jitter).toISOString();
-        subBatches.push({ sample: g.sample, pageIds, scheduledAtIso: newIso, batchIndex: i });
-      });
+      const byGroup = new Map<string, string[]>();
+      for (const pid of g.pageIds) {
+        const gk = groupKeyOf(pid);
+        const list = byGroup.get(gk) ?? [];
+        list.push(pid);
+        byGroup.set(gk, list);
+      }
+      let idx = 0;
+      for (const [gk, pids] of byGroup) {
+        for (const part of chunk(pids, batchSize)) {
+          const jitter = Math.floor(Math.random() * PAGE_JITTER_MS);
+          const newIso = new Date(baseMs + idx * batchIntervalMs + jitter).toISOString();
+          subBatches.push({ sample: g.sample, pageIds: part, scheduledAtIso: newIso, batchIndex: idx, groupKey: gk });
+          idx++;
+        }
+      }
     }
 
     const errors: string[] = [];
     let success = 0;
 
-    // 1) Para cada mensagem/comentário base único, gera N variações via IA (Lovable AI Gateway).
-    //    N = ceil(maxSubBatches / rotateEvery) — uma variação por bloco de páginas.
-    //    O usuário não precisa escrever nada extra: usamos o próprio texto como base.
-    //    Se o commentLink for uma URL pura, baixamos o contexto (og:title/description)
-    //    e geramos frases relacionadas — o comentário final vira "<frase>\n<link>",
-    //    evitando N páginas comentando exatamente a mesma URL "pelada" (gatilho de #368).
+    // 1) Para cada mensagem/comentário base único, gera N variações via IA.
+    //    N = nº de GRUPOS distintos que vão receber esta mensagem (mínimo baseado
+    //    em rotateEvery como fallback). Cada grupo recebe uma variação diferente
+    //    do título/comentário, relacionada ao original.
     const { generateMessageVariants, generateLinkComments } = await import("@/lib/ai-variants.server");
     const { fetchLinkContext, isUrlOnly } = await import("@/lib/link-context.server");
-    const groupSubBatchCount = new Map<string, number>();
+    const groupsPerMsg = new Map<string, Set<string>>();
+    const subBatchesPerMsg = new Map<string, number>();
     for (const b of subBatches) {
-      const k = `${b.sample.mediaUrl}|${b.sample.message}|${b.sample.commentLink ?? ""}|${b.sample.type}`;
-      groupSubBatchCount.set(k, (groupSubBatchCount.get(k) ?? 0) + 1);
+      const k = `${b.sample.message}||${b.sample.commentLink ?? ""}`;
+      const set = groupsPerMsg.get(k) ?? new Set<string>();
+      set.add(b.groupKey);
+      groupsPerMsg.set(k, set);
+      subBatchesPerMsg.set(k, (subBatchesPerMsg.get(k) ?? 0) + 1);
+    }
+    const groupIndexByMsg = new Map<string, Map<string, number>>();
+    for (const [k, set] of groupsPerMsg) {
+      const m = new Map<string, number>();
+      Array.from(set).forEach((gk, i) => m.set(gk, i));
+      groupIndexByMsg.set(k, m);
     }
     const postVariantsByMsg = new Map<string, string[]>();
     const commentVariantsByMsg = new Map<string, string[]>();
-    // Gera variações em paralelo (uma requisição por mensagem única).
     const uniqueMessages = new Map<string, { message: string; commentLink: string | null; blocks: number }>();
-    for (const b of subBatches) {
-      const k = `${b.sample.message}||${b.sample.commentLink ?? ""}`;
-      const prev = uniqueMessages.get(k);
-      const groupKey = `${b.sample.mediaUrl}|${b.sample.message}|${b.sample.commentLink ?? ""}|${b.sample.type}`;
-      const blocks = Math.max(1, Math.ceil((groupSubBatchCount.get(groupKey) ?? 1) / rotateEvery));
-      if (!prev || prev.blocks < blocks) {
-        uniqueMessages.set(k, { message: b.sample.message ?? "", commentLink: b.sample.commentLink ?? null, blocks });
-      }
+    for (const [k, set] of groupsPerMsg) {
+      const any = subBatches.find((b) => `${b.sample.message}||${b.sample.commentLink ?? ""}` === k)!;
+      const fallback = Math.ceil((subBatchesPerMsg.get(k) ?? 1) / rotateEvery);
+      const blocks = Math.max(1, set.size, fallback);
+      uniqueMessages.set(k, { message: any.sample.message ?? "", commentLink: any.sample.commentLink ?? null, blocks });
     }
     await Promise.all(
       [...uniqueMessages.values()].map(async (u) => {
