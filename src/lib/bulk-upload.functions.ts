@@ -247,9 +247,8 @@ export const createBulkJob = createServerFn({ method: "POST" })
           const jitter = Math.floor(Math.random() * COMMENT_JITTER_MS);
           const offsetMs = commentDelaySeconds * 1000 + posInBatch * commentJitterMs + jitter;
           seed._commentRunAt = new Date(baseMs + offsetMs).toISOString();
-          // Rotaciona a mensagem do comentário a cada bloco usando as variações da IA.
-          const blockIndex = Math.floor(b.batchIndex / rotateEvery);
-          seed._commentMessage = pickVariant(commentVariantsByMsg, b.sample.commentLink, blockIndex);
+          // Rotaciona o comentário por GRUPO usando as variações da IA.
+          seed._commentMessage = pickVariant(commentVariantsByMsg, b.sample.commentLink, blockIndexOf(b));
         }
         targetSeeds.push(seed);
       });
