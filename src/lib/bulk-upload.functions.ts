@@ -201,11 +201,16 @@ export const createBulkJob = createServerFn({ method: "POST" })
       return list[blockIndex % list.length];
     };
 
-    // 2) Insere 1 linha em posts por sub-lote. Cada bloco de `rotateEvery` páginas
-    //    recebe uma variação diferente da mensagem gerada pela IA.
+    // 2) Insere 1 linha em posts por sub-lote. Cada GRUPO de páginas recebe
+    //    uma variação diferente da mensagem gerada pela IA (relacionada ao título original).
+    const blockIndexOf = (b: SubBatch): number => {
+      const k = `${b.sample.message}||${b.sample.commentLink ?? ""}`;
+      const gi = groupIndexByMsg.get(k)?.get(b.groupKey);
+      if (gi !== undefined) return gi;
+      return Math.floor(b.batchIndex / rotateEvery);
+    };
     const postRows = subBatches.map((b) => {
-      const blockIndex = Math.floor(b.batchIndex / rotateEvery);
-      const rotated = pickVariant(postVariantsByMsg, b.sample.message ?? "", blockIndex);
+      const rotated = pickVariant(postVariantsByMsg, b.sample.message ?? "", blockIndexOf(b));
       return {
         user_id: userId,
         type: b.sample.type,
