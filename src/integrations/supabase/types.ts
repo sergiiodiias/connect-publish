@@ -736,6 +736,7 @@ export type Database = {
         }
         Returns: undefined
       }
+      increment_shortlink_click: { Args: { p_id: string }; Returns: undefined }
       report_fb_app_usage: {
         Args: {
           p_call_count: number
