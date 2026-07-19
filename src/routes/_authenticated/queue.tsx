@@ -120,7 +120,7 @@ function QueuePage() {
   const [verifyResults, setVerifyResults] = useState<Record<string, Awaited<ReturnType<typeof verifyPostPublished>> | undefined>>({});
 
   // Reset to page 1 when filters change
-  useEffect(() => { setCurrentPage(1); }, [status, search, pageFilter, typeFilter, mediaFilter, sortOrder]);
+  useEffect(() => { setCurrentPage(1); }, [status, search, pageFilter, typeFilter, mediaFilter, groupFilter, sortOrder]);
 
   const { data: rows = [], isLoading } = useQuery({
     queryKey: ["queue", status, search, pageFilter, sortOrder],
