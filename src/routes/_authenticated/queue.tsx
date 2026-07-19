@@ -114,6 +114,8 @@ function QueuePage() {
   const [mediaFilter, setMediaFilter] = useState<string>("all"); // all | with | without
   const [groupFilter, setGroupFilter] = useState<string>("all");
   const [sortOrder, setSortOrder] = useState<string>("asc"); // asc | desc
+  const [groupBy, setGroupBy] = useState<"batch" | "page">("batch");
+
 
   const [currentPage, setCurrentPage] = useState(1);
   const [detailId, setDetailId] = useState<string | null>(null);
