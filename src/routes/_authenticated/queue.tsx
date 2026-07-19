@@ -217,6 +217,15 @@ function QueuePage() {
       else next.add(pageId);
       return next;
     });
+  const [expandedBatches, setExpandedBatches] = useState<Set<string>>(new Set());
+  const toggleBatch = (postId: string) =>
+    setExpandedBatches((prev) => {
+      const next = new Set(prev);
+      if (next.has(postId)) next.delete(postId);
+      else next.add(postId);
+      return next;
+    });
+
 
   // Group ALL filtered rows by page (no global pagination)
   const groups = useMemo(() => {
