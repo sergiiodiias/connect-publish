@@ -166,6 +166,26 @@ function QueuePage() {
     },
   });
 
+  // Grupos → mapa pageId → [{ id, name, color }] para exibir os grupos de cada página.
+  const { data: groupsByPage = new Map<string, { id: string; name: string; color: string | null }[]>() } = useQuery({
+    queryKey: ["queue-page-groups"],
+    queryFn: async () => {
+      const { data } = await supabase
+        .from("page_groups")
+        .select("id, name, color, page_group_members(page_id)");
+      const map = new Map<string, { id: string; name: string; color: string | null }[]>();
+      for (const g of (data ?? []) as any[]) {
+        for (const m of g.page_group_members ?? []) {
+          const list = map.get(m.page_id) ?? [];
+          list.push({ id: g.id, name: g.name, color: g.color });
+          map.set(m.page_id, list);
+        }
+      }
+      return map;
+    },
+  });
+
+
   // Apply client-side filters (type, media)
   const filteredRows = useMemo(() => {
     return rows.filter((r) => {
