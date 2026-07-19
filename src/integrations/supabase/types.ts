@@ -608,6 +608,42 @@ export type Database = {
         }
         Relationships: []
       }
+      short_links: {
+        Row: {
+          click_count: number
+          code: string
+          created_at: string
+          group_id: string | null
+          id: string
+          last_click_at: string | null
+          page_id: string | null
+          target_url: string
+          user_id: string
+        }
+        Insert: {
+          click_count?: number
+          code: string
+          created_at?: string
+          group_id?: string | null
+          id?: string
+          last_click_at?: string | null
+          page_id?: string | null
+          target_url: string
+          user_id: string
+        }
+        Update: {
+          click_count?: number
+          code?: string
+          created_at?: string
+          group_id?: string | null
+          id?: string
+          last_click_at?: string | null
+          page_id?: string | null
+          target_url?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       upload_jobs: {
         Row: {
           completed_at: string | null
