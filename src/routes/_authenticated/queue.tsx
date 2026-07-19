@@ -509,6 +509,19 @@ function QueuePage() {
             ))}
           </SelectContent>
         </Select>
+        <Select value={groupFilter} onValueChange={setGroupFilter}>
+          <SelectTrigger className="w-48"><SelectValue placeholder="Todos os grupos" /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">Todos os grupos</SelectItem>
+            <SelectItem value="__none__">Sem grupo</SelectItem>
+            {Array.from(new Map(Array.from(groupsByPage.values()).flat().map((g) => [g.id, g])).values())
+              .sort((a, b) => a.name.localeCompare(b.name))
+              .map((g) => (
+                <SelectItem key={g.id} value={g.id}>{g.name}</SelectItem>
+              ))}
+          </SelectContent>
+        </Select>
+
         <Select value={typeFilter} onValueChange={setTypeFilter}>
           <SelectTrigger className="w-36"><SelectValue /></SelectTrigger>
           <SelectContent>
