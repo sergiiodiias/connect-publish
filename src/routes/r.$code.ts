@@ -29,14 +29,10 @@ export const Route = createFileRoute("/r/$code")({
           .eq("code", code)
           .maybeSingle();
         if (!data) return new Response("Link não encontrado", { status: 404 });
-        // Contabiliza clique de forma best-effort (não bloqueia o redirect).
+        // Contabiliza clique best-effort — não bloqueia o redirect.
         try {
           const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-          void supabaseAdmin
-            .from("short_links")
-            .update({ click_count: (undefined as any), last_click_at: new Date().toISOString() } as any)
-            .eq("id", data.id);
-          void supabaseAdmin.rpc("bump_fb_api_call" as any, { p_user_id: null as any, p_endpoint: "shortlink_click", p_inc: 1 } as any).then(() => {}, () => {});
+          void supabaseAdmin.rpc("increment_shortlink_click" as any, { p_id: data.id } as any).then(() => {}, () => {});
         } catch {}
         return new Response(null, {
           status: 302,
