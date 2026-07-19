@@ -1,34 +1,10 @@
 import { createServerFn } from "@tanstack/react-start";
-import { getRequest } from "@tanstack/react-start/server";
 import { z } from "zod";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import { scheduleTargetsNative } from "@/lib/fb-schedule";
 import { rotateMessage } from "@/lib/message-variants";
 
-// Gera um code curto e URL-safe (~7 chars) para o encurtador /r/<code>.
-function makeShortCode(): string {
-  const alphabet = "abcdefghijkmnopqrstuvwxyz23456789";
-  let out = "";
-  for (let i = 0; i < 7; i++) out += alphabet[Math.floor(Math.random() * alphabet.length)];
-  return out;
-}
 
-function extractFirstUrl(text: string): string | null {
-  const m = text.match(/https?:\/\/[^\s<>"']+/i);
-  return m ? m[0] : null;
-}
-
-function getBaseOrigin(): string {
-  try {
-    const req = getRequest();
-    const url = new URL(req.url);
-    const proto = req.headers.get("x-forwarded-proto") ?? url.protocol.replace(":", "");
-    const host = req.headers.get("x-forwarded-host") ?? req.headers.get("host") ?? url.host;
-    return `${proto}://${host}`;
-  } catch {
-    return process.env.PUBLIC_BASE_URL ?? "https://connect-publish.lovable.app";
-  }
-}
 
 
 
