@@ -289,15 +289,8 @@ export const createBulkJob = createServerFn({ method: "POST" })
     const baseOrigin = getBaseOrigin();
     // chave: `${groupKey}||${targetUrl}` → shortUrl
     const shortByGroupUrl = new Map<string, string>();
-    const seedsNeedingShort: { seed: TargetSeed; groupKey: string; targetUrl: string }[] = [];
-    for (const b of subBatches) {
-      for (const seed of targetSeeds) {
-        // esta correspondência é feita depois pelo loop principal; pulamos aqui.
-      }
-    }
-    // Reconstrução: para cada TargetSeed, achamos seu sub-lote (mesma ordem de push).
-    // Guardamos groupKey junto no seed para não precisar recalcular.
-    // (feito no push acima via extensão do tipo abaixo)
+    // Para cada TargetSeed, achamos seu sub-lote (mesma ordem de push) e guardamos groupKey+url.
+
     const seedsWithGroup: { seed: TargetSeed; groupKey: string; targetUrl: string | null }[] = [];
     {
       let cursor = 0;
