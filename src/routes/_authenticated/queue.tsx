@@ -188,15 +188,21 @@ function QueuePage() {
   });
 
 
-  // Apply client-side filters (type, media)
+  // Apply client-side filters (type, media, group)
   const filteredRows = useMemo(() => {
     return rows.filter((r) => {
       if (typeFilter !== "all" && r.type !== typeFilter) return false;
       if (mediaFilter === "with" && (!r.media_urls || r.media_urls.length === 0)) return false;
       if (mediaFilter === "without" && r.media_urls && r.media_urls.length > 0) return false;
+      if (groupFilter !== "all") {
+        const gs = groupsByPage.get(r.page_id) ?? [];
+        if (groupFilter === "__none__") { if (gs.length > 0) return false; }
+        else if (!gs.some((g) => g.id === groupFilter)) return false;
+      }
       return true;
     });
-  }, [rows, typeFilter, mediaFilter]);
+  }, [rows, typeFilter, mediaFilter, groupFilter, groupsByPage]);
+
 
   const totalFiltered = filteredRows.length;
 
