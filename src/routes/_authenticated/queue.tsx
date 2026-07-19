@@ -728,8 +728,89 @@ function QueuePage() {
         </div>
       )}
 
+      {/* Batch (lote) view — one section per post_id, showing all pages in that batch */}
+      {!isLoading && groupBy === "batch" && batches.map((batch) => {
+        const meta = typeMeta(batch.type);
+        const Icon = meta.icon;
+        const expanded = expandedBatches.has(batch.postId);
+        const preview = batch.rows.slice(0, expanded ? batch.rows.length : 10);
+        const batchGroups = new Map<string, { id: string; name: string; color: string | null }>();
+        for (const r of batch.rows) {
+          for (const g of groupsByPage.get(r.page_id) ?? []) batchGroups.set(g.id, g);
+        }
+        const statusCounts = batch.rows.reduce<Record<string, number>>((acc, r) => {
+          acc[r.target_status] = (acc[r.target_status] ?? 0) + 1;
+          return acc;
+        }, {});
+        return (
+          <section key={batch.postId} className="rounded-xl border border-border bg-card/40 p-4 space-y-3">
+            <div className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-3 pb-3 border-b border-border">
+              <div className="flex items-start gap-3 min-w-0">
+                <div className={`size-10 shrink-0 rounded-lg grid place-items-center ${meta.cls}`}>
+                  <Icon className="size-5" />
+                </div>
+                <div className="min-w-0 space-y-1">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <h2 className="font-semibold text-foreground">
+                      <Clock className="inline size-3.5 mr-1 text-muted-foreground" />
+                      {formatWhen(batch.scheduledAt)}
+                    </h2>
+                    <Badge variant="outline" className="text-[10px]">Lote de {batch.rows.length} {batch.rows.length === 1 ? "página" : "páginas"}</Badge>
+                    {Array.from(batchGroups.values()).map((g) => (
+                      <Badge
+                        key={g.id}
+                        variant="outline"
+                        className="text-[10px] px-1.5 py-0"
+                        style={g.color ? { borderColor: g.color, color: g.color } : undefined}
+                      >
+                        {g.name}
+                      </Badge>
+                    ))}
+                    {Object.entries(statusCounts).map(([s, n]) => {
+                      const sb = statusBadge(s);
+                      return <Badge key={s} variant="outline" className={`text-[10px] ${sb.cls}`}>{n} {sb.label}</Badge>;
+                    })}
+                  </div>
+                  {batch.message && (
+                    <p className="text-xs text-muted-foreground line-clamp-2 max-w-2xl">{batch.message}</p>
+                  )}
+                </div>
+              </div>
+              <Button variant="ghost" size="sm" onClick={() => setDetailId(batch.postId)} className="shrink-0">
+                Detalhes
+              </Button>
+            </div>
+
+            <div className="flex flex-wrap gap-1.5">
+              {preview.map((r) => {
+                const sb = statusBadge(r.target_status);
+                return (
+                  <button
+                    key={r.target_id}
+                    onClick={() => setPageFilter(r.page_id)}
+                    title={`${r.page_name} · ${sb.label}${r.target_error ? " · " + r.target_error : ""}`}
+                    className={`text-[11px] px-2 py-1 rounded-md border truncate max-w-[180px] ${sb.cls} hover:opacity-80`}
+                  >
+                    {r.page_name}
+                  </button>
+                );
+              })}
+              {batch.rows.length > 10 && (
+                <button
+                  onClick={() => toggleBatch(batch.postId)}
+                  className="text-[11px] px-2 py-1 rounded-md border border-border text-muted-foreground hover:text-foreground"
+                >
+                  {expanded ? "Mostrar menos" : `+${batch.rows.length - 10} páginas`}
+                </button>
+              )}
+            </div>
+          </section>
+        );
+      })}
+
       {/* Page groups */}
-      {!isLoading && groups.map((group) => {
+      {!isLoading && groupBy === "page" && groups.map((group) => {
+
         const initial = group.pageName.charAt(0).toUpperCase() || "?";
         const hue = hueFor(group.pageId);
         return (
