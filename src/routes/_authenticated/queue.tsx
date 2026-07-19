@@ -591,6 +591,14 @@ function QueuePage() {
             <SelectItem value="desc">Mais recente primeiro</SelectItem>
           </SelectContent>
         </Select>
+        <Select value={groupBy} onValueChange={(v) => setGroupBy(v as "batch" | "page")}>
+          <SelectTrigger className="w-44"><SelectValue /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="batch">Agrupar por lote</SelectItem>
+            <SelectItem value="page">Agrupar por página</SelectItem>
+          </SelectContent>
+        </Select>
+
         <Button
           variant="ghost"
           size="sm"
