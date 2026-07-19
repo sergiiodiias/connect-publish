@@ -112,13 +112,15 @@ function QueuePage() {
   const [pageFilter, setPageFilter] = useState<string>("all");
   const [typeFilter, setTypeFilter] = useState<string>("all");
   const [mediaFilter, setMediaFilter] = useState<string>("all"); // all | with | without
+  const [groupFilter, setGroupFilter] = useState<string>("all");
   const [sortOrder, setSortOrder] = useState<string>("asc"); // asc | desc
+
   const [currentPage, setCurrentPage] = useState(1);
   const [detailId, setDetailId] = useState<string | null>(null);
   const [verifyResults, setVerifyResults] = useState<Record<string, Awaited<ReturnType<typeof verifyPostPublished>> | undefined>>({});
 
   // Reset to page 1 when filters change
-  useEffect(() => { setCurrentPage(1); }, [status, search, pageFilter, typeFilter, mediaFilter, sortOrder]);
+  useEffect(() => { setCurrentPage(1); }, [status, search, pageFilter, typeFilter, mediaFilter, groupFilter, sortOrder]);
 
   const { data: rows = [], isLoading } = useQuery({
     queryKey: ["queue", status, search, pageFilter, sortOrder],
@@ -166,15 +168,41 @@ function QueuePage() {
     },
   });
 
-  // Apply client-side filters (type, media)
+  // Grupos → mapa pageId → [{ id, name, color }] para exibir os grupos de cada página.
+  const { data: groupsByPage = new Map<string, { id: string; name: string; color: string | null }[]>() } = useQuery({
+    queryKey: ["queue-page-groups"],
+    queryFn: async () => {
+      const { data } = await supabase
+        .from("page_groups")
+        .select("id, name, color, page_group_members(page_id)");
+      const map = new Map<string, { id: string; name: string; color: string | null }[]>();
+      for (const g of (data ?? []) as any[]) {
+        for (const m of g.page_group_members ?? []) {
+          const list = map.get(m.page_id) ?? [];
+          list.push({ id: g.id, name: g.name, color: g.color });
+          map.set(m.page_id, list);
+        }
+      }
+      return map;
+    },
+  });
+
+
+  // Apply client-side filters (type, media, group)
   const filteredRows = useMemo(() => {
     return rows.filter((r) => {
       if (typeFilter !== "all" && r.type !== typeFilter) return false;
       if (mediaFilter === "with" && (!r.media_urls || r.media_urls.length === 0)) return false;
       if (mediaFilter === "without" && r.media_urls && r.media_urls.length > 0) return false;
+      if (groupFilter !== "all") {
+        const gs = groupsByPage.get(r.page_id) ?? [];
+        if (groupFilter === "__none__") { if (gs.length > 0) return false; }
+        else if (!gs.some((g) => g.id === groupFilter)) return false;
+      }
       return true;
     });
-  }, [rows, typeFilter, mediaFilter]);
+  }, [rows, typeFilter, mediaFilter, groupFilter, groupsByPage]);
+
 
   const totalFiltered = filteredRows.length;
 
@@ -481,6 +509,19 @@ function QueuePage() {
             ))}
           </SelectContent>
         </Select>
+        <Select value={groupFilter} onValueChange={setGroupFilter}>
+          <SelectTrigger className="w-48"><SelectValue placeholder="Todos os grupos" /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">Todos os grupos</SelectItem>
+            <SelectItem value="__none__">Sem grupo</SelectItem>
+            {Array.from(new Map(Array.from(groupsByPage.values()).flat().map((g) => [g.id, g])).values())
+              .sort((a, b) => a.name.localeCompare(b.name))
+              .map((g) => (
+                <SelectItem key={g.id} value={g.id}>{g.name}</SelectItem>
+              ))}
+          </SelectContent>
+        </Select>
+
         <Select value={typeFilter} onValueChange={setTypeFilter}>
           <SelectTrigger className="w-36"><SelectValue /></SelectTrigger>
           <SelectContent>
@@ -648,10 +689,26 @@ function QueuePage() {
                 </div>
                 <div className="min-w-0">
                   <h2 className="font-semibold text-foreground truncate">{group.pageName}</h2>
-                  <p className="text-xs text-muted-foreground">
-                    {group.rows.length} {group.rows.length === 1 ? "publicação" : "publicações"}
-                  </p>
+                  <div className="flex items-center gap-2 flex-wrap mt-0.5">
+                    <p className="text-xs text-muted-foreground">
+                      {group.rows.length} {group.rows.length === 1 ? "publicação" : "publicações"}
+                    </p>
+                    {(groupsByPage.get(group.pageId) ?? []).map((g) => (
+                      <Badge
+                        key={g.id}
+                        variant="outline"
+                        className="text-[10px] px-1.5 py-0"
+                        style={g.color ? { borderColor: g.color, color: g.color } : undefined}
+                      >
+                        {g.name}
+                      </Badge>
+                    ))}
+                    {(groupsByPage.get(group.pageId) ?? []).length === 0 && (
+                      <span className="text-[10px] text-muted-foreground italic">sem grupo</span>
+                    )}
+                  </div>
                 </div>
+
               </div>
               <Button variant="ghost" size="sm" onClick={() => setPageFilter(group.pageId)} className="shrink-0">
                 Ver só esta

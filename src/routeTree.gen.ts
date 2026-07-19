@@ -13,6 +13,7 @@ import { Route as ResetPasswordRouteImport } from './routes/reset-password'
 import { Route as AuthRouteImport } from './routes/auth'
 import { Route as AuthenticatedRouteRouteImport } from './routes/_authenticated/route'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as RCodeRouteImport } from './routes/r.$code'
 import { Route as AuthenticatedSheetsRouteImport } from './routes/_authenticated/sheets'
 import { Route as AuthenticatedSettingsRouteImport } from './routes/_authenticated/settings'
 import { Route as AuthenticatedQueueRouteImport } from './routes/_authenticated/queue'
@@ -45,6 +46,11 @@ const AuthenticatedRouteRoute = AuthenticatedRouteRouteImport.update({
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const RCodeRoute = RCodeRouteImport.update({
+  id: '/r/$code',
+  path: '/r/$code',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AuthenticatedSheetsRoute = AuthenticatedSheetsRouteImport.update({
@@ -134,6 +140,7 @@ export interface FileRoutesByFullPath {
   '/queue': typeof AuthenticatedQueueRoute
   '/settings': typeof AuthenticatedSettingsRoute
   '/sheets': typeof AuthenticatedSheetsRoute
+  '/r/$code': typeof RCodeRoute
   '/api/public/cron/capture-insights': typeof ApiPublicCronCaptureInsightsRoute
   '/api/public/cron/refresh-tokens': typeof ApiPublicCronRefreshTokensRoute
   '/api/public/cron/scheduler': typeof ApiPublicCronSchedulerRoute
@@ -153,6 +160,7 @@ export interface FileRoutesByTo {
   '/queue': typeof AuthenticatedQueueRoute
   '/settings': typeof AuthenticatedSettingsRoute
   '/sheets': typeof AuthenticatedSheetsRoute
+  '/r/$code': typeof RCodeRoute
   '/api/public/cron/capture-insights': typeof ApiPublicCronCaptureInsightsRoute
   '/api/public/cron/refresh-tokens': typeof ApiPublicCronRefreshTokensRoute
   '/api/public/cron/scheduler': typeof ApiPublicCronSchedulerRoute
@@ -174,6 +182,7 @@ export interface FileRoutesById {
   '/_authenticated/queue': typeof AuthenticatedQueueRoute
   '/_authenticated/settings': typeof AuthenticatedSettingsRoute
   '/_authenticated/sheets': typeof AuthenticatedSheetsRoute
+  '/r/$code': typeof RCodeRoute
   '/api/public/cron/capture-insights': typeof ApiPublicCronCaptureInsightsRoute
   '/api/public/cron/refresh-tokens': typeof ApiPublicCronRefreshTokensRoute
   '/api/public/cron/scheduler': typeof ApiPublicCronSchedulerRoute
@@ -195,6 +204,7 @@ export interface FileRouteTypes {
     | '/queue'
     | '/settings'
     | '/sheets'
+    | '/r/$code'
     | '/api/public/cron/capture-insights'
     | '/api/public/cron/refresh-tokens'
     | '/api/public/cron/scheduler'
@@ -214,6 +224,7 @@ export interface FileRouteTypes {
     | '/queue'
     | '/settings'
     | '/sheets'
+    | '/r/$code'
     | '/api/public/cron/capture-insights'
     | '/api/public/cron/refresh-tokens'
     | '/api/public/cron/scheduler'
@@ -234,6 +245,7 @@ export interface FileRouteTypes {
     | '/_authenticated/queue'
     | '/_authenticated/settings'
     | '/_authenticated/sheets'
+    | '/r/$code'
     | '/api/public/cron/capture-insights'
     | '/api/public/cron/refresh-tokens'
     | '/api/public/cron/scheduler'
@@ -245,6 +257,7 @@ export interface RootRouteChildren {
   AuthenticatedRouteRoute: typeof AuthenticatedRouteRouteWithChildren
   AuthRoute: typeof AuthRoute
   ResetPasswordRoute: typeof ResetPasswordRoute
+  RCodeRoute: typeof RCodeRoute
   ApiPublicCronCaptureInsightsRoute: typeof ApiPublicCronCaptureInsightsRoute
   ApiPublicCronRefreshTokensRoute: typeof ApiPublicCronRefreshTokensRoute
   ApiPublicCronSchedulerRoute: typeof ApiPublicCronSchedulerRoute
@@ -279,6 +292,13 @@ declare module '@tanstack/react-router' {
       path: '/'
       fullPath: '/'
       preLoaderRoute: typeof IndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/r/$code': {
+      id: '/r/$code'
+      path: '/r/$code'
+      fullPath: '/r/$code'
+      preLoaderRoute: typeof RCodeRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/_authenticated/sheets': {
@@ -416,6 +436,7 @@ const rootRouteChildren: RootRouteChildren = {
   AuthenticatedRouteRoute: AuthenticatedRouteRouteWithChildren,
   AuthRoute: AuthRoute,
   ResetPasswordRoute: ResetPasswordRoute,
+  RCodeRoute: RCodeRoute,
   ApiPublicCronCaptureInsightsRoute: ApiPublicCronCaptureInsightsRoute,
   ApiPublicCronRefreshTokensRoute: ApiPublicCronRefreshTokensRoute,
   ApiPublicCronSchedulerRoute: ApiPublicCronSchedulerRoute,
