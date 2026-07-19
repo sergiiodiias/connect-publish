@@ -283,6 +283,81 @@ export const createBulkJob = createServerFn({ method: "POST" })
     });
 
 
+    // 3b) Cria/reusa um short link POR GRUPO para cada URL final,
+    //     e substitui a URL bruta no texto do comentário. Assim cada grupo
+    //     posta um link visualmente diferente que resolve pro mesmo destino.
+    const baseOrigin = getBaseOrigin();
+    // chave: `${groupKey}||${targetUrl}` → shortUrl
+    const shortByGroupUrl = new Map<string, string>();
+    const seedsNeedingShort: { seed: TargetSeed; groupKey: string; targetUrl: string }[] = [];
+    for (const b of subBatches) {
+      for (const seed of targetSeeds) {
+        // esta correspondência é feita depois pelo loop principal; pulamos aqui.
+      }
+    }
+    // Reconstrução: para cada TargetSeed, achamos seu sub-lote (mesma ordem de push).
+    // Guardamos groupKey junto no seed para não precisar recalcular.
+    // (feito no push acima via extensão do tipo abaixo)
+    const seedsWithGroup: { seed: TargetSeed; groupKey: string; targetUrl: string | null }[] = [];
+    {
+      let cursor = 0;
+      subBatches.forEach((b, i) => {
+        const pid = insertedPostIds[i];
+        if (!pid) return;
+        for (let k = 0; k < b.pageIds.length; k++) {
+          const seed = targetSeeds[cursor++];
+          if (!seed) continue;
+          const url = seed._commentMessage ? extractFirstUrl(seed._commentMessage) : null;
+          seedsWithGroup.push({ seed, groupKey: b.groupKey, targetUrl: url });
+        }
+      });
+    }
+    // Coleta pares únicos (grupo, url) e busca/insere short_links.
+    const pairs = new Map<string, { groupKey: string; targetUrl: string }>();
+    for (const s of seedsWithGroup) {
+      if (!s.targetUrl) continue;
+      const k = `${s.groupKey}||${s.targetUrl}`;
+      if (!pairs.has(k)) pairs.set(k, { groupKey: s.groupKey, targetUrl: s.targetUrl });
+    }
+    if (pairs.size) {
+      // Tenta reaproveitar códigos já criados para o mesmo (user, group, url).
+      const uniqueUrls = Array.from(new Set([...pairs.values()].map((p) => p.targetUrl)));
+      const { data: existing } = await supabase
+        .from("short_links")
+        .select("code, target_url, group_id")
+        .eq("user_id", userId)
+        .in("target_url", uniqueUrls);
+      for (const row of (existing ?? []) as any[]) {
+        const gk = row.group_id ?? "__nogroup__";
+        const k = `${gk}||${row.target_url}`;
+        if (pairs.has(k)) shortByGroupUrl.set(k, `${baseOrigin}/r/${row.code}`);
+      }
+      // Cria os que faltam.
+      const toInsert: any[] = [];
+      for (const [k, p] of pairs) {
+        if (shortByGroupUrl.has(k)) continue;
+        const code = makeShortCode();
+        toInsert.push({
+          user_id: userId,
+          code,
+          target_url: p.targetUrl,
+          group_id: p.groupKey === "__nogroup__" ? null : p.groupKey,
+        });
+        shortByGroupUrl.set(k, `${baseOrigin}/r/${code}`);
+      }
+      if (toInsert.length) {
+        const { error: sErr } = await supabase.from("short_links").insert(toInsert);
+        if (sErr) errors.push(`short_links: ${sErr.message}`);
+      }
+    }
+    // Aplica a substituição nos textos dos comentários.
+    for (const s of seedsWithGroup) {
+      if (!s.targetUrl || !s.seed._commentMessage) continue;
+      const short = shortByGroupUrl.get(`${s.groupKey}||${s.targetUrl}`);
+      if (!short) continue;
+      s.seed._commentMessage = s.seed._commentMessage.replaceAll(s.targetUrl, short);
+    }
+
     const insertedTargetIds: string[] = [];
     const commentRows: any[] = [];
     for (const part of chunk(targetSeeds, 500)) {
@@ -318,6 +393,7 @@ export const createBulkJob = createServerFn({ method: "POST" })
         if (error) errors.push(`comments: ${error.message}`);
       }
     }
+
 
     // Publica direto no agendador nativo do Facebook em lotes, sem depender do cron.
     let fbScheduled = 0, fbFailed = 0;
