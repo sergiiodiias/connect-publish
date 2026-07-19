@@ -112,7 +112,9 @@ function QueuePage() {
   const [pageFilter, setPageFilter] = useState<string>("all");
   const [typeFilter, setTypeFilter] = useState<string>("all");
   const [mediaFilter, setMediaFilter] = useState<string>("all"); // all | with | without
+  const [groupFilter, setGroupFilter] = useState<string>("all");
   const [sortOrder, setSortOrder] = useState<string>("asc"); // asc | desc
+
   const [currentPage, setCurrentPage] = useState(1);
   const [detailId, setDetailId] = useState<string | null>(null);
   const [verifyResults, setVerifyResults] = useState<Record<string, Awaited<ReturnType<typeof verifyPostPublished>> | undefined>>({});
