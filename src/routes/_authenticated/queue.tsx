@@ -491,7 +491,10 @@ function QueuePage() {
           <p className="text-sm text-muted-foreground">
             {isLoading
               ? "Carregando…"
-              : `${totalPosts} ${totalPosts === 1 ? "publicação" : "publicações"} em ${groups.length} ${groups.length === 1 ? "página" : "páginas"}`}
+              : groupBy === "batch"
+                ? `${totalPosts} ${totalPosts === 1 ? "publicação" : "publicações"} em ${batches.length} ${batches.length === 1 ? "lote" : "lotes"}`
+                : `${totalPosts} ${totalPosts === 1 ? "publicação" : "publicações"} em ${groups.length} ${groups.length === 1 ? "página" : "páginas"}`}
+
           </p>
         </div>
         <div className="flex items-center gap-2 shrink-0">
