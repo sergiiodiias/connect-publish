@@ -668,10 +668,26 @@ function QueuePage() {
                 </div>
                 <div className="min-w-0">
                   <h2 className="font-semibold text-foreground truncate">{group.pageName}</h2>
-                  <p className="text-xs text-muted-foreground">
-                    {group.rows.length} {group.rows.length === 1 ? "publicação" : "publicações"}
-                  </p>
+                  <div className="flex items-center gap-2 flex-wrap mt-0.5">
+                    <p className="text-xs text-muted-foreground">
+                      {group.rows.length} {group.rows.length === 1 ? "publicação" : "publicações"}
+                    </p>
+                    {(groupsByPage.get(group.pageId) ?? []).map((g) => (
+                      <Badge
+                        key={g.id}
+                        variant="outline"
+                        className="text-[10px] px-1.5 py-0"
+                        style={g.color ? { borderColor: g.color, color: g.color } : undefined}
+                      >
+                        {g.name}
+                      </Badge>
+                    ))}
+                    {(groupsByPage.get(group.pageId) ?? []).length === 0 && (
+                      <span className="text-[10px] text-muted-foreground italic">sem grupo</span>
+                    )}
+                  </div>
                 </div>
+
               </div>
               <Button variant="ghost" size="sm" onClick={() => setPageFilter(group.pageId)} className="shrink-0">
                 Ver só esta
