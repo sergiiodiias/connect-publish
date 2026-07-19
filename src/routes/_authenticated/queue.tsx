@@ -229,6 +229,39 @@ function QueuePage() {
     return [...map.values()].sort((a, b) => a.pageName.localeCompare(b.pageName));
   }, [filteredRows]);
 
+  // Group by BATCH (lote) = same post_id (bulk-upload creates 1 post row per sub-batch of pages)
+  type Batch = {
+    postId: string;
+    scheduledAt: string | null;
+    type: string;
+    message: string | null;
+    mediaUrl: string | null;
+    rows: Row[]; // one per page in the batch
+  };
+  const batches = useMemo<Batch[]>(() => {
+    const map = new Map<string, Batch>();
+    for (const r of filteredRows) {
+      const b = map.get(r.post_id) ?? {
+        postId: r.post_id,
+        scheduledAt: r.scheduled_at,
+        type: r.type,
+        message: r.message,
+        mediaUrl: r.media_urls?.[0] ?? null,
+        rows: [],
+      };
+      b.rows.push(r);
+      map.set(r.post_id, b);
+    }
+    const list = [...map.values()];
+    list.sort((a, b) => {
+      const ta = a.scheduledAt ? new Date(a.scheduledAt).getTime() : 0;
+      const tb = b.scheduledAt ? new Date(b.scheduledAt).getTime() : 0;
+      return sortOrder === "asc" ? ta - tb : tb - ta;
+    });
+    return list;
+  }, [filteredRows, sortOrder]);
+
+
   const totalPosts = totalFiltered;
 
   const publish = useMutation({
